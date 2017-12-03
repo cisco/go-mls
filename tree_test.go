@@ -68,6 +68,54 @@ func TestNewTree(t *testing.T) {
 	}
 }
 
+func TestNewTreeFromCopath(t *testing.T) {
+	aIndex := uint(0)
+	aC := &Copath{
+		defn:  stringNodeDefn,
+		Index: aIndex,
+		Size:  3,
+		Nodes: []Node{"b", "c"},
+	}
+
+	tree, err := newTreeFromCopath(aC)
+	if err != nil {
+		t.Fatalf("Error constructing tree from copath: %v", err)
+	}
+
+	C, err := tree.Copath(aIndex)
+	if err != nil {
+		t.Fatalf("Error fetching copath: %v", err)
+	}
+
+	if !reflect.DeepEqual(C, aC) {
+		t.Fatalf("Incorrect copath value: %v != %v", C, aC)
+	}
+}
+
+func TestNewTreeFromFrontier(t *testing.T) {
+	aF := &Frontier{
+		defn: stringNodeDefn,
+		Entries: []FrontierEntry{
+			{Value: "ab", Size: 2},
+			{Value: "c", Size: 1},
+		},
+	}
+
+	tree, err := newTreeFromFrontier(aF)
+	if err != nil {
+		t.Fatalf("Error constructing tree from frontier: %v", err)
+	}
+
+	F, err := tree.Frontier()
+	if err != nil {
+		t.Fatalf("Error fetching frontier: %v", err)
+	}
+
+	if !reflect.DeepEqual(F, aF) {
+		t.Fatalf("Incorrect frontier value: %v != %v", F, aF)
+	}
+}
+
 func TestTreeAdd(t *testing.T) {
 	aDefn := stringNodeDefn
 	aSize := uint(5)
@@ -84,6 +132,7 @@ func TestTreeAdd(t *testing.T) {
 		8: "e",
 	}
 	aFrontier := &Frontier{
+		defn: stringNodeDefn,
 		Entries: []FrontierEntry{
 			{Value: "abcd", Size: 4},
 			{Value: "e", Size: 1},
@@ -119,19 +168,33 @@ func TestTreeAdd(t *testing.T) {
 	}
 
 	// Verify that its leaves are as expected
-	if !reflect.DeepEqual(tree.Leaves(), aLeaves) {
-		t.Fatalf("Add-built tree does not expected leaves: %v != %v", tree.Leaves(), aLeaves)
+	leaves, err := tree.Leaves()
+	if err != nil {
+		t.Fatalf("Error fetching leaves: %v", err)
+	}
+
+	if !reflect.DeepEqual(leaves, aLeaves) {
+		t.Fatalf("Add-built tree does not expected leaves: %v != %v", leaves, aLeaves)
 	}
 
 	// Verify that the Frontier is as expected
-	if !reflect.DeepEqual(tree.Frontier(), aFrontier) {
-		t.Fatalf("Add-built tree does not expected frontier: %v != %v", tree.Frontier(), aFrontier)
+	frontier, err := tree.Frontier()
+	if err != nil {
+		t.Fatalf("Error fetching frontier: %v", err)
 	}
 
-	// Verify that Copaths have expected values
+	if !reflect.DeepEqual(frontier, aFrontier) {
+		t.Fatalf("Add-built tree does not expected frontier: %v != %v", frontier, aFrontier)
+	}
+
+	// Verify that Copaths have plausible values
 	for i := uint(0); i < tree.size; i += 1 {
 		c := copath(2*i, tree.size)
-		C := tree.Copath(i)
+
+		C, err := tree.Copath(i)
+		if err != nil {
+			t.Fatalf("Error fetching copath @ %v: %v", i, err)
+		}
 
 		if C.Index != i {
 			t.Fatalf("Copath has wrong index @ %v: %v != %v", i, C.Index, i)

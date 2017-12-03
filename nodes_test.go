@@ -33,7 +33,11 @@ func TestMerkleTree(t *testing.T) {
 		t.Fatalf("Error building tree: %v", err)
 	}
 
-	root := tree.Root()
+	root, err := tree.Root()
+	if err != nil {
+		t.Fatalf("Error fetching tree root: %v", err)
+	}
+
 	rootData, ok := root.([]byte)
 	if !ok {
 		t.Fatalf("Merkle tree root not of type []byte")
@@ -70,7 +74,11 @@ func TestECDHTree(t *testing.T) {
 		t.Fatalf("Error building tree: %v", err)
 	}
 
-	root := tree.Root()
+	root, err := tree.Root()
+	if err != nil {
+		t.Fatalf("Error fetching tree root: %v", err)
+	}
+
 	rootData, ok := root.(*ecdhKey)
 	if !ok {
 		t.Fatalf("ECDH tree root not of type *ecdhKey")

@@ -18,6 +18,7 @@ var (
 	MissingNodeError       = fmt.Errorf("Missing node")
 	InvalidNodeError       = fmt.Errorf("Invalid node type")
 	InvalidPathError       = fmt.Errorf("Invalid update path")
+	InvalidParameterError  = fmt.Errorf("Invalid parameter")
 )
 
 type tree struct {
@@ -32,10 +33,12 @@ type FrontierEntry struct {
 }
 
 type Frontier struct {
+	defn    *nodeDefinition
 	Entries []FrontierEntry
 }
 
 type Copath struct {
+	defn  *nodeDefinition
 	Size  uint
 	Index uint
 	Nodes []Node
@@ -73,7 +76,68 @@ func newTreeFromLeaves(defn *nodeDefinition, leaves []Node) (*tree, error) {
 	return t, nil
 }
 
-// TODO newTreeFromFrontier()
+func newTreeFromFrontier(F *Frontier) (*tree, error) {
+	if F.defn == nil {
+		return nil, InvalidParameterError
+	}
+
+	size := uint(0)
+	for _, entry := range F.Entries {
+		size += entry.Size
+	}
+
+	f := frontier(size)
+	if len(F.Entries) != len(f) {
+		return nil, InvalidPathError
+	}
+
+	nodes := map[uint]Node{}
+	for i, j := range f {
+		nodes[j] = F.Entries[i].Value
+	}
+
+	t := &tree{
+		defn:  F.defn,
+		size:  size,
+		nodes: nodes,
+	}
+
+	err := t.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func newTreeFromCopath(C *Copath) (*tree, error) {
+	if C.defn == nil {
+		return nil, InvalidParameterError
+	}
+
+	c := copath(2*C.Index, C.Size)
+	if len(C.Nodes) != len(c) {
+		return nil, InvalidPathError
+	}
+
+	nodes := map[uint]Node{}
+	for i, j := range c {
+		nodes[j] = C.Nodes[i]
+	}
+
+	t := &tree{
+		defn:  C.defn,
+		size:  C.Size,
+		nodes: nodes,
+	}
+
+	err := t.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
 
 // Two trees are equal if they have the same node definition and size,
 // and the nodes they have in common are identical.
@@ -176,46 +240,62 @@ func (t tree) HasAllLeaves() bool {
 	return true
 }
 
-// TODO: Return MissingNodeError when appropriate
-func (t tree) Leaves() []Node {
+func (t tree) Leaves() ([]Node, error) {
+	if !t.HasAllLeaves() {
+		return nil, MissingNodeError
+	}
+
 	ll := make([]Node, t.size)
 	for i := uint(0); i < t.size; i += 1 {
 		ll[i] = t.nodes[2*i]
 	}
-	return ll
+	return ll, nil
 }
 
-func (t tree) Root() Node {
-	return t.nodes[root(t.size)]
+func (t tree) Root() (Node, error) {
+	root, ok := t.nodes[root(t.size)]
+	if !ok {
+		return nil, MissingNodeError
+	}
+
+	return root, nil
 }
 
-// TODO: Return MissingNodeError when appropriate
-func (t tree) Copath(index uint) *Copath {
+func (t tree) Copath(index uint) (*Copath, error) {
 	c := copath(2*index, t.size)
 	C := make([]Node, len(c))
+	var ok bool
 	for i, j := range c {
-		C[i] = t.nodes[j]
+		C[i], ok = t.nodes[j]
+		if !ok {
+			return nil, MissingNodeError
+		}
 	}
 
 	return &Copath{
+		defn:  t.defn,
 		Size:  t.size,
 		Index: index,
 		Nodes: C,
-	}
+	}, nil
 }
 
-// TODO: Return MissingNodeError when appropriate
-func (t tree) Frontier() *Frontier {
+func (t tree) Frontier() (*Frontier, error) {
 	f := frontier(t.size)
 	F := make([]FrontierEntry, len(f))
 	for i, j := range f {
+		node, ok := t.nodes[j]
+		if !ok {
+			return nil, MissingNodeError
+		}
+
 		F[i] = FrontierEntry{
-			Value: t.nodes[j],
+			Value: node,
 			Size:  subtreeSize(j, t.size),
 		}
 	}
 
-	return &Frontier{Entries: F}
+	return &Frontier{defn: t.defn, Entries: F}, nil
 }
 
 func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {
