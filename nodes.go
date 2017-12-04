@@ -2,9 +2,12 @@ package mls
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math/big"
 )
 
@@ -66,81 +69,110 @@ var merkleNodeDefn = &nodeDefinition{
 	},
 }
 
-type ecdhPublicKey struct {
-	x, y *big.Int
+type ECKey struct {
+	data []byte
+	ecdsa.PrivateKey
 }
 
-type ecdhKey struct {
-	data      []byte
-	d         []byte
-	publicKey *ecdhPublicKey
+func (k ECKey) MarshalJSON() ([]byte, error) {
+	pub := k.PrivateKey.PublicKey
+	pt := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+	return json.Marshal(pt)
 }
 
-func newECDHKey() *ecdhKey {
-	d, x, y, _ := elliptic.GenerateKey(ecdhCurve, rand.Reader)
-	return &ecdhKey{d: d, publicKey: &ecdhPublicKey{x: x, y: y}}
+func (k *ECKey) UnmarshalJSON(data []byte) error {
+	var pt []byte
+	err := json.Unmarshal(data, &pt)
+	if err != nil {
+		panic("AAAAHHHH" + err.Error())
+		return err
+	}
+
+	x, y := elliptic.Unmarshal(ecdhCurve, pt)
+	if x == nil {
+		return fmt.Errorf("Improperly formatted elliptic curve point")
+	}
+
+	k.PrivateKey.PublicKey = ecdsa.PublicKey{Curve: ecdhCurve, X: x, Y: y}
+	return nil
 }
 
-func (k ecdhKey) derive(pub *ecdhPublicKey) []byte {
-	zz, _ := ecdhCurve.ScalarMult(pub.x, pub.y, k.d)
+func (k ECKey) derive(other *ECKey) []byte {
+	d := k.PrivateKey.D.Bytes()
+	x := other.PrivateKey.PublicKey.X
+	y := other.PrivateKey.PublicKey.Y
+	zz, _ := ecdhCurve.ScalarMult(x, y, d)
 
 	h := sha256.New()
 	h.Write(zz.Bytes())
 	return h.Sum(nil)
 }
 
-func ecdhKeyFromData(data []byte) *ecdhKey {
+func NewECKey() *ECKey {
+	priv, _ := ecdsa.GenerateKey(ecdhCurve, rand.Reader)
+	return &ECKey{PrivateKey: *priv}
+}
+
+func ECKeyFromData(data []byte) *ECKey {
 	h := sha256.New()
 	h.Write(data)
-	d := h.Sum(nil)
-	x, y := ecdhCurve.ScalarBaseMult(d)
-	return &ecdhKey{data: data, d: d, publicKey: &ecdhPublicKey{x: x, y: y}}
+	db := h.Sum(nil)
+	x, y := ecdhCurve.ScalarBaseMult(db)
+
+	d := big.NewInt(0).SetBytes(db)
+	return &ECKey{
+		data: data,
+		PrivateKey: ecdsa.PrivateKey{
+			D:         d,
+			PublicKey: ecdsa.PublicKey{Curve: ecdhCurve, X: x, Y: y},
+		},
+	}
 }
 
-func ecdhKeyFromPrivateKey(d []byte) *ecdhKey {
-	x, y := ecdhCurve.ScalarBaseMult(d)
-	return &ecdhKey{d: d, publicKey: &ecdhPublicKey{x: x, y: y}}
+func ECKeyFromPrivateKey(priv *ecdsa.PrivateKey) *ECKey {
+	return &ECKey{PrivateKey: *priv}
 }
 
-func ecdhKeyFromPublicKey(x, y *big.Int) *ecdhKey {
-	return &ecdhKey{publicKey: &ecdhPublicKey{x: x, y: y}}
+func ECKeyFromPublicKey(pub *ecdsa.PublicKey) *ECKey {
+	return &ECKey{PrivateKey: ecdsa.PrivateKey{PublicKey: *pub}}
 }
 
 var ecdhNodeDefn = &nodeDefinition{
 	valid: func(x Node) bool {
-		xk, ok := x.(*ecdhKey)
+		xk, ok := x.(*ECKey)
 		if !ok {
 			return false
 		}
 
 		// Must have a public key
-		return xk.publicKey != nil && xk.publicKey != nil
+		return xk.PrivateKey.PublicKey.X != nil &&
+			xk.PrivateKey.PublicKey.Y != nil
 	},
 
 	equal: func(x, y Node) bool {
-		xk, okx := x.(*ecdhKey)
-		yk, oky := y.(*ecdhKey)
+		xk, okx := x.(*ECKey)
+		yk, oky := y.(*ECKey)
 		return okx && oky &&
-			xk.publicKey.x.Cmp(yk.publicKey.x) == 0 &&
-			xk.publicKey.y.Cmp(yk.publicKey.y) == 0
+			xk.PrivateKey.PublicKey.X.Cmp(yk.PrivateKey.PublicKey.X) == 0 &&
+			xk.PrivateKey.PublicKey.Y.Cmp(yk.PrivateKey.PublicKey.Y) == 0
 	},
 
 	create: func(data []byte) Node {
-		return ecdhKeyFromData(data)
+		return ECKeyFromData(data)
 	},
 
 	combine: func(x, y Node) ([]byte, error) {
-		xk, okx := x.(*ecdhKey)
-		yk, oky := y.(*ecdhKey)
+		xk, okx := x.(*ECKey)
+		yk, oky := y.(*ECKey)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
 
 		switch {
-		case xk.d != nil && yk.publicKey != nil:
-			return xk.derive(yk.publicKey), nil
-		case yk.d != nil && xk.publicKey != nil:
-			return xk.derive(yk.publicKey), nil
+		case xk.PrivateKey.D != nil:
+			return xk.derive(yk), nil
+		case yk.PrivateKey.D != nil:
+			return yk.derive(xk), nil
 		default:
 			return nil, IncompatibleNodesError
 		}

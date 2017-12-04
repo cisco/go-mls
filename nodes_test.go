@@ -2,6 +2,8 @@ package mls
 
 import (
 	"bytes"
+	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -56,18 +58,38 @@ func TestMerkleTree(t *testing.T) {
 	}
 }
 
+func TestECKeyJSON(t *testing.T) {
+	aData := []byte("data")
+	aKey := ECKeyFromData(aData)
+
+	kj, err := json.Marshal(aKey)
+	if err != nil {
+		t.Fatalf("Error marshaling ECKey: %v", err)
+	}
+
+	k2 := new(ECKey)
+	err = json.Unmarshal(kj, k2)
+	if err != nil {
+		t.Fatalf("Error unmarshaling ECKey: %v", err)
+	}
+
+	if !ecdhNodeDefn.equal(aKey, k2) {
+		t.Fatalf("JSON round-trip failed: %v != %v", aKey, k2)
+	}
+}
+
 func TestECDHTree(t *testing.T) {
-	aLeaves := make([]*ecdhKey, len(aLeafData))
+	aLeaves := make([]*ECKey, len(aLeafData))
 	aLeafNodes := make([]Node, len(aLeafData))
 	for i, data := range aLeafData {
-		aLeaves[i] = ecdhKeyFromData(data)
+		aLeaves[i] = ECKeyFromData(data)
 		aLeafNodes[i] = aLeaves[i]
 	}
 
-	ab := ecdhKeyFromData(aLeaves[0].derive(aLeaves[1].publicKey))
-	cd := ecdhKeyFromData(aLeaves[2].derive(aLeaves[3].publicKey))
-	abcd := ecdhKeyFromData(ab.derive(cd.publicKey))
-	abcde := ecdhKeyFromData(abcd.derive(aLeaves[4].publicKey))
+	ab := ECKeyFromData(aLeaves[0].derive(aLeaves[1]))
+	cd := ECKeyFromData(aLeaves[2].derive(aLeaves[3]))
+	abcd := ECKeyFromData(ab.derive(cd))
+	abcde := ECKeyFromData(abcd.derive(aLeaves[4]))
 
 	tree, err := newTreeFromLeaves(ecdhNodeDefn, aLeafNodes)
 	if err != nil {
@@ -79,7 +101,7 @@ func TestECDHTree(t *testing.T) {
 		t.Fatalf("Error fetching tree root: %v", err)
 	}
 
-	rootData, ok := root.(*ecdhKey)
+	rootData, ok := root.(*ECKey)
 	if !ok {
 		t.Fatalf("ECDH tree root not of type *ecdhKey")
 	}
@@ -92,8 +114,7 @@ func TestECDHTree(t *testing.T) {
 		t.Fatalf("ECDH tree root is not equal to itself")
 	}
 
-	if rootData.publicKey.x.Cmp(abcde.publicKey.x) != 0 ||
-		rootData.publicKey.y.Cmp(abcde.publicKey.y) != 0 {
+	if !reflect.DeepEqual(rootData.PrivateKey.PublicKey, abcde.PrivateKey.PublicKey) {
 		t.Fatalf("Incorrect ECDH tree root: %x != %x", rootData, abcde)
 	}
 }

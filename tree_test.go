@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -77,6 +78,7 @@ func TestNewTreeFromCopath(t *testing.T) {
 		Nodes: []Node{"b", "c"},
 	}
 
+	// Test newTree / Copath() round trip
 	tree, err := newTreeFromCopath(aC)
 	if err != nil {
 		t.Fatalf("Error constructing tree from copath: %v", err)
@@ -90,6 +92,25 @@ func TestNewTreeFromCopath(t *testing.T) {
 	if !reflect.DeepEqual(C, aC) {
 		t.Fatalf("Incorrect copath value: %v != %v", C, aC)
 	}
+
+	// Test JSON marshal / unmarshal round trip
+	Cj, err := json.Marshal(aC)
+	if err != nil {
+		t.Fatalf("Error marshaling copath: %v", err)
+	}
+
+	t.Logf("JSON: %v", string(Cj))
+
+	C2 := new(Copath)
+	err = json.Unmarshal(Cj, C2)
+	if err != nil {
+		t.Fatalf("Error unmarshaling copath: %v", err)
+	}
+
+	C2.defn = stringNodeDefn
+	if !reflect.DeepEqual(C2, aC) {
+		t.Fatalf("Incorrect copath value: %v != %v", C2, aC)
+	}
 }
 
 func TestNewTreeFromFrontier(t *testing.T) {
@@ -101,6 +122,7 @@ func TestNewTreeFromFrontier(t *testing.T) {
 		},
 	}
 
+	// Test newTree / Frontier() round trip
 	tree, err := newTreeFromFrontier(aF)
 	if err != nil {
 		t.Fatalf("Error constructing tree from frontier: %v", err)
@@ -113,6 +135,25 @@ func TestNewTreeFromFrontier(t *testing.T) {
 
 	if !reflect.DeepEqual(F, aF) {
 		t.Fatalf("Incorrect frontier value: %v != %v", F, aF)
+	}
+
+	// Test JSON marshal / unmarshal round trip
+	Fj, err := json.Marshal(aF)
+	if err != nil {
+		t.Fatalf("Error marshaling frontier: %v", err)
+	}
+
+	t.Logf("JSON: %v", string(Fj))
+
+	F2 := new(Frontier)
+	err = json.Unmarshal(Fj, F2)
+	if err != nil {
+		t.Fatalf("Error unmarshaling frontier: %v", err)
+	}
+
+	F2.defn = stringNodeDefn
+	if !reflect.DeepEqual(F2, aF) {
+		t.Fatalf("Incorrect frontier value: %v != %v", F2, aF)
 	}
 }
 
