@@ -21,6 +21,10 @@ var (
 	ecdhCurve = elliptic.P256()
 )
 
+///
+/// Merkle Tree
+///
+
 func emptyMerkleLeaf() []byte {
 	h := sha256.New()
 	h.Write(emptyNodeValue)
@@ -69,6 +73,49 @@ var merkleNodeDefn = &nodeDefinition{
 	},
 }
 
+type MerkleFrontierEntry struct {
+	Value []byte
+	Size  uint
+}
+
+type MerkleFrontier []MerkleFrontierEntry
+
+func NewMerkleFrontier(f *Frontier) (MerkleFrontier, error) {
+	mf := make(MerkleFrontier, len(f.Entries))
+	for i, e := range f.Entries {
+		if !merkleNodeDefn.valid(e.Value) {
+			return nil, InvalidNodeError
+		}
+
+		mf[i] = MerkleFrontierEntry{
+			Value: e.Value.([]byte),
+			Size:  e.Size,
+		}
+	}
+
+	return mf, nil
+}
+
+func (mf MerkleFrontier) Frontier() *Frontier {
+	f := &Frontier{
+		defn:    merkleNodeDefn,
+		Entries: make([]FrontierEntry, len(mf)),
+	}
+
+	for i, e := range mf {
+		f.Entries[i] = FrontierEntry{
+			Value: e.Value,
+			Size:  e.Size,
+		}
+	}
+
+	return f
+}
+
+///
+/// ECDH Tree
+///
+
 type ECKey struct {
 	data []byte
 	ecdsa.PrivateKey
@@ -84,7 +131,6 @@ func (k *ECKey) UnmarshalJSON(data []byte) error {
 	var pt []byte
 	err := json.Unmarshal(data, &pt)
 	if err != nil {
-		panic("AAAAHHHH" + err.Error())
 		return err
 	}
 
@@ -177,4 +223,43 @@ var ecdhNodeDefn = &nodeDefinition{
 			return nil, IncompatibleNodesError
 		}
 	},
+}
+
+type ECFrontierEntry struct {
+	Value *ECKey
+	Size  uint
+}
+
+type ECFrontier []ECFrontierEntry
+
+func NewECFrontier(f *Frontier) (ECFrontier, error) {
+	mf := make(ECFrontier, len(f.Entries))
+	for i, e := range f.Entries {
+		if !ecdhNodeDefn.valid(e.Value) {
+			return nil, InvalidNodeError
+		}
+
+		mf[i] = ECFrontierEntry{
+			Value: e.Value.(*ECKey),
+			Size:  e.Size,
+		}
+	}
+
+	return mf, nil
+}
+
+func (mf ECFrontier) Frontier() *Frontier {
+	f := &Frontier{
+		defn:    ecdhNodeDefn,
+		Entries: make([]FrontierEntry, len(mf)),
+	}
+
+	for i, e := range mf {
+		f.Entries[i] = FrontierEntry{
+			Value: e.Value,
+			Size:  e.Size,
+		}
+	}
+
+	return f
 }
