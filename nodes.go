@@ -112,6 +112,65 @@ func (mf MerkleFrontier) Frontier() *Frontier {
 	return f
 }
 
+type MerkleCopath struct {
+	Index uint
+	Size  uint
+	Nodes [][]byte
+}
+
+func NewMerkleCopath(c *Copath) (*MerkleCopath, error) {
+	mc := &MerkleCopath{
+		Index: c.Index,
+		Size:  c.Size,
+		Nodes: make([][]byte, len(c.Nodes)),
+	}
+
+	for i, n := range c.Nodes {
+		if !merkleNodeDefn.valid(n) {
+			return nil, InvalidNodeError
+		}
+		mc.Nodes[i] = n.([]byte)
+	}
+
+	return mc, nil
+}
+
+func (mc MerkleCopath) Copath() *Copath {
+	c := &Copath{
+		defn:  merkleNodeDefn,
+		Index: mc.Index,
+		Size:  mc.Size,
+		Nodes: make([]Node, len(mc.Nodes)),
+	}
+
+	for i, e := range mc.Nodes {
+		c.Nodes[i] = e
+	}
+
+	return c
+}
+
+func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
+	tree, err := newTreeFromCopath(mc.Copath())
+	if err != nil {
+		return nil, err
+	}
+
+	tree.nodes[2*mc.Index] = leaf
+
+	err = tree.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := tree.Root()
+	if err != nil {
+		return nil, err
+	}
+
+	return root.([]byte), nil
+}
+
 ///
 /// ECDH Tree
 ///
@@ -143,6 +202,12 @@ func (k *ECKey) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (k ECKey) bytes() []byte {
+	x := k.PrivateKey.PublicKey.X
+	y := k.PrivateKey.PublicKey.Y
+	return elliptic.Marshal(ecdhCurve, x, y)
+}
+
 func (k ECKey) derive(other *ECKey) []byte {
 	d := k.PrivateKey.D.Bytes()
 	x := other.PrivateKey.PublicKey.X
@@ -152,6 +217,37 @@ func (k ECKey) derive(other *ECKey) []byte {
 	h := sha256.New()
 	h.Write(zz.Bytes())
 	return h.Sum(nil)
+}
+
+func (k ECKey) sign(message []byte) ([]byte, error) {
+	if k.PrivateKey.D == nil {
+		return nil, fmt.Errorf("Cannot sign without private key")
+	}
+
+	h := sha256.New()
+	h.Write(message)
+	r, s, err := ecdsa.Sign(rand.Reader, &k.PrivateKey, h.Sum(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	// XXX Ad-hoc signature encoding, because padding is hard
+	signature := []byte{byte(len(r.Bytes()))}
+	signature = append(signature, r.Bytes()...)
+	signature = append(signature, s.Bytes()...)
+	return signature, nil
+}
+
+func (k ECKey) verify(message, signature []byte) bool {
+	// XXX Should be more defensive here
+	cut := int(signature[0])
+	r := big.NewInt(0).SetBytes(signature[1 : cut+1])
+	s := big.NewInt(0).SetBytes(signature[cut+1:])
+
+	pub := &k.PrivateKey.PublicKey
+	h := sha256.New()
+	h.Write(message)
+	return ecdsa.Verify(pub, h.Sum(nil), r, s)
 }
 
 func NewECKey() *ECKey {

@@ -70,3 +70,86 @@ func TestMessageJSON(t *testing.T) {
 	testJSON(aUpdate, new(Update))
 	testJSON(aDelete, new(Delete))
 }
+
+func TestSigned(t *testing.T) {
+	k := ECKeyFromData([]byte("signing test"))
+
+	in := aUserPreKey
+	s, err := NewSigned(in, k)
+	if err != nil {
+		t.Fatalf("Error in signing: %v", err)
+	}
+
+	sj, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Error in JSON marshal: %v", err)
+	}
+
+	s2 := new(Signed)
+	err = json.Unmarshal(sj, s2)
+	if err != nil {
+		t.Fatalf("Error in JSON unmarshal: %v", err)
+	}
+
+	out := new(UserPreKey)
+	err = s2.Verify(out)
+	if err != nil {
+		t.Fatalf("Error in verification: %v", err)
+	}
+
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("Sign/verify round-trip failed: %+v != %+v", in, out)
+	}
+}
+
+func TestRosterSigned(t *testing.T) {
+	aGroupSize := 7
+	aLeafKeys := make([]*ECKey, aGroupSize)
+	aLeaves := make([]Node, aGroupSize)
+	for i := range aLeafKeys {
+		aLeafKeys[i] = NewECKey()
+		aLeaves[i] = merkleLeaf(aLeafKeys[i].bytes())
+	}
+
+	aTree, err := newTreeFromLeaves(merkleNodeDefn, aLeaves)
+	if err != nil {
+		t.Fatalf("Error generating Merkle tree: %v", err)
+	}
+
+	rootNode, err := aTree.Root()
+	if err != nil {
+		t.Fatalf("Error fetching root: %v", err)
+	}
+
+	expectedRoot := rootNode.([]byte)
+
+	for i, k := range aLeafKeys {
+		in := aUserPreKey
+		c, err := aTree.Copath(uint(i))
+		if err != nil {
+			t.Fatalf("Error fetching copath @ %d: %v", i, err)
+		}
+
+		rs, err := NewRosterSigned(in, k, c)
+		if err != nil {
+			t.Fatalf("Error in roster-signing @ %d: %v", i, err)
+		}
+
+		rsj, err := json.Marshal(rs)
+		if err != nil {
+			t.Fatalf("Error in JSON marshal @ %d: %v", i, err)
+		}
+
+		rs2 := new(RosterSigned)
+		err = json.Unmarshal(rsj, rs2)
+		if err != nil {
+			t.Fatalf("Error in JSON unmarshal @ %d: %v", i, err)
+		}
+
+		out := new(UserPreKey)
+		err = rs2.Verify(out, expectedRoot)
+		if err != nil {
+			t.Fatalf("Error in verifying roster-signed @ %d: %v", i, err)
+		}
+	}
+}
