@@ -11,6 +11,7 @@ var (
 	labelUpdateSecret   = "update secret"
 	labelUpdateKey      = "update key"
 	labelDeleteKey      = "delete secret"
+	labelEpochSecret    = "epoch secret"
 )
 
 // TODO Use a real KDF
@@ -76,6 +77,9 @@ func (lhs State) Equal(rhs *State) bool {
 	updateKey := bytes.Equal(lhs.updateKey.PublicKey.bytes(), rhs.updateKey.PublicKey.bytes())
 	deleteKey := bytes.Equal(lhs.deleteKey.PublicKey.bytes(), rhs.deleteKey.PublicKey.bytes())
 
+	// XXX Uncomment for helpful debug info
+	//fmt.Printf("%v %v %v %v %v %v %v %v %v \n", epoch, groupID, identityTree, leafTree, ratchetTree, messageRootKey, updateSecret, updateKey, deleteKey)
+
 	return epoch &&
 		groupID &&
 		identityTree &&
@@ -98,7 +102,7 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 		identityTree: newTree(merkleNodeDefn),
 		leafTree:     newTree(merkleNodeDefn),
 		ratchetTree:  newTree(ecdhNodeDefn),
-		leafList:     []ECPublicKey{},
+		leafList:     []ECPublicKey{identityKey.PublicKey},
 
 		messageRootKey: nil,
 		updateSecret:   nil,
@@ -120,8 +124,6 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO: Add self to leaf list
 
 	return state, nil
 }
@@ -283,6 +285,10 @@ func (s *State) deriveEpochKeys(epochSecret []byte) {
 	s.deleteKey = ECKeyFromData(kdf(labelDeleteKey, epochSecret)).PrivateKey
 }
 
+///
+/// Functions to generate epoch-changing messages
+///
+
 func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *RosterSigned) (*RosterSigned, *RosterSigned, error) {
 	// Construct a temporary state as if we had already joined
 	s, err := NewStateFromGroupPreKey(identityKey, leafKey, oldGPK)
@@ -329,8 +335,36 @@ func (s State) Add(signedUserPreKey *Signed) (*RosterSigned, error) {
 	return s.sign(groupAdd)
 }
 
-// TODO Update(leafKey ECKey) (RosterSigned<Update>)
+func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
+	leafPath, err := s.leafTree.UpdatePath(s.myIndex, merkleLeaf(leafKey.PublicKey.bytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	ratchetPath, err := s.ratchetTree.UpdatePath(s.myIndex, ECKeyFromPrivateKey(leafKey))
+	if err != nil {
+		return nil, err
+	}
+
+	update := Update{
+		LeafPath:    make([][]byte, len(leafPath)),
+		RatchetPath: make([]ECPublicKey, len(ratchetPath)),
+	}
+	for i, n := range leafPath {
+		update.LeafPath[i] = n.([]byte)
+	}
+	for i, n := range ratchetPath {
+		update.RatchetPath[i] = n.(*ECKey).PrivateKey.PublicKey
+	}
+
+	return s.sign(update)
+}
+
 // TODO Delete(indices []uint) (RosterSigned<Delete>)
+
+///
+/// Functions to handle epoch-changing messages
+///
 
 func (s *State) HandleUserAdd(signedUserAdd *RosterSigned, signedNewGPK *RosterSigned) error {
 	// TODO Verify that the new identity tree is a successor to the old one
@@ -424,6 +458,70 @@ func (s *State) addToSymmetricState(identityKey, leafKey ECPublicKey) error {
 	return nil
 }
 
-// func (s *State) HandleUpdate(update RosterSigned<Update>, leafKey ECKey) error
-// func (s *State) HandleUpdate(update RosterSigned<Update>) error
+func (s *State) HandleSelfUpdate(leafKey ECPrivateKey, signedUpdate *RosterSigned) error {
+	err := s.handleUpdateInner(signedUpdate, &leafKey)
+	if err != nil {
+		return err
+	}
+
+	s.myLeafKey = leafKey
+	return nil
+}
+
+func (s *State) HandleUpdate(signedUpdate *RosterSigned) error {
+	return s.handleUpdateInner(signedUpdate, nil)
+}
+
+func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivateKey) error {
+	update := new(Update)
+	err := s.verifyForCurrentRoster(signedUpdate, update)
+	if err != nil {
+		return err
+	}
+
+	s.epoch += 1
+
+	// Update leaf tree
+	index := signedUpdate.Copath.Index
+	leafPath := make([]Node, len(update.LeafPath))
+	for i, n := range update.LeafPath {
+		leafPath[i] = n
+	}
+
+	err = s.leafTree.UpdateWithPath(index, leafPath)
+	if err != nil {
+		return err
+	}
+
+	// Update ratchet tree
+	ratchetPath := make([]Node, len(update.RatchetPath))
+	for i, n := range update.RatchetPath {
+		ratchetPath[i] = ECKeyFromPublicKey(n)
+	}
+	if leafKey != nil {
+		ratchetPath[len(ratchetPath)-1] = ECKeyFromPrivateKey(*leafKey)
+	}
+
+	err = s.ratchetTree.UpdateWithPath(index, ratchetPath)
+	if err != nil {
+		return err
+	}
+
+	// Update leaf list (if applicable)
+	if len(s.leafList) > 0 {
+		s.leafList[index] = update.RatchetPath[len(update.RatchetPath)-1]
+	}
+
+	// Update group secrets
+	rootNode, err := s.ratchetTree.Root()
+	if err != nil {
+		return err
+	}
+
+	treeKey := rootNode.(*ECKey).Data
+	epochSecret := kdf(labelEpochSecret, s.updateSecret, treeKey)
+	s.deriveEpochKeys(epochSecret)
+	return nil
+}
+
 // func (s *State) HandleDelete(delete RosterSigned<Delete>) error

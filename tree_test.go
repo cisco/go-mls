@@ -2,9 +2,46 @@ package mls
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+// XXX DELE
+func prettyPrintTree(t *tree) {
+	w := 2
+	pad := strings.Repeat(" ", 2*w)
+	xxx := strings.Repeat("_", 2*w)
+
+	maxLevel := log2(t.size-1) + 1
+	for L := maxLevel; ; L -= 1 {
+		for i := uint(0); i < 2*(t.size-1)+1; i += 1 {
+			n, ok := t.nodes[i]
+
+			var data []byte
+			switch val := n.(type) {
+			case []byte:
+				data = val
+			case (*ECKey):
+				data = merkleLeaf(val.PrivateKey.PublicKey.bytes())
+			}
+
+			if level(i) != L {
+				fmt.Printf("%s ", pad)
+			} else if !ok {
+				fmt.Printf("%s ", xxx)
+			} else {
+				fmt.Printf("%x ", data[:w])
+			}
+		}
+		fmt.Printf("\n")
+
+		if L == 0 {
+			break
+		}
+	}
+}
 
 var stringNodeDefn = &nodeDefinition{
 	valid: func(x Node) bool {

@@ -119,8 +119,73 @@ func TestGroupAdd(t *testing.T) {
 	}
 }
 
+// Create a group
+// XXX Ignoring errors throughout; should be caught in TestUserAdd
+func createGroup() []*State {
+	groupID := []byte("treehouse")
+	creatorKey := NewECKey().PrivateKey
+	creator, _ := NewStateForEmptyGroup(groupID, creatorKey)
+	states := []*State{creator}
+
+	for k := 1; k < aTestGroupSize; k += 1 {
+		identityKey := NewECKey().PrivateKey
+		leafKey := NewECKey().PrivateKey
+		oldGPK, _ := states[k-1].groupPreKey()
+		add, newGPK, _ := Join(identityKey, leafKey, oldGPK)
+
+		for _, s := range states {
+			s.HandleUserAdd(add, newGPK)
+		}
+
+		newState, _ := NewStateFromGroupPreKey(identityKey, leafKey, oldGPK)
+		states = append(states, newState)
+	}
+
+	return states
+}
+
 func TestUpdate(t *testing.T) {
-	// TODO
+	states := createGroup()
+
+	// Verify that everyone ended up in the right state
+	if states[0].epoch != uint(len(states)-1) {
+		t.Fatalf("Incorrect epoch: %v != %v", states[0].epoch, len(states)-1)
+	}
+
+	for i := 1; i < len(states); i += 1 {
+		if !states[i].Equal(states[0]) {
+			t.Fatalf("State mismatch: %v != %v", i, 0)
+		}
+	}
+
+	// Update each participant
+	for i, s0 := range states {
+		leafKey := NewECKey().PrivateKey
+		update, err := s0.Update(leafKey)
+		if err != nil {
+			t.Fatalf("Error generating update: %v", err)
+		}
+
+		err = s0.HandleSelfUpdate(leafKey, update)
+		if err != nil {
+			t.Fatalf("Error handling self-update: %v", err)
+		}
+
+		for j, s1 := range states {
+			if i == j {
+				continue
+			}
+
+			err = s1.HandleUpdate(update)
+			if err != nil {
+				t.Fatalf("Error updating %d -> %d: %v", i, j, err)
+			}
+
+			if !s0.Equal(s1) {
+				t.Fatalf("State mismatch %d -> %d", i, j)
+			}
+		}
+	}
 }
 
 func TestDelete(t *testing.T) {
@@ -129,4 +194,12 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteMultiple(t *testing.T) {
 	// TODO
+}
+
+func TestChaosMonkey(t *testing.T) {
+	// TODO For N steps, randomly decide to take one of the following actions:
+	// * Add by a random member of the group
+	// * Add by the new participant
+	// * Update a random group member
+	// * Delete a random set of group members by a random group member
 }
