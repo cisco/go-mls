@@ -56,12 +56,14 @@ func newTree(defn *nodeDefinition) *tree {
 
 func newTreeFromLeaves(defn *nodeDefinition, leaves []Node) (*tree, error) {
 	nodes := map[uint]Node{}
+	new := make([]uint, len(leaves))
 	for i, l := range leaves {
 		if !defn.valid(l) {
 			return nil, InvalidNodeError
 		}
 
 		nodes[2*uint(i)] = l
+		new[i] = 2 * uint(i)
 	}
 
 	t := &tree{
@@ -70,7 +72,7 @@ func newTreeFromLeaves(defn *nodeDefinition, leaves []Node) (*tree, error) {
 		nodes: nodes,
 	}
 
-	err := t.Build()
+	err := t.Build(new)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +106,7 @@ func newTreeFromFrontier(F *Frontier) (*tree, error) {
 		nodes: nodes,
 	}
 
-	err := t.Build()
+	err := t.Build(f)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +135,7 @@ func newTreeFromCopath(C *Copath) (*tree, error) {
 		nodes: nodes,
 	}
 
-	err := t.Build()
+	err := t.Build(c)
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +164,19 @@ func (t *tree) Equal(other *tree) bool {
 	return true
 }
 
-func (t *tree) Build() error {
-	new := t.size
-	for new > 0 {
-		new = 0
-		for i := uint(0); i < nodeWidth(t.size); i += 1 {
+func (t *tree) Build(new []uint) error {
+	toUpdate := map[uint]bool{}
+	for _, n := range new {
+		p := parent(n, t.size)
+		if p != n {
+			toUpdate[p] = true
+		}
+	}
+
+	for len(toUpdate) > 0 {
+		nextToUpdate := map[uint]bool{}
+
+		for i := range toUpdate {
 			l := left(i)
 			r := right(i, t.size)
 
@@ -191,9 +201,15 @@ func (t *tree) Build() error {
 			node := t.defn.create(value)
 			if !t.defn.equal(t.nodes[i], node) {
 				t.nodes[i] = node
-				new += 1
+
+				p := parent(i, t.size)
+				if p != i {
+					nextToUpdate[p] = true
+				}
 			}
 		}
+
+		toUpdate = nextToUpdate
 	}
 
 	return nil
@@ -209,7 +225,7 @@ func (t *tree) Add(leaf Node) error {
 
 	t.nodes[2*t.size] = leaf
 	t.size += 1
-	return t.Build()
+	return t.Build([]uint{2 * (t.size - 1)})
 }
 
 func (t *tree) AddWithPath(path []Node) error {
@@ -224,7 +240,7 @@ func (t *tree) Update(index uint, leaf Node) error {
 	}
 
 	t.nodes[2*index] = leaf
-	return t.Build()
+	return t.Build([]uint{2 * index})
 }
 
 // Update with a direct path from a leaf
@@ -242,7 +258,7 @@ func (t *tree) UpdateWithPath(index uint, path []Node) error {
 	for i, j := range d {
 		t.nodes[j] = path[i]
 	}
-	return t.Build()
+	return t.Build(d)
 }
 
 // Extractors

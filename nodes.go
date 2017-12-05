@@ -164,7 +164,7 @@ func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
 
 	tree.nodes[2*mc.Index] = leaf
 
-	err = tree.Build()
+	err = tree.Build([]uint{2 * mc.Index})
 	if err != nil {
 		return nil, err
 	}
