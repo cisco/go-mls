@@ -202,6 +202,10 @@ func (k *ECKey) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (k *ECKey) PublicKey() *ECKey {
+	return ECKeyFromPublicKey(&k.PrivateKey.PublicKey)
+}
+
 func (k ECKey) bytes() []byte {
 	x := k.PrivateKey.PublicKey.X
 	y := k.PrivateKey.PublicKey.Y

@@ -7,16 +7,16 @@ import (
 )
 
 type UserPreKey struct {
-	LeafKey ECKey
+	PreKey *ECKey
 }
 
 type GroupPreKey struct {
-	Epoch                uint
-	GroupID              []byte
-	UpdateKey            *ECKey
-	IdentityTreeFrontier MerkleFrontier
-	LeafTreeFrontier     MerkleFrontier
-	RatchetTreeFrontier  ECFrontier
+	Epoch            uint
+	GroupID          []byte
+	UpdateKey        *ECKey
+	IdentityFrontier MerkleFrontier
+	LeafFrontier     MerkleFrontier
+	RatchetFrontier  ECFrontier
 }
 
 type UserAdd struct {
@@ -24,8 +24,7 @@ type UserAdd struct {
 }
 
 type GroupAdd struct {
-	PreKey    Signed
-	UpdateKey *ECKey
+	PreKey *Signed
 }
 
 type Update struct {
@@ -60,7 +59,7 @@ func NewSigned(message interface{}, key *ECKey) (*Signed, error) {
 
 	return &Signed{
 		Encoded:   encoded,
-		PublicKey: key,
+		PublicKey: key.PublicKey(),
 		Signature: signature,
 	}, nil
 }
@@ -68,6 +67,10 @@ func NewSigned(message interface{}, key *ECKey) (*Signed, error) {
 func (s Signed) Verify(out interface{}) error {
 	if !s.PublicKey.verify(s.Encoded, s.Signature) {
 		return fmt.Errorf("Invalid signature")
+	}
+
+	if out == nil {
+		return nil
 	}
 
 	return json.Unmarshal(s.Encoded, out)
@@ -97,14 +100,16 @@ func NewRosterSigned(message interface{}, key *ECKey, copath *Copath) (*RosterSi
 }
 
 func (s RosterSigned) Verify(out interface{}, expectedRoot []byte) error {
-	leaf := merkleLeaf(s.Signed.PublicKey.bytes())
-	root, err := s.Copath.Root(leaf)
-	if err != nil {
-		return err
-	}
+	if expectedRoot != nil {
+		leaf := merkleLeaf(s.Signed.PublicKey.bytes())
+		root, err := s.Copath.Root(leaf)
+		if err != nil {
+			return err
+		}
 
-	if !bytes.Equal(root, expectedRoot) {
-		return fmt.Errorf("Merkle inclusion check failed")
+		if !bytes.Equal(root, expectedRoot) {
+			return fmt.Errorf("Merkle inclusion check failed")
+		}
 	}
 
 	return s.Signed.Verify(out)

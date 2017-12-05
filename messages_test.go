@@ -1,36 +1,34 @@
 package mls
 
 import (
-	"crypto/ecdsa"
-	"crypto/rand"
 	"encoding/json"
 	"reflect"
 	"testing"
 )
 
 var (
-	aData          = []byte("messages")
-	aPrivateKey, _ = ecdsa.GenerateKey(ecdhCurve, rand.Reader)
-	aKey           = ECKeyFromPublicKey(&aPrivateKey.PublicKey)
-	aMerkleEntry   = MerkleFrontierEntry{Value: aData, Size: 4}
-	aECEntry       = ECFrontierEntry{Value: aKey, Size: 4}
+	aData        = []byte("messages")
+	aPrivateKey  = NewECKey()
+	aKey         = ECKeyFromPublicKey(&aPrivateKey.PrivateKey.PublicKey)
+	aMerkleEntry = MerkleFrontierEntry{Value: aData, Size: 4}
+	aECEntry     = ECFrontierEntry{Value: aKey, Size: 4}
 
-	aUserPreKey = &UserPreKey{LeafKey: *aKey}
+	aUserPreKey = &UserPreKey{PreKey: aKey}
 
 	aGroupPreKey = &GroupPreKey{
-		Epoch:                2,
-		GroupID:              []byte{0x00, 0x01, 0x02, 0x03},
-		UpdateKey:            aKey,
-		IdentityTreeFrontier: MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		LeafTreeFrontier:     MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		RatchetTreeFrontier:  ECFrontier{aECEntry, aECEntry},
+		Epoch:            2,
+		GroupID:          []byte{0x00, 0x01, 0x02, 0x03},
+		UpdateKey:        aKey,
+		IdentityFrontier: MerkleFrontier{aMerkleEntry, aMerkleEntry},
+		LeafFrontier:     MerkleFrontier{aMerkleEntry, aMerkleEntry},
+		RatchetFrontier:  ECFrontier{aECEntry, aECEntry},
 	}
 
 	aUserAdd = &UserAdd{AddPath: []*ECKey{aKey, aKey}}
 
-	aGroupAdd = &GroupAdd{
-		PreKey:    Signed{},
-		UpdateKey: aKey,
+	aSignedUserPreKey, _ = NewSigned(aUserPreKey, aPrivateKey)
+	aGroupAdd            = &GroupAdd{
+		PreKey: aSignedUserPreKey,
 	}
 
 	aUpdate = &Update{
