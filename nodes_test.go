@@ -73,7 +73,7 @@ func TestECKeyJSON(t *testing.T) {
 		t.Fatalf("Error unmarshaling ECKey: %v", err)
 	}
 
-	if !ecdhNodeDefn.equal(aKey, k2) {
+	if !ecdhNodeDefn.publicEqual(aKey, k2) {
 		t.Fatalf("JSON round-trip failed: %v != %v", aKey, k2)
 	}
 }

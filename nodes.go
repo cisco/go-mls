@@ -58,6 +58,12 @@ var merkleNodeDefn = &nodeDefinition{
 		return okx && oky && bytes.Equal(xb, yb)
 	},
 
+	publicEqual: func(x, y Node) bool {
+		xb, okx := x.([]byte)
+		yb, oky := y.([]byte)
+		return okx && oky && bytes.Equal(xb, yb)
+	},
+
 	create: func(data []byte) Node {
 		return data
 	},
@@ -298,9 +304,24 @@ var ecdhNodeDefn = &nodeDefinition{
 	equal: func(x, y Node) bool {
 		xk, okx := x.(*ECKey)
 		yk, oky := y.(*ECKey)
-		return okx && oky &&
-			xk.PrivateKey.PublicKey.X.Cmp(yk.PrivateKey.PublicKey.X) == 0 &&
-			xk.PrivateKey.PublicKey.Y.Cmp(yk.PrivateKey.PublicKey.Y) == 0
+		if !okx || !oky {
+			return false
+		}
+
+		// Either both D values are nil or they have equal values
+		xd := xk.PrivateKey.D
+		yd := yk.PrivateKey.D
+		xdn := (xk.PrivateKey.D == nil)
+		ydn := (yk.PrivateKey.D == nil)
+		deq := ((xdn && ydn) || (!xdn && !ydn && xd.Cmp(yd) == 0))
+
+		return deq && bytes.Equal(xk.bytes(), yk.bytes())
+	},
+
+	publicEqual: func(x, y Node) bool {
+		xk, okx := x.(*ECKey)
+		yk, oky := y.(*ECKey)
+		return okx && oky && bytes.Equal(xk.bytes(), yk.bytes())
 	},
 
 	create: func(data []byte) Node {

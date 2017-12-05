@@ -7,15 +7,17 @@ import (
 type Node interface{}
 
 type nodeDefinition struct {
-	valid   func(x Node) bool
-	equal   func(x, y Node) bool
-	create  func(d []byte) Node
-	combine func(x, y Node) ([]byte, error)
+	valid       func(x Node) bool
+	equal       func(x, y Node) bool
+	publicEqual func(x, y Node) bool
+	create      func(d []byte) Node
+	combine     func(x, y Node) ([]byte, error)
 }
 
 var (
 	IncompatibleNodesError = fmt.Errorf("Nodes cannot be combined")
 	MissingNodeError       = fmt.Errorf("Missing node")
+	InvalidIndexError      = fmt.Errorf("Invalid index")
 	InvalidNodeError       = fmt.Errorf("Invalid node type")
 	InvalidPathError       = fmt.Errorf("Invalid update path")
 	InvalidParameterError  = fmt.Errorf("Invalid parameter")
@@ -152,7 +154,7 @@ func (t *tree) Equal(other *tree) bool {
 
 	for i, x := range t.nodes {
 		y, ok := other.nodes[i]
-		if ok && !t.defn.equal(x, y) {
+		if ok && !t.defn.publicEqual(x, y) {
 			return false
 		}
 	}
@@ -179,7 +181,10 @@ func (t *tree) Build() error {
 			}
 
 			value, err := t.defn.combine(ln, rn)
-			if err != nil && err != IncompatibleNodesError {
+			if err == IncompatibleNodesError {
+				continue
+			}
+			if err != nil {
 				return err
 			}
 
@@ -207,21 +212,31 @@ func (t *tree) Add(leaf Node) error {
 	return t.Build()
 }
 
+func (t *tree) AddWithPath(path []Node) error {
+	t.size += 1
+	return t.UpdateWithPath(t.size-1, path)
+}
+
 // Update a leaf only (and compute intermediates)
 func (t *tree) Update(index uint, leaf Node) error {
+	if index >= t.size {
+		return InvalidIndexError
+	}
+
 	t.nodes[2*index] = leaf
 	return t.Build()
 }
 
 // Update with a direct path from a leaf
 func (t *tree) UpdateWithPath(index uint, path []Node) error {
+	if index >= t.size {
+		return InvalidIndexError
+	}
+
 	d := dirpath(2*index, t.size)
-	d = append([]uint{2 * index}, d...)
+	d = append(d, 2*index)
 	if len(path) != len(d) {
-		// return InvalidPathError
-		fmt.Println(dirpath(index, t.size))
-		fmt.Println(d)
-		return fmt.Errorf("Invalid update path: %v != %v", len(path), len(d))
+		return InvalidPathError
 	}
 
 	for i, j := range d {
@@ -261,7 +276,30 @@ func (t tree) Root() (Node, error) {
 	return root, nil
 }
 
+func (t tree) DirectPath(index uint) ([]Node, error) {
+	if index >= t.size {
+		return nil, InvalidIndexError
+	}
+
+	d := dirpath(2*index, t.size)
+	d = append(d, 2*index)
+	D := make([]Node, len(d))
+	var ok bool
+	for i, j := range d {
+		D[i], ok = t.nodes[j]
+		if !ok {
+			return nil, MissingNodeError
+		}
+	}
+
+	return D, nil
+}
+
 func (t tree) Copath(index uint) (*Copath, error) {
+	if index >= t.size {
+		return nil, InvalidIndexError
+	}
+
 	c := copath(2*index, t.size)
 	C := make([]Node, len(c))
 	var ok bool

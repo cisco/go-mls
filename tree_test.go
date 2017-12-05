@@ -18,6 +18,12 @@ var stringNodeDefn = &nodeDefinition{
 		return okx && oky && (xs == ys)
 	},
 
+	publicEqual: func(x, y Node) bool {
+		xs, okx := x.(string)
+		ys, oky := y.(string)
+		return okx && oky && (xs == ys)
+	},
+
 	create: func(d []byte) Node {
 		return string(d)
 	},
@@ -99,8 +105,6 @@ func TestNewTreeFromCopath(t *testing.T) {
 		t.Fatalf("Error marshaling copath: %v", err)
 	}
 
-	t.Logf("JSON: %v", string(Cj))
-
 	C2 := new(Copath)
 	err = json.Unmarshal(Cj, C2)
 	if err != nil {
@@ -142,8 +146,6 @@ func TestNewTreeFromFrontier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error marshaling frontier: %v", err)
 	}
-
-	t.Logf("JSON: %v", string(Fj))
 
 	F2 := new(Frontier)
 	err = json.Unmarshal(Fj, F2)
@@ -270,7 +272,7 @@ func TestTreeUpdate(t *testing.T) {
 	}
 
 	aIndex2 := uint(1)
-	aUpdatePath2 := []Node{"y", "ay", "aycx"}
+	aUpdatePath2 := []Node{"aycx", "ay", "y"}
 	aNodes2 := map[uint]Node{
 		0: "a",
 		1: "ay",
