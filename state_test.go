@@ -10,7 +10,7 @@ var (
 
 func TestUserAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECKey()
+	creatorKey := NewECKey().PrivateKey
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -19,8 +19,8 @@ func TestUserAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECKey()
-		leafKey := NewECKey()
+		identityKey := NewECKey().PrivateKey
+		leafKey := NewECKey().PrivateKey
 		oldGPK, err := states[k-1].groupPreKey()
 		if err != nil {
 			t.Fatalf("Error in fetching GPK: %v", err)
@@ -62,7 +62,7 @@ func TestUserAdd(t *testing.T) {
 
 func TestGroupAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECKey()
+	creatorKey := NewECKey().PrivateKey
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -71,10 +71,10 @@ func TestGroupAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECKey()
-		preKey := NewECKey()
+		identityKey := NewECKey().PrivateKey
+		preKey := NewECKey().PrivateKey
 
-		upk := UserPreKey{PreKey: preKey}
+		upk := UserPreKey{PreKey: preKey.PublicKey}
 		supk, err := NewSigned(upk, identityKey)
 		if err != nil {
 			t.Fatalf("Error in creating UserPreKey: %v", err)

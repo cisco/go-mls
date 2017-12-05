@@ -182,17 +182,34 @@ func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
 ///
 
 type ECKey struct {
-	data []byte
-	ecdsa.PrivateKey
+	Data       []byte
+	PrivateKey ECPrivateKey
 }
 
-func (k ECKey) MarshalJSON() ([]byte, error) {
-	pub := k.PrivateKey.PublicKey
+type ECPrivateKey struct {
+	D         *big.Int
+	PublicKey ECPublicKey
+}
+
+type ECPublicKey struct {
+	Curve elliptic.Curve
+	X, Y  *big.Int
+}
+
+func (k ECPublicKey) bytes() []byte {
+	return elliptic.Marshal(ecdhCurve, k.X, k.Y)
+}
+
+func (k ECPublicKey) Equal(other ECPublicKey) bool {
+	return bytes.Equal(k.bytes(), other.bytes())
+}
+
+func (pub ECPublicKey) MarshalJSON() ([]byte, error) {
 	pt := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
 	return json.Marshal(pt)
 }
 
-func (k *ECKey) UnmarshalJSON(data []byte) error {
+func (pub *ECPublicKey) UnmarshalJSON(data []byte) error {
 	var pt []byte
 	err := json.Unmarshal(data, &pt)
 	if err != nil {
@@ -204,39 +221,35 @@ func (k *ECKey) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("Improperly formatted elliptic curve point")
 	}
 
-	k.PrivateKey.PublicKey = ecdsa.PublicKey{Curve: ecdhCurve, X: x, Y: y}
+	pub.Curve, pub.X, pub.Y = ecdhCurve, x, y
 	return nil
 }
 
-func (k *ECKey) PublicKey() *ECKey {
-	return ECKeyFromPublicKey(&k.PrivateKey.PublicKey)
-}
+func (k ECPrivateKey) derive(other ECPublicKey) []byte {
+	zz, _ := ecdhCurve.ScalarMult(other.X, other.Y, k.D.Bytes())
 
-func (k ECKey) bytes() []byte {
-	x := k.PrivateKey.PublicKey.X
-	y := k.PrivateKey.PublicKey.Y
-	return elliptic.Marshal(ecdhCurve, x, y)
-}
-
-func (k ECKey) derive(other *ECKey) []byte {
-	d := k.PrivateKey.D.Bytes()
-	x := other.PrivateKey.PublicKey.X
-	y := other.PrivateKey.PublicKey.Y
-	zz, _ := ecdhCurve.ScalarMult(x, y, d)
-
+	// TODO Use a real KDF
 	h := sha256.New()
 	h.Write(zz.Bytes())
 	return h.Sum(nil)
 }
 
-func (k ECKey) sign(message []byte) ([]byte, error) {
-	if k.PrivateKey.D == nil {
+func (k ECPrivateKey) sign(message []byte) ([]byte, error) {
+	if k.D == nil {
 		return nil, fmt.Errorf("Cannot sign without private key")
 	}
 
 	h := sha256.New()
 	h.Write(message)
-	r, s, err := ecdsa.Sign(rand.Reader, &k.PrivateKey, h.Sum(nil))
+	priv := &ecdsa.PrivateKey{
+		D: k.D,
+		PublicKey: ecdsa.PublicKey{
+			Curve: k.PublicKey.Curve,
+			X:     k.PublicKey.X,
+			Y:     k.PublicKey.Y,
+		},
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, priv, h.Sum(nil))
 	if err != nil {
 		return nil, err
 	}
@@ -248,13 +261,13 @@ func (k ECKey) sign(message []byte) ([]byte, error) {
 	return signature, nil
 }
 
-func (k ECKey) verify(message, signature []byte) bool {
+func (k ECPublicKey) verify(message, signature []byte) bool {
 	// XXX Should be more defensive here
 	cut := int(signature[0])
 	r := big.NewInt(0).SetBytes(signature[1 : cut+1])
 	s := big.NewInt(0).SetBytes(signature[cut+1:])
 
-	pub := &k.PrivateKey.PublicKey
+	pub := &ecdsa.PublicKey{Curve: k.Curve, X: k.X, Y: k.Y}
 	h := sha256.New()
 	h.Write(message)
 	return ecdsa.Verify(pub, h.Sum(nil), r, s)
@@ -262,7 +275,16 @@ func (k ECKey) verify(message, signature []byte) bool {
 
 func NewECKey() *ECKey {
 	priv, _ := ecdsa.GenerateKey(ecdhCurve, rand.Reader)
-	return &ECKey{PrivateKey: *priv}
+	return &ECKey{
+		PrivateKey: ECPrivateKey{
+			D: priv.D,
+			PublicKey: ECPublicKey{
+				Curve: priv.PublicKey.Curve,
+				X:     priv.PublicKey.X,
+				Y:     priv.PublicKey.Y,
+			},
+		},
+	}
 }
 
 func ECKeyFromData(data []byte) *ECKey {
@@ -273,20 +295,20 @@ func ECKeyFromData(data []byte) *ECKey {
 
 	d := big.NewInt(0).SetBytes(db)
 	return &ECKey{
-		data: data,
-		PrivateKey: ecdsa.PrivateKey{
+		Data: data,
+		PrivateKey: ECPrivateKey{
 			D:         d,
-			PublicKey: ecdsa.PublicKey{Curve: ecdhCurve, X: x, Y: y},
+			PublicKey: ECPublicKey{Curve: ecdhCurve, X: x, Y: y},
 		},
 	}
 }
 
-func ECKeyFromPrivateKey(priv *ecdsa.PrivateKey) *ECKey {
-	return &ECKey{PrivateKey: *priv}
+func ECKeyFromPrivateKey(priv ECPrivateKey) *ECKey {
+	return &ECKey{PrivateKey: priv}
 }
 
-func ECKeyFromPublicKey(pub *ecdsa.PublicKey) *ECKey {
-	return &ECKey{PrivateKey: ecdsa.PrivateKey{PublicKey: *pub}}
+func ECKeyFromPublicKey(pub ECPublicKey) *ECKey {
+	return &ECKey{PrivateKey: ECPrivateKey{PublicKey: pub}}
 }
 
 var ecdhNodeDefn = &nodeDefinition{
@@ -314,14 +336,19 @@ var ecdhNodeDefn = &nodeDefinition{
 		xdn := (xk.PrivateKey.D == nil)
 		ydn := (yk.PrivateKey.D == nil)
 		deq := ((xdn && ydn) || (!xdn && !ydn && xd.Cmp(yd) == 0))
+		if !deq {
+			return false
+		}
 
-		return deq && bytes.Equal(xk.bytes(), yk.bytes())
+		xb := xk.PrivateKey.PublicKey.bytes()
+		yb := yk.PrivateKey.PublicKey.bytes()
+		return bytes.Equal(xb, yb)
 	},
 
 	publicEqual: func(x, y Node) bool {
 		xk, okx := x.(*ECKey)
 		yk, oky := y.(*ECKey)
-		return okx && oky && bytes.Equal(xk.bytes(), yk.bytes())
+		return okx && oky && xk.PrivateKey.PublicKey.Equal(yk.PrivateKey.PublicKey)
 	},
 
 	create: func(data []byte) Node {
@@ -337,9 +364,9 @@ var ecdhNodeDefn = &nodeDefinition{
 
 		switch {
 		case xk.PrivateKey.D != nil:
-			return xk.derive(yk), nil
+			return xk.PrivateKey.derive(yk.PrivateKey.PublicKey), nil
 		case yk.PrivateKey.D != nil:
-			return yk.derive(xk), nil
+			return yk.PrivateKey.derive(xk.PrivateKey.PublicKey), nil
 		default:
 			return nil, IncompatibleNodesError
 		}
@@ -347,7 +374,7 @@ var ecdhNodeDefn = &nodeDefinition{
 }
 
 type ECFrontierEntry struct {
-	Value *ECKey
+	Value ECPublicKey
 	Size  uint
 }
 
@@ -361,7 +388,7 @@ func NewECFrontier(f *Frontier) (ECFrontier, error) {
 		}
 
 		mf[i] = ECFrontierEntry{
-			Value: e.Value.(*ECKey),
+			Value: e.Value.(*ECKey).PrivateKey.PublicKey,
 			Size:  e.Size,
 		}
 	}
@@ -377,7 +404,7 @@ func (mf ECFrontier) Frontier() *Frontier {
 
 	for i, e := range mf {
 		f.Entries[i] = FrontierEntry{
-			Value: e.Value,
+			Value: ECKeyFromPublicKey(e.Value),
 			Size:  e.Size,
 		}
 	}

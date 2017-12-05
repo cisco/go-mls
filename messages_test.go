@@ -8,8 +8,8 @@ import (
 
 var (
 	aData        = []byte("messages")
-	aPrivateKey  = NewECKey()
-	aKey         = ECKeyFromPublicKey(&aPrivateKey.PrivateKey.PublicKey)
+	aPrivateKey  = NewECKey().PrivateKey
+	aKey         = aPrivateKey.PublicKey
 	aMerkleEntry = MerkleFrontierEntry{Value: aData, Size: 4}
 	aECEntry     = ECFrontierEntry{Value: aKey, Size: 4}
 
@@ -24,7 +24,7 @@ var (
 		RatchetFrontier:  ECFrontier{aECEntry, aECEntry},
 	}
 
-	aUserAdd = &UserAdd{AddPath: []*ECKey{aKey, aKey}}
+	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aKey, aKey}}
 
 	aSignedUserPreKey, _ = NewSigned(aUserPreKey, aPrivateKey)
 	aGroupAdd            = &GroupAdd{
@@ -33,13 +33,13 @@ var (
 
 	aUpdate = &Update{
 		LeafPath:    [][]byte{aData, aData},
-		RatchetPath: []*ECKey{aKey, aKey},
+		RatchetPath: []ECPublicKey{aKey, aKey},
 	}
 
 	aDelete = &Delete{
 		Deleted:    []uint{0, 1},
-		Path:       []*ECKey{aKey, aKey},
-		Leaves:     []*ECKey{aKey, aKey},
+		Path:       []ECPublicKey{aKey, aKey},
+		Leaves:     []ECPublicKey{aKey, aKey},
 		Identities: [][]byte{aData, aData},
 	}
 )
@@ -70,7 +70,7 @@ func TestMessageJSON(t *testing.T) {
 }
 
 func TestSigned(t *testing.T) {
-	k := ECKeyFromData([]byte("signing test"))
+	k := ECKeyFromData([]byte("signing test")).PrivateKey
 
 	in := aUserPreKey
 	s, err := NewSigned(in, k)
@@ -102,11 +102,11 @@ func TestSigned(t *testing.T) {
 
 func TestRosterSigned(t *testing.T) {
 	aGroupSize := 7
-	aLeafKeys := make([]*ECKey, aGroupSize)
+	aLeafKeys := make([]ECPrivateKey, aGroupSize)
 	aLeaves := make([]Node, aGroupSize)
 	for i := range aLeafKeys {
-		aLeafKeys[i] = NewECKey()
-		aLeaves[i] = merkleLeaf(aLeafKeys[i].bytes())
+		aLeafKeys[i] = NewECKey().PrivateKey
+		aLeaves[i] = merkleLeaf(aLeafKeys[i].PublicKey.bytes())
 	}
 
 	aTree, err := newTreeFromLeaves(merkleNodeDefn, aLeaves)

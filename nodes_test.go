@@ -86,10 +86,10 @@ func TestECDHTree(t *testing.T) {
 		aLeafNodes[i] = aLeaves[i]
 	}
 
-	ab := ECKeyFromData(aLeaves[0].derive(aLeaves[1]))
-	cd := ECKeyFromData(aLeaves[2].derive(aLeaves[3]))
-	abcd := ECKeyFromData(ab.derive(cd))
-	abcde := ECKeyFromData(abcd.derive(aLeaves[4]))
+	ab := ECKeyFromData(aLeaves[0].PrivateKey.derive(aLeaves[1].PrivateKey.PublicKey))
+	cd := ECKeyFromData(aLeaves[2].PrivateKey.derive(aLeaves[3].PrivateKey.PublicKey))
+	abcd := ECKeyFromData(ab.PrivateKey.derive(cd.PrivateKey.PublicKey))
+	abcde := ECKeyFromData(abcd.PrivateKey.derive(aLeaves[4].PrivateKey.PublicKey))
 
 	tree, err := newTreeFromLeaves(ecdhNodeDefn, aLeafNodes)
 	if err != nil {

@@ -7,20 +7,20 @@ import (
 )
 
 type UserPreKey struct {
-	PreKey *ECKey
+	PreKey ECPublicKey
 }
 
 type GroupPreKey struct {
 	Epoch            uint
 	GroupID          []byte
-	UpdateKey        *ECKey
+	UpdateKey        ECPublicKey
 	IdentityFrontier MerkleFrontier
 	LeafFrontier     MerkleFrontier
 	RatchetFrontier  ECFrontier
 }
 
 type UserAdd struct {
-	AddPath []*ECKey
+	AddPath []ECPublicKey
 }
 
 type GroupAdd struct {
@@ -29,24 +29,24 @@ type GroupAdd struct {
 
 type Update struct {
 	LeafPath    [][]byte
-	RatchetPath []*ECKey
+	RatchetPath []ECPublicKey
 }
 
 type Delete struct {
 	Deleted    []uint
-	Path       []*ECKey
-	Leaves     []*ECKey
+	Path       []ECPublicKey
+	Leaves     []ECPublicKey
 	Identities [][]byte
 }
 
 // Signed
 type Signed struct {
 	Encoded   []byte
-	PublicKey *ECKey
+	PublicKey ECPublicKey
 	Signature []byte
 }
 
-func NewSigned(message interface{}, key *ECKey) (*Signed, error) {
+func NewSigned(message interface{}, key ECPrivateKey) (*Signed, error) {
 	encoded, err := json.Marshal(message)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func NewSigned(message interface{}, key *ECKey) (*Signed, error) {
 
 	return &Signed{
 		Encoded:   encoded,
-		PublicKey: key.PublicKey(),
+		PublicKey: key.PublicKey,
 		Signature: signature,
 	}, nil
 }
@@ -82,7 +82,7 @@ type RosterSigned struct {
 	Copath MerkleCopath
 }
 
-func NewRosterSigned(message interface{}, key *ECKey, copath *Copath) (*RosterSigned, error) {
+func NewRosterSigned(message interface{}, key ECPrivateKey, copath *Copath) (*RosterSigned, error) {
 	merkle, err := NewMerkleCopath(copath)
 	if err != nil {
 		return nil, err

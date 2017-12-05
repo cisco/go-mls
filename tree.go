@@ -256,6 +256,10 @@ func (t *tree) UpdateWithPath(index uint, path []Node) error {
 	}
 
 	for i, j := range d {
+		if !t.defn.valid(path[i]) {
+			return InvalidNodeError
+		}
+
 		t.nodes[j] = path[i]
 	}
 	return t.Build(d)
