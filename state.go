@@ -95,7 +95,7 @@ func (lhs State) Equal(rhs *State) bool {
 func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, error) {
 	state := &State{
 		myIndex:       0,
-		myLeafKey:     NewECKey().PrivateKey,
+		myLeafKey:     NewECPrivateKey(),
 		myIdentityKey: identityKey,
 
 		epoch:        0,
@@ -107,8 +107,8 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 
 		messageRootKey: nil,
 		updateSecret:   nil,
-		updateKey:      NewECKey().PrivateKey,
-		deleteKey:      NewECKey().PrivateKey,
+		updateKey:      NewECPrivateKey(),
+		deleteKey:      NewECPrivateKey(),
 	}
 
 	err := state.identityTree.Add(merkleLeaf(state.myIdentityKey.PublicKey.bytes()))
@@ -121,7 +121,7 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 		return nil, err
 	}
 
-	err = state.ratchetTree.Add(ECKeyFromPrivateKey(state.myLeafKey))
+	err = state.ratchetTree.Add(ECNodeFromPrivateKey(state.myLeafKey))
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func NewStateFromGroupAdd(identityKey ECPrivateKey, preKey ECPrivateKey, signedG
 	}
 
 	// Generate the leaf key and add to the state
-	leafKey := ECKeyFromData(preKey.derive(groupPreKey.UpdateKey)).PrivateKey
+	leafKey := ECNodeFromData(preKey.derive(groupPreKey.UpdateKey)).PrivateKey
 
 	return newStateFromVerifiedDetails(identityKey, leafKey, groupPreKey)
 }
@@ -203,7 +203,7 @@ func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey,
 		return nil, err
 	}
 
-	err = ratchetTree.Add(ECKeyFromPrivateKey(leafKey))
+	err = ratchetTree.Add(ECNodeFromPrivateKey(leafKey))
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey,
 		return nil, err
 	}
 
-	treeKey := rootNode.(*ECKey)
+	treeKey := rootNode.(*ECNode)
 	epochSecret := treeKey.PrivateKey.derive(groupPreKey.UpdateKey)
 	s.deriveEpochKeys(epochSecret)
 	return s, nil
@@ -284,8 +284,8 @@ func (s *State) deriveEpochKeys(epochSecret []byte) {
 	// * Identity tree root
 	s.messageRootKey = kdf(labelMessageRootKey, epochSecret)
 	s.updateSecret = kdf(labelUpdateSecret, epochSecret)
-	s.updateKey = ECKeyFromData(kdf(labelUpdateKey, epochSecret)).PrivateKey
-	s.deleteKey = ECKeyFromData(kdf(labelDeleteKey, epochSecret)).PrivateKey
+	s.updateKey = ECNodeFromData(kdf(labelUpdateKey, epochSecret)).PrivateKey
+	s.deleteKey = ECNodeFromData(kdf(labelDeleteKey, epochSecret)).PrivateKey
 }
 
 ///
@@ -307,7 +307,7 @@ func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *RosterSigned) 
 
 	addPath := make([]ECPublicKey, len(abstractAddPath))
 	for i, n := range abstractAddPath {
-		addPath[i] = n.(*ECKey).PrivateKey.PublicKey
+		addPath[i] = n.(*ECNode).PrivateKey.PublicKey
 	}
 
 	add := UserAdd{AddPath: addPath}
@@ -344,7 +344,7 @@ func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
 		return nil, err
 	}
 
-	ratchetPath, err := s.ratchetTree.UpdatePath(s.myIndex, ECKeyFromPrivateKey(leafKey))
+	ratchetPath, err := s.ratchetTree.UpdatePath(s.myIndex, ECNodeFromPrivateKey(leafKey))
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +357,7 @@ func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
 		update.LeafPath[i] = n.([]byte)
 	}
 	for i, n := range ratchetPath {
-		update.RatchetPath[i] = n.(*ECKey).PrivateKey.PublicKey
+		update.RatchetPath[i] = n.(*ECNode).PrivateKey.PublicKey
 	}
 
 	return s.sign(update)
@@ -384,7 +384,7 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 		}
 
 		headData := head.derive(leafKey)
-		newHead := ECKeyFromData(headData).PrivateKey
+		newHead := ECNodeFromData(headData).PrivateKey
 
 		head = newHead
 		path = append(path, head.PublicKey)
@@ -437,7 +437,7 @@ func (s *State) HandleUserAdd(signedUserAdd *RosterSigned, signedNewGPK *RosterS
 	// Update ratchet tree
 	addPath := make([]Node, len(userAdd.AddPath))
 	for i, n := range userAdd.AddPath {
-		addPath[i] = ECKeyFromPublicKey(n)
+		addPath[i] = ECNodeFromPublicKey(n)
 	}
 	err = s.ratchetTree.AddWithPath(addPath)
 
@@ -466,9 +466,9 @@ func (s *State) HandleGroupAdd(signedGroupAdd *RosterSigned) error {
 
 	// Derive the new leaf and add it to the ratchet tree
 	leafData := s.updateKey.derive(preKey)
-	leafKey := ECKeyFromData(leafData).PrivateKey
+	leafKey := ECNodeFromData(leafData).PrivateKey
 
-	err = s.ratchetTree.Add(ECKeyFromPrivateKey(leafKey))
+	err = s.ratchetTree.Add(ECNodeFromPrivateKey(leafKey))
 	if err != nil {
 		return err
 	}
@@ -500,7 +500,7 @@ func (s *State) addToSymmetricState(identityKey, leafKey ECPublicKey) error {
 		return err
 	}
 
-	treeKey := rootNode.(*ECKey)
+	treeKey := rootNode.(*ECNode)
 	epochSecret := treeKey.PrivateKey.derive(s.updateKey.PublicKey)
 	s.deriveEpochKeys(epochSecret)
 	return nil
@@ -542,10 +542,10 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 	// Update ratchet tree
 	ratchetPath := make([]Node, len(update.RatchetPath))
 	for i, n := range update.RatchetPath {
-		ratchetPath[i] = ECKeyFromPublicKey(n)
+		ratchetPath[i] = ECNodeFromPublicKey(n)
 	}
 	if leafKey != nil {
-		ratchetPath[len(ratchetPath)-1] = ECKeyFromPrivateKey(*leafKey)
+		ratchetPath[len(ratchetPath)-1] = ECNodeFromPrivateKey(*leafKey)
 	}
 
 	err = s.ratchetTree.UpdateWithPath(index, ratchetPath)
@@ -564,7 +564,7 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 		return err
 	}
 
-	treeKey := rootNode.(*ECKey).Data
+	treeKey := rootNode.(*ECNode).Data
 	epochSecret := kdf(labelEpochSecret, s.updateSecret, treeKey)
 	s.deriveEpochKeys(epochSecret)
 	s.epoch += 1
@@ -673,7 +673,7 @@ func (s *State) HandleDelete(signedDelete *RosterSigned) error {
 			headData = s.myLeafKey.derive(prevPub)
 
 		default:
-			head := ECKeyFromData(headData).PrivateKey
+			head := ECNodeFromData(headData).PrivateKey
 			headData = head.derive(leafKey)
 		}
 	}
@@ -681,7 +681,7 @@ func (s *State) HandleDelete(signedDelete *RosterSigned) error {
 	// Replace the delelted nodes with the delete key in the ratchet tree
 	// Replace the deleted nodes with empty nodes in the identity tree
 	emptyNode := emptyMerkleLeaf()
-	deleteNode := ECKeyFromPublicKey(s.deleteKey.PublicKey)
+	deleteNode := ECNodeFromPublicKey(s.deleteKey.PublicKey)
 	for i := range deleted {
 		err := s.identityTree.Update(i, emptyNode)
 		if err != nil {

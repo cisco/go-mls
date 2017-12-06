@@ -8,7 +8,7 @@ import (
 
 var (
 	aData        = []byte("messages")
-	aPrivateKey  = NewECKey().PrivateKey
+	aPrivateKey  = NewECPrivateKey()
 	aKey         = aPrivateKey.PublicKey
 	aMerkleEntry = MerkleFrontierEntry{Value: aData, Size: 4}
 	aECEntry     = ECFrontierEntry{Value: aKey, Size: 4}
@@ -70,7 +70,7 @@ func TestMessageJSON(t *testing.T) {
 }
 
 func TestSigned(t *testing.T) {
-	k := ECKeyFromData([]byte("signing test")).PrivateKey
+	k := ECNodeFromData([]byte("signing test")).PrivateKey
 
 	in := aUserPreKey
 	s, err := NewSigned(in, k)
@@ -105,7 +105,7 @@ func TestRosterSigned(t *testing.T) {
 	aLeafKeys := make([]ECPrivateKey, aGroupSize)
 	aLeaves := make([]Node, aGroupSize)
 	for i := range aLeafKeys {
-		aLeafKeys[i] = NewECKey().PrivateKey
+		aLeafKeys[i] = NewECPrivateKey()
 		aLeaves[i] = merkleLeaf(aLeafKeys[i].PublicKey.bytes())
 	}
 

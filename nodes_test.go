@@ -58,19 +58,19 @@ func TestMerkleTree(t *testing.T) {
 	}
 }
 
-func TestECKeyJSON(t *testing.T) {
+func TestECNodeJSON(t *testing.T) {
 	aData := []byte("data")
-	aKey := ECKeyFromData(aData)
+	aKey := ECNodeFromData(aData)
 
 	kj, err := json.Marshal(aKey)
 	if err != nil {
-		t.Fatalf("Error marshaling ECKey: %v", err)
+		t.Fatalf("Error marshaling ECNode: %v", err)
 	}
 
-	k2 := new(ECKey)
+	k2 := new(ECNode)
 	err = json.Unmarshal(kj, k2)
 	if err != nil {
-		t.Fatalf("Error unmarshaling ECKey: %v", err)
+		t.Fatalf("Error unmarshaling ECNode: %v", err)
 	}
 
 	if !ecdhNodeDefn.publicEqual(aKey, k2) {
@@ -79,17 +79,17 @@ func TestECKeyJSON(t *testing.T) {
 }
 
 func TestECDHTree(t *testing.T) {
-	aLeaves := make([]*ECKey, len(aLeafData))
+	aLeaves := make([]*ECNode, len(aLeafData))
 	aLeafNodes := make([]Node, len(aLeafData))
 	for i, data := range aLeafData {
-		aLeaves[i] = ECKeyFromData(data)
+		aLeaves[i] = ECNodeFromData(data)
 		aLeafNodes[i] = aLeaves[i]
 	}
 
-	ab := ECKeyFromData(aLeaves[0].PrivateKey.derive(aLeaves[1].PrivateKey.PublicKey))
-	cd := ECKeyFromData(aLeaves[2].PrivateKey.derive(aLeaves[3].PrivateKey.PublicKey))
-	abcd := ECKeyFromData(ab.PrivateKey.derive(cd.PrivateKey.PublicKey))
-	abcde := ECKeyFromData(abcd.PrivateKey.derive(aLeaves[4].PrivateKey.PublicKey))
+	ab := ECNodeFromData(aLeaves[0].PrivateKey.derive(aLeaves[1].PrivateKey.PublicKey))
+	cd := ECNodeFromData(aLeaves[2].PrivateKey.derive(aLeaves[3].PrivateKey.PublicKey))
+	abcd := ECNodeFromData(ab.PrivateKey.derive(cd.PrivateKey.PublicKey))
+	abcde := ECNodeFromData(abcd.PrivateKey.derive(aLeaves[4].PrivateKey.PublicKey))
 
 	tree, err := newTreeFromLeaves(ecdhNodeDefn, aLeafNodes)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestECDHTree(t *testing.T) {
 		t.Fatalf("Error fetching tree root: %v", err)
 	}
 
-	rootData, ok := root.(*ECKey)
+	rootData, ok := root.(*ECNode)
 	if !ok {
 		t.Fatalf("ECDH tree root not of type *ecdhKey")
 	}

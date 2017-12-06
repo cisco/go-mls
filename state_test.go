@@ -10,7 +10,7 @@ var (
 
 func TestUserAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECKey().PrivateKey
+	creatorKey := NewECPrivateKey()
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -19,8 +19,8 @@ func TestUserAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECKey().PrivateKey
-		leafKey := NewECKey().PrivateKey
+		identityKey := NewECPrivateKey()
+		leafKey := NewECPrivateKey()
 		oldGPK, err := states[k-1].groupPreKey()
 		if err != nil {
 			t.Fatalf("Error in fetching GPK: %v", err)
@@ -62,7 +62,7 @@ func TestUserAdd(t *testing.T) {
 
 func TestGroupAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECKey().PrivateKey
+	creatorKey := NewECPrivateKey()
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -71,8 +71,8 @@ func TestGroupAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECKey().PrivateKey
-		preKey := NewECKey().PrivateKey
+		identityKey := NewECPrivateKey()
+		preKey := NewECPrivateKey()
 
 		upk := UserPreKey{PreKey: preKey.PublicKey}
 		supk, err := NewSigned(upk, identityKey)
@@ -123,13 +123,13 @@ func TestGroupAdd(t *testing.T) {
 // XXX Ignoring errors throughout; should be caught in TestUserAdd
 func createGroup() []*State {
 	groupID := []byte("treehouse")
-	creatorKey := NewECKey().PrivateKey
+	creatorKey := NewECPrivateKey()
 	creator, _ := NewStateForEmptyGroup(groupID, creatorKey)
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECKey().PrivateKey
-		leafKey := NewECKey().PrivateKey
+		identityKey := NewECPrivateKey()
+		leafKey := NewECPrivateKey()
 		oldGPK, _ := states[k-1].groupPreKey()
 		add, newGPK, _ := Join(identityKey, leafKey, oldGPK)
 
@@ -149,7 +149,7 @@ func TestUpdate(t *testing.T) {
 
 	// Update each participant
 	for i, s0 := range states {
-		leafKey := NewECKey().PrivateKey
+		leafKey := NewECPrivateKey()
 		update, err := s0.Update(leafKey)
 		if err != nil {
 			t.Fatalf("Error generating update: %v", err)

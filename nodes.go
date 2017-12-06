@@ -181,7 +181,7 @@ func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
 /// ECDH Tree
 ///
 
-type ECKey struct {
+type ECNode struct {
 	Data       []byte
 	PrivateKey ECPrivateKey
 }
@@ -273,28 +273,26 @@ func (k ECPublicKey) verify(message, signature []byte) bool {
 	return ecdsa.Verify(pub, h.Sum(nil), r, s)
 }
 
-func NewECKey() *ECKey {
+func NewECPrivateKey() ECPrivateKey {
 	priv, _ := ecdsa.GenerateKey(ecdhCurve, rand.Reader)
-	return &ECKey{
-		PrivateKey: ECPrivateKey{
-			D: priv.D,
-			PublicKey: ECPublicKey{
-				Curve: priv.PublicKey.Curve,
-				X:     priv.PublicKey.X,
-				Y:     priv.PublicKey.Y,
-			},
+	return ECPrivateKey{
+		D: priv.D,
+		PublicKey: ECPublicKey{
+			Curve: priv.PublicKey.Curve,
+			X:     priv.PublicKey.X,
+			Y:     priv.PublicKey.Y,
 		},
 	}
 }
 
-func ECKeyFromData(data []byte) *ECKey {
+func ECNodeFromData(data []byte) *ECNode {
 	h := sha256.New()
 	h.Write(data)
 	db := h.Sum(nil)
 	x, y := ecdhCurve.ScalarBaseMult(db)
 
 	d := big.NewInt(0).SetBytes(db)
-	return &ECKey{
+	return &ECNode{
 		Data: data,
 		PrivateKey: ECPrivateKey{
 			D:         d,
@@ -303,17 +301,17 @@ func ECKeyFromData(data []byte) *ECKey {
 	}
 }
 
-func ECKeyFromPrivateKey(priv ECPrivateKey) *ECKey {
-	return &ECKey{PrivateKey: priv}
+func ECNodeFromPrivateKey(priv ECPrivateKey) *ECNode {
+	return &ECNode{PrivateKey: priv}
 }
 
-func ECKeyFromPublicKey(pub ECPublicKey) *ECKey {
-	return &ECKey{PrivateKey: ECPrivateKey{PublicKey: pub}}
+func ECNodeFromPublicKey(pub ECPublicKey) *ECNode {
+	return &ECNode{PrivateKey: ECPrivateKey{PublicKey: pub}}
 }
 
 var ecdhNodeDefn = &nodeDefinition{
 	valid: func(x Node) bool {
-		xk, ok := x.(*ECKey)
+		xk, ok := x.(*ECNode)
 		if !ok {
 			return false
 		}
@@ -324,8 +322,8 @@ var ecdhNodeDefn = &nodeDefinition{
 	},
 
 	equal: func(x, y Node) bool {
-		xk, okx := x.(*ECKey)
-		yk, oky := y.(*ECKey)
+		xk, okx := x.(*ECNode)
+		yk, oky := y.(*ECNode)
 		if !okx || !oky {
 			return false
 		}
@@ -346,18 +344,18 @@ var ecdhNodeDefn = &nodeDefinition{
 	},
 
 	publicEqual: func(x, y Node) bool {
-		xk, okx := x.(*ECKey)
-		yk, oky := y.(*ECKey)
+		xk, okx := x.(*ECNode)
+		yk, oky := y.(*ECNode)
 		return okx && oky && xk.PrivateKey.PublicKey.Equal(yk.PrivateKey.PublicKey)
 	},
 
 	create: func(data []byte) Node {
-		return ECKeyFromData(data)
+		return ECNodeFromData(data)
 	},
 
 	combine: func(x, y Node) ([]byte, error) {
-		xk, okx := x.(*ECKey)
-		yk, oky := y.(*ECKey)
+		xk, okx := x.(*ECNode)
+		yk, oky := y.(*ECNode)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
@@ -388,7 +386,7 @@ func NewECFrontier(f *Frontier) (ECFrontier, error) {
 		}
 
 		mf[i] = ECFrontierEntry{
-			Value: e.Value.(*ECKey).PrivateKey.PublicKey,
+			Value: e.Value.(*ECNode).PrivateKey.PublicKey,
 			Size:  e.Size,
 		}
 	}
@@ -404,7 +402,7 @@ func (mf ECFrontier) Frontier() *Frontier {
 
 	for i, e := range mf {
 		f.Entries[i] = FrontierEntry{
-			Value: ECKeyFromPublicKey(e.Value),
+			Value: ECNodeFromPublicKey(e.Value),
 			Size:  e.Size,
 		}
 	}
