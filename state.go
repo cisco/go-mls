@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"reflect"
 )
 
 var (
@@ -360,7 +361,52 @@ func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
 	return s.sign(update)
 }
 
-// TODO Delete(indices []uint) (RosterSigned<Delete>)
+func (s State) Delete(indices []uint) (*RosterSigned, error) {
+	hasLeaves := (len(s.leafList) > 0)
+	hasIdentities := s.identityTree.HasAllLeaves()
+	if !hasLeaves || !hasIdentities {
+		return nil, fmt.Errorf("Cannot delete without having all leaves and identities")
+	}
+
+	deleted := map[uint]bool{}
+	for _, i := range indices {
+		deleted[i] = true
+	}
+
+	head := s.updateKey
+	path := []ECPublicKey{}
+
+	for i, leafKey := range s.leafList {
+		if deleted[uint(i)] {
+			continue
+		}
+
+		headData := head.derive(leafKey)
+		newHead := ECKeyFromData(headData).PrivateKey
+
+		head = newHead
+		path = append(path, head.PublicKey)
+	}
+
+	abstractIdentities, err := s.identityTree.Leaves()
+	if err != nil {
+		return nil, err
+	}
+
+	identities := make([][]byte, len(abstractIdentities))
+	for i, id := range abstractIdentities {
+		identities[i] = id.([]byte)
+	}
+
+	delete := Delete{
+		Deleted:    indices,
+		Path:       path,
+		Leaves:     s.leafList,
+		Identities: identities,
+	}
+
+	return s.sign(delete)
+}
 
 ///
 /// Functions to handle epoch-changing messages
@@ -479,8 +525,6 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 		return err
 	}
 
-	s.epoch += 1
-
 	// Update leaf tree
 	index := signedUpdate.Copath.Index
 	leafPath := make([]Node, len(update.LeafPath))
@@ -521,7 +565,134 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 	treeKey := rootNode.(*ECKey).Data
 	epochSecret := kdf(labelEpochSecret, s.updateSecret, treeKey)
 	s.deriveEpochKeys(epochSecret)
+	s.epoch += 1
 	return nil
 }
 
-// func (s *State) HandleDelete(delete RosterSigned<Delete>) error
+func (s *State) importIdentities(identities [][]byte) error {
+	leaves := make([]Node, len(identities))
+	for i, id := range identities {
+		leaves[i] = id
+	}
+
+	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
+	if err != nil {
+		return err
+	}
+
+	err = compareTreeRoots(s.identityTree, t)
+	if err != nil {
+		return err
+	}
+
+	s.identityTree = t
+	return nil
+}
+
+func (s *State) importLeaves(leafKeys []ECPublicKey) error {
+	leaves := make([]Node, len(leafKeys))
+	for i, leafKey := range leafKeys {
+		leaves[i] = merkleLeaf(leafKey.bytes())
+	}
+
+	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
+	if err != nil {
+		return err
+	}
+
+	err = compareTreeRoots(s.leafTree, t)
+	if err != nil {
+		return err
+	}
+
+	s.leafTree = t
+	s.leafList = leafKeys
+	return nil
+}
+
+func compareTreeRoots(local, remote *tree) error {
+	localRoot, err := local.Root()
+	if err != nil {
+		return err
+	}
+
+	remoteRoot, err := remote.Root()
+	if err != nil {
+		return err
+	}
+
+	if !reflect.DeepEqual(localRoot, remoteRoot) {
+		return fmt.Errorf("Tree root mismatch")
+	}
+
+	return nil
+}
+
+func (s *State) HandleDelete(signedDelete *RosterSigned) error {
+	delete := new(Delete)
+	err := s.verifyForCurrentRoster(signedDelete, delete)
+	if err != nil {
+		return err
+	}
+
+	deleted := map[uint]bool{}
+	for _, i := range delete.Deleted {
+		deleted[i] = true
+	}
+
+	// Verify and import lists of leaf and identity keys
+	err = s.importLeaves(delete.Leaves)
+	if err != nil {
+		return err
+	}
+
+	err = s.importIdentities(delete.Identities)
+	if err != nil {
+		return err
+	}
+
+	// Compute a secret that is not available to the deleted nodes
+	curr := 0
+	var headData []byte
+	for i, leafKey := range s.leafList {
+		switch {
+		case deleted[uint(i)]:
+			continue
+
+		case i < int(s.myIndex):
+			curr += 1
+			continue
+
+		case i == int(s.myIndex):
+			prevPub := s.updateKey.PublicKey
+			if curr > 0 {
+				prevPub = delete.Path[curr-1]
+			}
+			headData = s.myLeafKey.derive(prevPub)
+
+		default:
+			head := ECKeyFromData(headData).PrivateKey
+			headData = head.derive(leafKey)
+		}
+	}
+
+	// Replace the delelted nodes with the delete key in the ratchet tree
+	// Replace the deleted nodes with empty nodes in the identity tree
+	emptyNode := emptyMerkleLeaf()
+	deleteNode := ECKeyFromPublicKey(s.deleteKey.PublicKey)
+	for i := range deleted {
+		err := s.identityTree.Update(i, emptyNode)
+		if err != nil {
+			return err
+		}
+
+		// XXX this should be a method, e.g., SetWithoutBuild(i, deleteKey
+		s.ratchetTree.nodes[2*i] = deleteNode
+	}
+
+	// Ratchet the epoch forward
+	epochSecret := kdf(labelEpochSecret, s.updateSecret, headData)
+	s.deriveEpochKeys(epochSecret)
+	s.epoch += 1
+	return nil
+}

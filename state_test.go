@@ -147,17 +147,6 @@ func createGroup() []*State {
 func TestUpdate(t *testing.T) {
 	states := createGroup()
 
-	// Verify that everyone ended up in the right state
-	if states[0].epoch != uint(len(states)-1) {
-		t.Fatalf("Incorrect epoch: %v != %v", states[0].epoch, len(states)-1)
-	}
-
-	for i := 1; i < len(states); i += 1 {
-		if !states[i].Equal(states[0]) {
-			t.Fatalf("State mismatch: %v != %v", i, 0)
-		}
-	}
-
 	// Update each participant
 	for i, s0 := range states {
 		leafKey := NewECKey().PrivateKey
@@ -189,7 +178,59 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	// TODO
+	states := createGroup()
+
+	// Import leaves and identities to the penultimate node
+	identities := make([][]byte, len(states))
+	leafKeys := make([]ECPublicKey, len(states))
+	for i, s := range states {
+		leafKeys[i] = s.myLeafKey.PublicKey
+		identities[i] = merkleLeaf(s.myIdentityKey.PublicKey.bytes())
+	}
+
+	err := states[len(states)-2].importIdentities(identities)
+	if err != nil {
+		t.Fatalf("Error importing identities: %v", err)
+	}
+
+	err = states[len(states)-2].importLeaves(leafKeys)
+	if err != nil {
+		t.Fatalf("Error importing leaves: %v", err)
+	}
+
+	// Each node deletes its successor
+	startingEpoch := states[0].epoch
+	epochSteps := uint(0)
+
+	for k := uint(len(states) - 2); ; k -= 1 {
+		delete, err := states[k].Delete([]uint{k + 1})
+		if err != nil {
+			t.Fatalf("Error generating delete @ %d: %v", k, err)
+		}
+
+		for i := uint(0); i <= k; i += 1 {
+			err = states[i].HandleDelete(delete)
+			if err != nil {
+				t.Fatalf("Error handling delete @ %d -> %d: %v", k, i, err)
+			}
+		}
+
+		// Check that the remaining nodes end up in the same place
+		epochSteps += 1
+		if states[k].epoch != startingEpoch+epochSteps {
+			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[k].epoch, startingEpoch+epochSteps)
+		}
+
+		for i := uint(k); i < k; i += 1 {
+			if !states[i].Equal(states[k]) {
+				t.Fatalf("State mismatch @ %d: %v != %v", k, i, 0)
+			}
+		}
+
+		if k == 0 {
+			break
+		}
+	}
 }
 
 func TestDeleteMultiple(t *testing.T) {
