@@ -103,7 +103,7 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 		identityTree: newTree(merkleNodeDefn),
 		leafTree:     newTree(merkleNodeDefn),
 		ratchetTree:  newTree(ecdhNodeDefn),
-		leafList:     []ECPublicKey{identityKey.PublicKey},
+		leafList:     []ECPublicKey{},
 
 		messageRootKey: nil,
 		updateSecret:   nil,
@@ -125,6 +125,8 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 	if err != nil {
 		return nil, err
 	}
+
+	state.leafList = []ECPublicKey{state.myLeafKey.PublicKey}
 
 	return state, nil
 }

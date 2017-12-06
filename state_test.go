@@ -234,7 +234,40 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeleteMultiple(t *testing.T) {
-	// TODO
+	states := createGroup()
+
+	// Room creator deletes everyone but himself and the last participant
+	startingEpoch := states[0].epoch
+
+	toDelete := make([]uint, len(states))
+	for i := range states {
+		if i == 0 || i == len(states)-1 {
+			continue
+		}
+		toDelete[i] = uint(i)
+	}
+	delete, err := states[0].Delete(toDelete)
+	if err != nil {
+		t.Fatalf("Error generating delete: %v", err)
+	}
+
+	err = states[0].HandleDelete(delete)
+	if err != nil {
+		t.Fatalf("Error handling delete (0): %v", err)
+	}
+
+	err = states[1].HandleDelete(delete)
+	if err != nil {
+		t.Fatalf("Error handling delete (1): %v", err)
+	}
+
+	if states[0].epoch != startingEpoch+1 {
+		t.Fatalf("Incorrect epoch: %v", states[0].epoch, startingEpoch+1)
+	}
+
+	if !states[0].Equal(states[1]) {
+		t.Fatalf("State mismatch")
+	}
 }
 
 func TestChaosMonkey(t *testing.T) {
