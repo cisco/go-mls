@@ -1,0 +1,282 @@
+\documentclass[11pt, oneside]{article} 
+\usepackage{geometry}
+\geometry{letterpaper}
+\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}		
+\usepackage{amssymb}
+
+\title{Messaging Layer Security (MLS)}
+\author{TODO}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+This protocol enables of group of participants to establish a secret that is shared only by the members of the group, even as the membership in the group changes.  
+
+We assume that each participant is provisioned with an \textit{identity key} which can be used compute digital signatures.  In the course of the protocol, each participant will also have a \textit{leaf key} that can change over time.
+
+
+\subsection{State}
+
+Logically, the state of a group $G$ comprises the following data:
+
+\begin{itemize}
+\item{An \textit{epoch number} $G.E$ that is updated whenever the secret shared by the group changes.  We will call this shared secret the \textit{epoch secret}.}
+\item{A \textit{group ID} $G.id$ that uniquely identifies the group within the scope of the messaging system}
+\item{A Merkle tree $G.T_I$ over the identity keys of participants in the conference}
+\item{A Merkle tree $G.T_L$ over the leaf keys of participants in the conference}
+\item{A "ratchet tree" $C.T_R$ over the leaf keys of the participants in the conference}
+\item{For each epoch, a set of shared secret values derived from the epoch secret:
+	\begin{itemize}
+	\item{A \textit{message root key} $G.k_m$ used for deriving keys to protect messages}
+	\item{An \textit{update secret}  $G.k_u$ used updating leaf keys}
+	\item{An assymetric \textit{add private key} $G.k_a$ used adding members to the group}
+	\end{itemize}
+}
+\end{itemize}
+
+The Merkle trees are used to verify participants' membership in the group, while avoiding the need to cache or transmit the full list of participants.  A participant must have the full participant list in order to remove participants, and a delete message has $O(N)$ size, but all other messages are of size $O(\log N)$.
+
+Each participant caches a view of this state that is sufficient to generate and consume messages that update the group's membership.  A participant is added to the group by initializing a view of the state of the group.  A participant is removed by updating the group's secrets such that they are no longer known to the removed participant.
+
+
+\subsection{Membership Changes}
+
+This protocol enables the following changes to group membership:
+
+\begin{itemize}
+\item{Addition of a participant, initiated by a group member}
+\item{Addition of a participant, initiated by the new participant}
+\item{Update of a leaf key for a participant}
+\item{Remove a participant}
+\end{itemize}
+
+Each change is accomplished by sending a single message to the group.  
+
+Each message is premised on a given epoch; it represents a change from epoch $n$ to a new epoch $n+1$.  If multiple messages are issued premised on the same epoch, only one can be applied.  If the underlying messaging system imposes a consistent ordering on messages (i.e., that all participants will process messages in the same order), then the participants can simply accept the first message delivered per epoch.  Rejected messages can be recalculated on the new epoch and resent.  
+
+[Note: Adds by the group actually do not need to be bound to an epoch; as long as they are applied in the same order, the message carries enough information for participants to rebase on a new epoch, rather than the sender having to do the rebase.]
+
+
+\section{Signing and Roster Signing}
+
+All messages in MLS are signed by the sender.  A \textit{roster signed} message also includes a proof of the signer's membership in the group.  A signed / roster signed message has the following components:
+
+\begin{enumerate}
+\item{The signed message, encoded as an octet string}
+\item{The public key of the signer}
+\item{The signature over the message by the corresponding private key}
+\item{(For roster signed) A Merkle inclusion proof for the public key:
+\begin{itemize}
+\item{The size of the Merkle tree}
+\item{The signer's index in that Merkle tree}
+\item{The nodes in the copath connecting the signer's leaf to the root of the tree}
+\end{itemize}
+}
+\end{enumerate}
+
+In addition to standard signature verification, verification of a roster signed message should include a verification of the Merkle inclusion proof against the Merkle tree head for the tree representing the expected roster of the room.
+
+
+\section{Prekeys}
+
+To allow for asynchronous additions of new participants, both users and groups can publish \textit{prekeys} that the other side can use to perform an add operation.  Individual participants can use a \textit{group prekey} to add themselves to the group.  Members of the group can use a \textit{user prekey} to add a user to the group.  In both cases, once members of the group have processed the add message, they can begin transmitting messages under a key that is held by all group members.
+
+A UserPreKey is a signed message, where the signing key is the identity key for the user and the payload of the message is an initial leaf public key for the user.  Thus the consumer of a user prekey receives an identity key and a leaf key for the user in question, as well as a proof of possession of the identity key.
+
+A GroupPreKey is a roster signed message whose payload contains a snapshot of the public aspects of the group state:
+
+\begin{itemize}
+\item{The current epoch number}
+\item{The group ID}
+\item{The frontier of the identity tree $G.T_I$}
+\item{The frontier of the leaf tree $G.T_L$}
+\item{The frontier of the ratchet tree $G.T_R$}
+\item{The add public key for this epoch}
+\end{itemize}
+
+The Merkle inclusion proof in the roster signature must be valid with respect to the Merkle tree head computed from the identity tree frontier in the payload.
+
+
+\section{Group Key Management}
+
+TODO
+
+\subsection{Participant State}
+
+Each participant maintains the following state for a group:
+
+\begin{itemize}
+\item{A description of this participant's role in the group:
+	\begin{itemize}
+	\item{This participant's index in the group}
+	\item{This participant's identity key}
+	\item{This participant's current leaf key}
+	\item{This participant's copath in the ratchet tree $G.T_R$}
+	\end{itemize}
+}
+\item{A view of the global state of the group:
+	\begin{itemize}
+	\item{The current epoch number $G.E$}
+	\item{The group ID $G.id$}
+	\item{The Merkle identity tree $G.T_I$ (or a partial version)}
+	\item{The Merkle leaf tree $G.T_I$ (or a partial version)}
+	\item{The frontier $F_R$ of the ratchet tree $G.T_R$}
+	\item{The current message root key, update secret, and add key pair}
+	\end{itemize}
+}
+\end{itemize}
+
+A given participant view of the identity tree and leaf tree might be incomplete.  On initialization, a participant is provided the frontier of each tree, allowing it to compute the right edge and head of each tree.  Receiving add messages will allow it to compute additional branches of the tree to the right of its position, as well as new tree heads.  It will need to have the full lists of identity keys and leaf keys before generating a Delete message, but having the heads of these Merkle trees allows it to download these lists from an untrusted source.
+
+The key management messages listed below serve to initialize new participants and synchronize state between current participants.
+
+When the first participant in a group creates the group, it initializes its own state to reflect a group containing only itself.
+
+\begin{itemize}
+\item{index: 0}
+\item{identity key: (participant identity key)}
+\item{leaf key: (fresh private key)}
+\item{ratchet copath: (empty)}
+\item{epoch: 0}
+\item{group ID: (set by participant)}
+\item{identity tree: (one-node tree over participant identity key)}
+\item{leaf tree: (one-node tree over participant leaf key)}
+\item{ratchet frontier: (one-node frontier, (leaf, 1))}
+\item{message root key: (random)}
+\item{message update secret: (random)}
+\item{message add key pair: (fresh key pair)}
+\end{itemize}
+
+
+\subsection{Group-Initiated Add (GroupAdd)}
+
+An GroupAdd message is sent by a group member to update their leaf key.  
+
+An update message is a roster signed message (relative to the current epoch identity tree) with the following contents:
+
+\begin{itemize}
+\item{The UserPreKey on which this addition is based}
+\end{itemize}
+
+A group member generates such a message by downloading a UserPreKey for the user to be added and signing it.
+
+The added participant processes the message together with a GroupPreKey for the prior epoch to initialize his state as follows:
+
+[[ TODO ]]
+
+Existing group participants update their state as follows:
+
+\begin{itemize}
+\item{Compute the new participant's leaf key pair by combining the leaf key in the UserPreKey with the prior epoch add key pair}
+\item{Update the group's identity, leaf, and ratchet trees with the new information}
+\item{Compute a new tree key from the ratchet copath and leaf; turn it into a key pair}
+\item{Combine the tree key pair with the prior epoch's add key pair to get the epoch secret}
+\end{itemize}
+
+
+\subsection{User-Initiated Add (UserAdd)}
+
+An UserAdd message is sent by a group member to update their leaf key.  
+
+An update message is a roster signed message (relative to the current epoch identity tree) with the following contents:
+
+\begin{itemize}
+\item{An addition path for the ratchet tree $G.T_R$}
+\end{itemize}
+
+A new participant generates this message using the following steps:
+
+\begin{itemize}
+\item{Fetch a GroupPreKey for the group}
+\item{Use the frontiers in the GroupPreKey to add its keys to the trees}
+\item{Compute a new tree key from the ratchet tree and turn it into a key pair}
+\item{Combine the tree key pair with the prior epoch's add key pair to get the epoch secret}
+\end{itemize}
+
+[[ TODO state initialization ]]
+
+An existing participant updates its state from this message, together with the new GroupPreKey published by the new participant:
+
+\begin{itemize}
+\item{Update trees with the descriptions in the new GroupPreKey}
+\item{Update ratchet copath with the update path in the UserAdd message}
+\item{Compute a new tree key from the ratchet copath and leaf; turn it into a key pair}
+\item{Combine the tree key pair with the prior epoch's add key pair to get the epoch secret}
+\end{itemize}
+
+
+\subsection{Leaf Key Update (Update)}
+
+An update message is sent by a group member to update their leaf key.  
+
+An update message is a roster signed message (relative to the current epoch identity tree) with the following contents:
+
+\begin{itemize}
+\item{An update path for the leaf tree $G.T_L$}
+\item{An update path for the ratchet tree $G.T_R$}
+\end{itemize}
+
+[[ TODO: How to generate / consume ]]
+
+
+\subsection{Removal of Participants (Delete)}
+
+A delete message is sent by a group member to remove one or more participants from the group.
+
+An delete message is a roster signed message (relative to the current epoch identity tree) with the following contents:
+
+\begin{itemize}
+\item{A list of indices for deleted nodes}
+\item{A ``delete path'' used to update the epoch secret}
+\item{A list of all leaf keys for participants before the deletion}
+\item{A list of all identity keys for participants before the deletion}
+\end{itemize}
+
+[[ TODO: How to generate / consume ]]
+
+
+
+\end{document}  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
