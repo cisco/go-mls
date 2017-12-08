@@ -113,16 +113,30 @@ func (mp MerklePath) Nodes() []Node {
 	return f
 }
 
+func (mp MerklePath) RootAsFrontier() ([]byte, error) {
+	// The size only matters because its frontier has the same number of nodes as mp
+	size := uint(1<<uint(len(mp))) - 1
+	tree, err := newTreeFromFrontier(merkleNodeDefn, size, mp.Nodes())
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := tree.Root()
+	if err != nil {
+		return nil, err
+	}
+
+	return root.(MerkleNode).Value, nil
+}
+
 // Interpret the path as a copath and compute the root
-func (mp MerklePath) Root(index, size uint, leaf MerkleNode) ([]byte, error) {
+func (mp MerklePath) RootAsCopath(index, size uint, leaf MerkleNode) ([]byte, error) {
 	tree, err := newTreeFromCopath(merkleNodeDefn, index, size, mp.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	tree.nodes[2*index] = leaf
-
-	err = tree.Build([]uint{2 * index})
+	err = tree.Update(index, leaf)
 	if err != nil {
 		return nil, err
 	}
