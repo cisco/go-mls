@@ -48,7 +48,7 @@ func TestUserAdd(t *testing.T) {
 		states = append(states, newState)
 
 		// Verify that everyone ended up in the right state
-		if states[0].epoch != uint(k) {
+		if states[0].epoch != uint32(k) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
@@ -107,7 +107,7 @@ func TestGroupAdd(t *testing.T) {
 		states = append(states, newState)
 
 		// Verify that everyone ended up in the right state
-		if states[0].epoch != uint(k) {
+		if states[0].epoch != uint32(k) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
@@ -200,7 +200,7 @@ func TestDelete(t *testing.T) {
 
 	// Each node deletes its successor
 	startingEpoch := states[0].epoch
-	epochSteps := uint(0)
+	epochSteps := uint32(0)
 
 	for k := uint(len(states) - 2); ; k -= 1 {
 		delete, err := states[k].Delete([]uint{k + 1})

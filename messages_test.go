@@ -2,6 +2,7 @@ package mls
 
 import (
 	"encoding/json"
+	"github.com/bifurcation/mint/syntax"
 	"reflect"
 	"testing"
 )
@@ -38,7 +39,7 @@ var (
 	}
 
 	aDelete = &Delete{
-		Deleted:    []uint{0, 1},
+		Deleted:    []uint32{0, 1},
 		Path:       aECPath,
 		Leaves:     aECPath,
 		Identities: aMerklePath,
@@ -68,6 +69,32 @@ func TestMessageJSON(t *testing.T) {
 	testJSON(aGroupAdd, new(GroupAdd))
 	testJSON(aUpdate, new(Update))
 	testJSON(aDelete, new(Delete))
+}
+
+func TestMessageTLS(t *testing.T) {
+	testTLS := func(label string, x interface{}, out interface{}) {
+		t.Logf(label)
+		xj, err := syntax.Marshal(x)
+		if err != nil {
+			t.Fatalf("Error in TLS marshal: %v", err)
+		}
+
+		_, err = syntax.Unmarshal(xj, out)
+		if err != nil {
+			t.Fatalf("Error in TLS unmarshal: %v", err)
+		}
+
+		if !reflect.DeepEqual(x, out) {
+			t.Fatalf("JSON round-trip failed: %+v != %+v", x, out)
+		}
+	}
+
+	testTLS("UserPreKey", aUserPreKey, new(UserPreKey))
+	testTLS("GroupPreKey", aGroupPreKey, new(GroupPreKey))
+	testTLS("UserAdd", aUserAdd, new(UserAdd))
+	//testTLS("GroupAdd", aGroupAdd, new(GroupAdd))  // TODO re-enable once UserPreKey is signed directly
+	testTLS("Update", aUpdate, new(Update))
+	testTLS("Delete", aDelete, new(Delete))
 }
 
 func TestSigned(t *testing.T) {

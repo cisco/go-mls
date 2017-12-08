@@ -38,7 +38,7 @@ func rootForSignedGPK(signedGPK *RosterSigned) ([]byte, error) {
 		identityNodes[i] = n
 	}
 
-	identityTree, err := newTreeFromFrontier(merkleNodeDefn, groupPreKey.GroupSize, identityNodes)
+	identityTree, err := newTreeFromFrontier(merkleNodeDefn, uint(groupPreKey.GroupSize), identityNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ type State struct {
 	myIdentityKey ECPrivateKey
 
 	// Description of the group
-	epoch        uint
+	epoch        uint32
 	groupID      []byte
 	identityTree *tree
 	leafTree     *tree
@@ -183,7 +183,7 @@ func NewStateFromGroupPreKey(identityKey ECPrivateKey, leafKey ECPrivateKey, pri
 }
 
 func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey, groupPreKey *GroupPreKey) (*State, error) {
-	treeSize := groupPreKey.GroupSize
+	treeSize := uint(groupPreKey.GroupSize)
 
 	// Initialize trees and add this node
 	identityTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.IdentityFrontier.Nodes())
@@ -277,7 +277,7 @@ func (s State) groupPreKey() (*RosterSigned, error) {
 	gpk := &GroupPreKey{
 		Epoch:            s.epoch,
 		GroupID:          s.groupID,
-		GroupSize:        s.identityTree.size,
+		GroupSize:        uint32(s.identityTree.size),
 		UpdateKey:        s.updateKey.PublicKey,
 		IdentityFrontier: Ifr,
 		LeafFrontier:     Lfr,
@@ -400,6 +400,11 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 		path = append(path, head.PublicKey)
 	}
 
+	indices32 := make([]uint32, len(indices))
+	for i, x := range indices {
+		indices32[i] = uint32(x)
+	}
+
 	abstractIdentities, err := s.identityTree.Leaves()
 	if err != nil {
 		return nil, err
@@ -411,7 +416,7 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 	}
 
 	delete := Delete{
-		Deleted:    indices,
+		Deleted:    indices32,
 		Path:       path,
 		Leaves:     s.leafList,
 		Identities: identities,
@@ -649,7 +654,7 @@ func (s *State) HandleDelete(signedDelete *RosterSigned) error {
 
 	deleted := map[uint]bool{}
 	for _, i := range delete.Deleted {
-		deleted[i] = true
+		deleted[uint(i)] = true
 	}
 
 	// Verify and import lists of leaf and identity keys

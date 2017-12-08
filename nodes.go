@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/bifurcation/mint/syntax"
 	"math/big"
 )
 
@@ -25,6 +26,7 @@ var (
 /// Merkle Tree
 ///
 
+// opaque MerkleNode<1..2^8-1>;
 type MerkleNode struct {
 	Value []byte `tls:"min=1,head=1"`
 }
@@ -150,6 +152,32 @@ type ECPrivateKey struct {
 type ECPublicKey struct {
 	Curve elliptic.Curve
 	X, Y  *big.Int
+}
+
+// opaque DHPublicKey<1..2^16-1>;
+// opaque SignaturePublicKey<1..2^16-1>;
+type rawECPublicKey struct {
+	Value []byte `tls:"min=1,head=2"`
+}
+
+func (k ECPublicKey) MarshalTLS() ([]byte, error) {
+	return syntax.Marshal(rawECPublicKey{k.bytes()})
+}
+
+func (k *ECPublicKey) UnmarshalTLS(data []byte) (int, error) {
+	var raw rawECPublicKey
+	n, err := syntax.Unmarshal(data, &raw)
+	if err != nil {
+		return 0, err
+	}
+
+	x, y := elliptic.Unmarshal(ecdhCurve, raw.Value)
+	if x == nil {
+		return 0, fmt.Errorf("Invalid EC public key")
+	}
+
+	k.Curve, k.X, k.Y = ecdhCurve, x, y
+	return n, nil
 }
 
 func (k ECPublicKey) bytes() []byte {

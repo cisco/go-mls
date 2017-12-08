@@ -6,38 +6,75 @@ import (
 	"fmt"
 )
 
+// struct {
+//     CipherSuite cipher_suites<0..255>;
+//     DHPublicKey pre_key;
+//     SignaturePublicKey identity_key;
+//     SignatureScheme algorithm;
+//     opaque signature<0..2^16-1>;
+// } UserPreKey;
+//
+// TODO(rlb@ipv.sx): Add credentials
+// TODO(rlb@ipv.sx): Crypto agility
+//
+// TODO(right now): Align this with the struct above
 type UserPreKey struct {
 	PreKey ECPublicKey
 }
 
+// struct {
+//     uint32 epoch;
+//     uint32 group_size;
+//     opaque group_id<0..2^16-1>;
+//     DHPublicKey update_key;
+//     MerkleNode identityFrontier<0..2^16-1>;
+//     MerkleNode leafFrontier<0..2^16-1>;
+//     DHPublicKey ratchetFrontier<0..2^16-1>;
+// } GroupPreKey;
 type GroupPreKey struct {
-	Epoch            uint
-	GroupID          []byte
-	GroupSize        uint
+	Epoch            uint32
+	GroupID          []byte `tls:"head=2"`
+	GroupSize        uint32
 	UpdateKey        ECPublicKey
-	IdentityFrontier MerklePath
-	LeafFrontier     MerklePath
-	RatchetFrontier  ECPath
+	IdentityFrontier MerklePath `tls:"min=1,head=2"`
+	LeafFrontier     MerklePath `tls:"min=1,head=2"`
+	RatchetFrontier  ECPath     `tls:"min=1,head=2"`
 }
 
+// struct {
+//     DHPublicKey add_path<1..2^16-1>;
+// } UserAdd;
 type UserAdd struct {
-	AddPath []ECPublicKey
+	AddPath []ECPublicKey `tls:"min=1,head=2"`
 }
 
+// struct {
+//     UserPreKey pre_key;
+// } GroupAdd;
 type GroupAdd struct {
 	PreKey *Signed
 }
 
+// struct {
+//     MerkleNode leafPath<1..2^16-1>;
+//     DHPublicKey ratchetPath<1..2^16-1>;
+// } Update;
 type Update struct {
-	LeafPath    MerklePath
-	RatchetPath ECPath
+	LeafPath    MerklePath `tls:"min=1,head=2"`
+	RatchetPath ECPath     `tls:"min=1,head=2"`
 }
 
+// struct {
+//     uint32 deleted<1..2^16-1>;
+//     DHPublicKey path<1..2^16-1>;
+//     DHPublicKey leaves<1..2^16-1>;
+//     MerkleNode hashed_identities<1..2^16-1>;
+// } Delete;
 type Delete struct {
-	Deleted    []uint
-	Path       ECPath
-	Leaves     ECPath
-	Identities MerklePath
+	Deleted    []uint32   `tls:"min=1,head=2"`
+	Path       ECPath     `tls:"min=1,head=2"`
+	Leaves     ECPath     `tls:"min=1,head=2"`
+	Identities MerklePath `tls:"min=1,head=2"`
 }
 
 // Signed
