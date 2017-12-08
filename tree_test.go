@@ -1,7 +1,6 @@
 package mls
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -114,15 +113,11 @@ func TestNewTree(t *testing.T) {
 
 func TestNewTreeFromCopath(t *testing.T) {
 	aIndex := uint(0)
-	aC := &Copath{
-		defn:  stringNodeDefn,
-		Index: aIndex,
-		Size:  3,
-		Nodes: []Node{"b", "c"},
-	}
+	aSize := uint(3)
+	aC := []Node{"b", "c"}
 
 	// Test newTree / Copath() round trip
-	tree, err := newTreeFromCopath(aC)
+	tree, err := newTreeFromCopath(stringNodeDefn, aIndex, aSize, aC)
 	if err != nil {
 		t.Fatalf("Error constructing tree from copath: %v", err)
 	}
@@ -134,23 +129,6 @@ func TestNewTreeFromCopath(t *testing.T) {
 
 	if !reflect.DeepEqual(C, aC) {
 		t.Fatalf("Incorrect copath value: %v != %v", C, aC)
-	}
-
-	// Test JSON marshal / unmarshal round trip
-	Cj, err := json.Marshal(aC)
-	if err != nil {
-		t.Fatalf("Error marshaling copath: %v", err)
-	}
-
-	C2 := new(Copath)
-	err = json.Unmarshal(Cj, C2)
-	if err != nil {
-		t.Fatalf("Error unmarshaling copath: %v", err)
-	}
-
-	C2.defn = stringNodeDefn
-	if !reflect.DeepEqual(C2, aC) {
-		t.Fatalf("Incorrect copath value: %v != %v", C2, aC)
 	}
 }
 
@@ -249,16 +227,8 @@ func TestTreeAdd(t *testing.T) {
 			t.Fatalf("Error fetching copath @ %v: %v", i, err)
 		}
 
-		if C.Index != i {
-			t.Fatalf("Copath has wrong index @ %v: %v != %v", i, C.Index, i)
-		}
-
-		if C.Size != tree.size {
-			t.Fatalf("Copath has wrong size @ %v: %v != %v", i, C.Size, tree.size)
-		}
-
-		if len(C.Nodes) != len(c) {
-			t.Fatalf("Copath has wrong path length @ %v: %v != %v", i, len(C.Nodes), len(c))
+		if len(C) != len(c) {
+			t.Fatalf("Copath has wrong path length @ %v: %v != %v", i, len(C), len(c))
 		}
 	}
 }

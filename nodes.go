@@ -102,53 +102,36 @@ func (mf MerkleFrontier) Nodes() []Node {
 	return f
 }
 
-type MerkleCopath struct {
-	Index uint
-	Size  uint
-	Nodes [][]byte
-}
+type MerkleCopath [][]byte
 
-func NewMerkleCopath(c *Copath) (*MerkleCopath, error) {
-	mc := &MerkleCopath{
-		Index: c.Index,
-		Size:  c.Size,
-		Nodes: make([][]byte, len(c.Nodes)),
-	}
-
-	for i, n := range c.Nodes {
+func NewMerkleCopath(c []Node) (MerkleCopath, error) {
+	mc := make([][]byte, len(c))
+	for i, n := range c {
 		if !merkleNodeDefn.valid(n) {
 			return nil, InvalidNodeError
 		}
-		mc.Nodes[i] = n.([]byte)
+		mc[i] = n.([]byte)
 	}
-
 	return mc, nil
 }
 
-func (mc MerkleCopath) Copath() *Copath {
-	c := &Copath{
-		defn:  merkleNodeDefn,
-		Index: mc.Index,
-		Size:  mc.Size,
-		Nodes: make([]Node, len(mc.Nodes)),
+func (mc MerkleCopath) Copath() []Node {
+	c := make([]Node, len(mc))
+	for i, e := range mc {
+		c[i] = e
 	}
-
-	for i, e := range mc.Nodes {
-		c.Nodes[i] = e
-	}
-
 	return c
 }
 
-func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
-	tree, err := newTreeFromCopath(mc.Copath())
+func (mc MerkleCopath) Root(index, size uint, leaf []byte) ([]byte, error) {
+	tree, err := newTreeFromCopath(merkleNodeDefn, index, size, mc.Copath())
 	if err != nil {
 		return nil, err
 	}
 
-	tree.nodes[2*mc.Index] = leaf
+	tree.nodes[2*index] = leaf
 
-	err = tree.Build([]uint{2 * mc.Index})
+	err = tree.Build([]uint{2 * index})
 	if err != nil {
 		return nil, err
 	}

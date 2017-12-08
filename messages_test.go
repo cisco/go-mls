@@ -99,7 +99,7 @@ func TestSigned(t *testing.T) {
 }
 
 func TestRosterSigned(t *testing.T) {
-	aGroupSize := 7
+	aGroupSize := uint(7)
 	aLeafKeys := make([]ECPrivateKey, aGroupSize)
 	aLeaves := make([]Node, aGroupSize)
 	for i := range aLeafKeys {
@@ -126,7 +126,7 @@ func TestRosterSigned(t *testing.T) {
 			t.Fatalf("Error fetching copath @ %d: %v", i, err)
 		}
 
-		rs, err := NewRosterSigned(in, k, c)
+		rs, err := NewRosterSigned(in, k, uint(i), aGroupSize, c)
 		if err != nil {
 			t.Fatalf("Error in roster-signing @ %d: %v", i, err)
 		}

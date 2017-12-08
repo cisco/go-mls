@@ -80,10 +80,12 @@ func (s Signed) Verify(out interface{}) error {
 // RosterSigned
 type RosterSigned struct {
 	Signed
+	Size   uint
+	Index  uint
 	Copath MerkleCopath
 }
 
-func NewRosterSigned(message interface{}, key ECPrivateKey, copath *Copath) (*RosterSigned, error) {
+func NewRosterSigned(message interface{}, key ECPrivateKey, index, size uint, copath []Node) (*RosterSigned, error) {
 	merkle, err := NewMerkleCopath(copath)
 	if err != nil {
 		return nil, err
@@ -95,15 +97,17 @@ func NewRosterSigned(message interface{}, key ECPrivateKey, copath *Copath) (*Ro
 	}
 
 	return &RosterSigned{
+		Size:   size,
+		Index:  index,
 		Signed: *signed,
-		Copath: *merkle,
+		Copath: merkle,
 	}, nil
 }
 
 func (s RosterSigned) Verify(out interface{}, expectedRoot []byte) error {
 	if expectedRoot != nil {
 		leaf := merkleLeaf(s.Signed.PublicKey.bytes())
-		root, err := s.Copath.Root(leaf)
+		root, err := s.Copath.Root(s.Index, s.Size, leaf)
 		if err != nil {
 			return err
 		}

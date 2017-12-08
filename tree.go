@@ -29,13 +29,6 @@ type tree struct {
 	nodes map[uint]Node
 }
 
-type Copath struct {
-	defn  *nodeDefinition
-	Size  uint
-	Index uint
-	Nodes []Node
-}
-
 func newTree(defn *nodeDefinition) *tree {
 	return &tree{
 		defn:  defn,
@@ -71,6 +64,10 @@ func newTreeFromLeaves(defn *nodeDefinition, leaves []Node) (*tree, error) {
 }
 
 func newTreeFromFrontier(defn *nodeDefinition, size uint, F []Node) (*tree, error) {
+	if defn == nil {
+		return nil, InvalidParameterError
+	}
+
 	f := frontier(size)
 	if len(F) != len(f) {
 		return nil, InvalidPathError
@@ -95,24 +92,28 @@ func newTreeFromFrontier(defn *nodeDefinition, size uint, F []Node) (*tree, erro
 	return t, nil
 }
 
-func newTreeFromCopath(C *Copath) (*tree, error) {
-	if C.defn == nil {
+func newTreeFromCopath(defn *nodeDefinition, index, size uint, C []Node) (*tree, error) {
+	if defn == nil {
 		return nil, InvalidParameterError
 	}
 
-	c := copath(2*C.Index, C.Size)
-	if len(C.Nodes) != len(c) {
+	if index >= size {
+		return nil, InvalidParameterError
+	}
+
+	c := copath(2*index, size)
+	if len(C) != len(c) {
 		return nil, InvalidPathError
 	}
 
 	nodes := map[uint]Node{}
 	for i, j := range c {
-		nodes[j] = C.Nodes[i]
+		nodes[j] = C[i]
 	}
 
 	t := &tree{
-		defn:  C.defn,
-		size:  C.Size,
+		defn:  defn,
+		size:  size,
 		nodes: nodes,
 	}
 
@@ -296,7 +297,7 @@ func (t tree) DirectPath(index uint) ([]Node, error) {
 	return D, nil
 }
 
-func (t tree) Copath(index uint) (*Copath, error) {
+func (t tree) Copath(index uint) ([]Node, error) {
 	if index >= t.size {
 		return nil, InvalidIndexError
 	}
@@ -311,12 +312,7 @@ func (t tree) Copath(index uint) (*Copath, error) {
 		}
 	}
 
-	return &Copath{
-		defn:  t.defn,
-		Size:  t.size,
-		Index: index,
-		Nodes: C,
-	}, nil
+	return C, nil
 }
 
 func (t tree) Frontier() ([]Node, error) {

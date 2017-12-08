@@ -251,7 +251,7 @@ func (s State) sign(body interface{}) (*RosterSigned, error) {
 		return nil, err
 	}
 
-	return NewRosterSigned(body, s.myIdentityKey, copath)
+	return NewRosterSigned(body, s.myIdentityKey, s.myIndex, s.identityTree.size, copath)
 }
 
 func (s State) verifyForCurrentRoster(rs *RosterSigned, out interface{}) error {
@@ -537,7 +537,7 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 	}
 
 	// Update leaf tree
-	index := signedUpdate.Copath.Index
+	index := signedUpdate.Index
 	leafPath := make([]Node, len(update.LeafPath))
 	for i, n := range update.LeafPath {
 		leafPath[i] = n
