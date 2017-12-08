@@ -18,17 +18,17 @@ var (
 )
 
 func TestMerkleTree(t *testing.T) {
-	aLeaves := make([][]byte, len(aLeafData))
+	aLeaves := make([]MerkleNode, len(aLeafData))
 	aLeafNodes := make([]Node, len(aLeafData))
 	for i, data := range aLeafData {
-		aLeaves[i] = merkleLeaf(data)
+		aLeaves[i] = MerkleNode{merkleLeaf(data)}
 		aLeafNodes[i] = aLeaves[i]
 	}
 
-	ab := merklePairHash(aLeaves[0], aLeaves[1])
-	cd := merklePairHash(aLeaves[2], aLeaves[3])
-	abcd := merklePairHash(ab, cd)
-	abcde := merklePairHash(abcd, aLeaves[4])
+	ab, _ := merkleNodeDefn.combine(aLeaves[0], aLeaves[1])
+	cd, _ := merkleNodeDefn.combine(aLeaves[2], aLeaves[3])
+	abcd, _ := merkleNodeDefn.combine(merkleNodeDefn.create(ab), merkleNodeDefn.create(cd))
+	abcde, _ := merkleNodeDefn.combine(merkleNodeDefn.create(abcd), aLeaves[4])
 
 	tree, err := newTreeFromLeaves(merkleNodeDefn, aLeafNodes)
 	if err != nil {
@@ -40,9 +40,9 @@ func TestMerkleTree(t *testing.T) {
 		t.Fatalf("Error fetching tree root: %v", err)
 	}
 
-	rootData, ok := root.([]byte)
+	rootData, ok := root.(MerkleNode)
 	if !ok {
-		t.Fatalf("Merkle tree root not of type []byte")
+		t.Fatalf("Merkle tree root not of type MerkleNode")
 	}
 
 	if !merkleNodeDefn.valid(root) {
@@ -53,7 +53,7 @@ func TestMerkleTree(t *testing.T) {
 		t.Fatalf("Merkle tree root is not equal to itself")
 	}
 
-	if !bytes.Equal(rootData, abcde) {
+	if !bytes.Equal(rootData.Value, abcde) {
 		t.Fatalf("Incorrect Merkle tree root: %x != %x", rootData, abcde)
 	}
 }

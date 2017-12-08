@@ -181,11 +181,11 @@ func TestDelete(t *testing.T) {
 	states := createGroup()
 
 	// Import leaves and identities to the penultimate node
-	identities := make([][]byte, len(states))
+	identities := make([]MerkleNode, len(states))
 	leafKeys := make([]ECPublicKey, len(states))
 	for i, s := range states {
 		leafKeys[i] = s.myLeafKey.PublicKey
-		identities[i] = merkleLeaf(s.myIdentityKey.PublicKey.bytes())
+		identities[i] = MerkleNodeFromPublicKey(s.myIdentityKey.PublicKey)
 	}
 
 	err := states[len(states)-2].importIdentities(identities)

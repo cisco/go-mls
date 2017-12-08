@@ -9,20 +9,23 @@ import (
 var (
 	aData       = []byte("messages")
 	aPrivateKey = NewECPrivateKey()
-	aKey        = aPrivateKey.PublicKey
+	aMerkleNode = MerkleNode{aData}
+	aMerklePath = MerklePath{aMerkleNode, aMerkleNode}
+	aPublicKey  = aPrivateKey.PublicKey
+	aECPath     = ECPath{aPublicKey, aPublicKey}
 
-	aUserPreKey = &UserPreKey{PreKey: aKey}
+	aUserPreKey = &UserPreKey{PreKey: aPublicKey}
 
 	aGroupPreKey = &GroupPreKey{
 		Epoch:            2,
 		GroupID:          []byte{0x00, 0x01, 0x02, 0x03},
-		UpdateKey:        aKey,
-		IdentityFrontier: MerkleFrontier{aData, aData},
-		LeafFrontier:     MerkleFrontier{aData, aData},
-		RatchetFrontier:  ECFrontier{aKey, aKey},
+		UpdateKey:        aPublicKey,
+		IdentityFrontier: aMerklePath,
+		LeafFrontier:     aMerklePath,
+		RatchetFrontier:  aECPath,
 	}
 
-	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aKey, aKey}}
+	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aPublicKey, aPublicKey}}
 
 	aSignedUserPreKey, _ = NewSigned(aUserPreKey, aPrivateKey)
 	aGroupAdd            = &GroupAdd{
@@ -30,15 +33,15 @@ var (
 	}
 
 	aUpdate = &Update{
-		LeafPath:    [][]byte{aData, aData},
-		RatchetPath: []ECPublicKey{aKey, aKey},
+		LeafPath:    aMerklePath,
+		RatchetPath: aECPath,
 	}
 
 	aDelete = &Delete{
 		Deleted:    []uint{0, 1},
-		Path:       []ECPublicKey{aKey, aKey},
-		Leaves:     []ECPublicKey{aKey, aKey},
-		Identities: [][]byte{aData, aData},
+		Path:       aECPath,
+		Leaves:     aECPath,
+		Identities: aMerklePath,
 	}
 )
 
@@ -104,7 +107,7 @@ func TestRosterSigned(t *testing.T) {
 	aLeaves := make([]Node, aGroupSize)
 	for i := range aLeafKeys {
 		aLeafKeys[i] = NewECPrivateKey()
-		aLeaves[i] = merkleLeaf(aLeafKeys[i].PublicKey.bytes())
+		aLeaves[i] = MerkleNodeFromPublicKey(aLeafKeys[i].PublicKey)
 	}
 
 	aTree, err := newTreeFromLeaves(merkleNodeDefn, aLeaves)
@@ -117,7 +120,7 @@ func TestRosterSigned(t *testing.T) {
 		t.Fatalf("Error fetching root: %v", err)
 	}
 
-	expectedRoot := rootNode.([]byte)
+	expectedRoot := rootNode.(MerkleNode).Value
 
 	for i, k := range aLeafKeys {
 		in := aUserPreKey

@@ -15,9 +15,9 @@ type GroupPreKey struct {
 	GroupID          []byte
 	GroupSize        uint
 	UpdateKey        ECPublicKey
-	IdentityFrontier MerkleFrontier
-	LeafFrontier     MerkleFrontier
-	RatchetFrontier  ECFrontier
+	IdentityFrontier MerklePath
+	LeafFrontier     MerklePath
+	RatchetFrontier  ECPath
 }
 
 type UserAdd struct {
@@ -29,15 +29,15 @@ type GroupAdd struct {
 }
 
 type Update struct {
-	LeafPath    [][]byte
-	RatchetPath []ECPublicKey
+	LeafPath    MerklePath
+	RatchetPath ECPath
 }
 
 type Delete struct {
 	Deleted    []uint
-	Path       []ECPublicKey
-	Leaves     []ECPublicKey
-	Identities [][]byte
+	Path       ECPath
+	Leaves     ECPath
+	Identities MerklePath
 }
 
 // Signed
@@ -82,11 +82,11 @@ type RosterSigned struct {
 	Signed
 	Size   uint
 	Index  uint
-	Copath MerkleCopath
+	Copath MerklePath
 }
 
 func NewRosterSigned(message interface{}, key ECPrivateKey, index, size uint, copath []Node) (*RosterSigned, error) {
-	merkle, err := NewMerkleCopath(copath)
+	merkle, err := NewMerklePath(copath)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func NewRosterSigned(message interface{}, key ECPrivateKey, index, size uint, co
 
 func (s RosterSigned) Verify(out interface{}, expectedRoot []byte) error {
 	if expectedRoot != nil {
-		leaf := merkleLeaf(s.Signed.PublicKey.bytes())
+		leaf := MerkleNodeFromPublicKey(s.Signed.PublicKey)
 		root, err := s.Copath.Root(s.Index, s.Size, leaf)
 		if err != nil {
 			return err

@@ -23,7 +23,7 @@ func prettyPrintTree(t *tree) {
 			case []byte:
 				data = val
 			case (*ECNode):
-				data = merkleLeaf(val.PrivateKey.PublicKey.bytes())
+				data = MerkleNodeFromPublicKey(val.PrivateKey.PublicKey).Value
 			}
 
 			if level(i) != L {

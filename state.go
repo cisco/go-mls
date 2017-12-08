@@ -48,7 +48,7 @@ func rootForSignedGPK(signedGPK *RosterSigned) ([]byte, error) {
 		return nil, err
 	}
 
-	return rootNode.([]byte), nil
+	return rootNode.(MerkleNode).Value, nil
 }
 
 type State struct {
@@ -117,12 +117,12 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 		deleteKey:      NewECPrivateKey(),
 	}
 
-	err := state.identityTree.Add(merkleLeaf(state.myIdentityKey.PublicKey.bytes()))
+	err := state.identityTree.Add(MerkleNodeFromPublicKey(state.myIdentityKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
 
-	err = state.leafTree.Add(merkleLeaf(state.myLeafKey.PublicKey.bytes()))
+	err = state.leafTree.Add(MerkleNodeFromPublicKey(state.myLeafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -201,12 +201,12 @@ func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey,
 		return nil, err
 	}
 
-	err = identityTree.Add(merkleLeaf(identityKey.PublicKey.bytes()))
+	err = identityTree.Add(MerkleNodeFromPublicKey(identityKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
 
-	err = leafTree.Add(merkleLeaf(leafKey.PublicKey.bytes()))
+	err = leafTree.Add(MerkleNodeFromPublicKey(leafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (s State) verifyForCurrentRoster(rs *RosterSigned, out interface{}) error {
 		return err
 	}
 
-	root := rootNode.([]byte)
+	root := rootNode.(MerkleNode).Value
 	return rs.Verify(out, root)
 }
 
@@ -270,9 +270,9 @@ func (s State) groupPreKey() (*RosterSigned, error) {
 	lfr, _ := s.leafTree.Frontier()
 	rfr, _ := s.ratchetTree.Frontier()
 
-	Ifr, _ := NewMerkleFrontier(ifr)
-	Lfr, _ := NewMerkleFrontier(lfr)
-	Rfr, _ := NewECFrontier(rfr)
+	Ifr, _ := NewMerklePath(ifr)
+	Lfr, _ := NewMerklePath(lfr)
+	Rfr, _ := NewECPath(rfr)
 
 	gpk := &GroupPreKey{
 		Epoch:            s.epoch,
@@ -348,7 +348,7 @@ func (s State) Add(signedUserPreKey *Signed) (*RosterSigned, error) {
 }
 
 func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
-	leafPath, err := s.leafTree.UpdatePath(s.myIndex, merkleLeaf(leafKey.PublicKey.bytes()))
+	leafPath, err := s.leafTree.UpdatePath(s.myIndex, MerkleNodeFromPublicKey(leafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -358,15 +358,16 @@ func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
 		return nil, err
 	}
 
-	update := Update{
-		LeafPath:    make([][]byte, len(leafPath)),
-		RatchetPath: make([]ECPublicKey, len(ratchetPath)),
+	update := Update{}
+
+	update.LeafPath, err = NewMerklePath(leafPath)
+	if err != nil {
+		return nil, err
 	}
-	for i, n := range leafPath {
-		update.LeafPath[i] = n.([]byte)
-	}
-	for i, n := range ratchetPath {
-		update.RatchetPath[i] = n.(*ECNode).PrivateKey.PublicKey
+
+	update.RatchetPath, err = NewECPath(ratchetPath)
+	if err != nil {
+		return nil, err
 	}
 
 	return s.sign(update)
@@ -404,9 +405,9 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 		return nil, err
 	}
 
-	identities := make([][]byte, len(abstractIdentities))
-	for i, id := range abstractIdentities {
-		identities[i] = id.([]byte)
+	identities, err := NewMerklePath(abstractIdentities)
+	if err != nil {
+		return nil, err
 	}
 
 	delete := Delete{
@@ -489,12 +490,12 @@ func (s *State) HandleGroupAdd(signedGroupAdd *RosterSigned) error {
 func (s *State) addToSymmetricState(identityKey, leafKey ECPublicKey) error {
 	s.epoch += 1
 
-	err := s.identityTree.Add(merkleLeaf(identityKey.bytes()))
+	err := s.identityTree.Add(MerkleNodeFromPublicKey(identityKey))
 	if err != nil {
 		return err
 	}
 
-	err = s.leafTree.Add(merkleLeaf(leafKey.bytes()))
+	err = s.leafTree.Add(MerkleNodeFromPublicKey(leafKey))
 	if err != nil {
 		return err
 	}
@@ -580,7 +581,7 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 	return nil
 }
 
-func (s *State) importIdentities(identities [][]byte) error {
+func (s *State) importIdentities(identities MerklePath) error {
 	leaves := make([]Node, len(identities))
 	for i, id := range identities {
 		leaves[i] = id
@@ -600,10 +601,10 @@ func (s *State) importIdentities(identities [][]byte) error {
 	return nil
 }
 
-func (s *State) importLeaves(leafKeys []ECPublicKey) error {
+func (s *State) importLeaves(leafKeys ECPath) error {
 	leaves := make([]Node, len(leafKeys))
 	for i, leafKey := range leafKeys {
-		leaves[i] = merkleLeaf(leafKey.bytes())
+		leaves[i] = MerkleNodeFromPublicKey(leafKey)
 	}
 
 	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
@@ -689,7 +690,7 @@ func (s *State) HandleDelete(signedDelete *RosterSigned) error {
 
 	// Replace the delelted nodes with the delete key in the ratchet tree
 	// Replace the deleted nodes with empty nodes in the identity tree
-	emptyNode := emptyMerkleLeaf()
+	emptyNode := MerkleNode{emptyMerkleLeaf()}
 	deleteNode := ECNodeFromPublicKey(s.deleteKey.PublicKey)
 	for i := range deleted {
 		err := s.identityTree.Update(i, emptyNode)
