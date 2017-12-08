@@ -79,42 +79,26 @@ var merkleNodeDefn = &nodeDefinition{
 	},
 }
 
-type MerkleFrontierEntry struct {
-	Value []byte
-	Size  uint
-}
+type MerkleFrontier [][]byte
 
-type MerkleFrontier []MerkleFrontierEntry
-
-func NewMerkleFrontier(f *Frontier) (MerkleFrontier, error) {
-	mf := make(MerkleFrontier, len(f.Entries))
-	for i, e := range f.Entries {
-		if !merkleNodeDefn.valid(e.Value) {
+func NewMerkleFrontier(f []Node) (MerkleFrontier, error) {
+	mf := make(MerkleFrontier, len(f))
+	for i, e := range f {
+		if !merkleNodeDefn.valid(e) {
 			return nil, InvalidNodeError
 		}
 
-		mf[i] = MerkleFrontierEntry{
-			Value: e.Value.([]byte),
-			Size:  e.Size,
-		}
+		mf[i] = e.([]byte)
 	}
 
 	return mf, nil
 }
 
-func (mf MerkleFrontier) Frontier() *Frontier {
-	f := &Frontier{
-		defn:    merkleNodeDefn,
-		Entries: make([]FrontierEntry, len(mf)),
-	}
-
+func (mf MerkleFrontier) Nodes() []Node {
+	f := make([]Node, len(mf))
 	for i, e := range mf {
-		f.Entries[i] = FrontierEntry{
-			Value: e.Value,
-			Size:  e.Size,
-		}
+		f[i] = e
 	}
-
 	return f
 }
 
@@ -371,40 +355,25 @@ var ecdhNodeDefn = &nodeDefinition{
 	},
 }
 
-type ECFrontierEntry struct {
-	Value ECPublicKey
-	Size  uint
-}
+type ECFrontier []ECPublicKey
 
-type ECFrontier []ECFrontierEntry
-
-func NewECFrontier(f *Frontier) (ECFrontier, error) {
-	mf := make(ECFrontier, len(f.Entries))
-	for i, e := range f.Entries {
-		if !ecdhNodeDefn.valid(e.Value) {
+func NewECFrontier(f []Node) (ECFrontier, error) {
+	ecf := make(ECFrontier, len(f))
+	for i, e := range f {
+		if !ecdhNodeDefn.valid(e) {
 			return nil, InvalidNodeError
 		}
 
-		mf[i] = ECFrontierEntry{
-			Value: e.Value.(*ECNode).PrivateKey.PublicKey,
-			Size:  e.Size,
-		}
+		ecf[i] = e.(*ECNode).PrivateKey.PublicKey
 	}
 
-	return mf, nil
+	return ecf, nil
 }
 
-func (mf ECFrontier) Frontier() *Frontier {
-	f := &Frontier{
-		defn:    ecdhNodeDefn,
-		Entries: make([]FrontierEntry, len(mf)),
-	}
-
-	for i, e := range mf {
-		f.Entries[i] = FrontierEntry{
-			Value: ECNodeFromPublicKey(e.Value),
-			Size:  e.Size,
-		}
+func (ecf ECFrontier) Nodes() []Node {
+	f := make([]Node, len(ecf))
+	for i, e := range ecf {
+		f[i] = ECNodeFromPublicKey(e)
 	}
 
 	return f

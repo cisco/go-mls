@@ -33,7 +33,12 @@ func rootForSignedGPK(signedGPK *RosterSigned) ([]byte, error) {
 		return nil, err
 	}
 
-	identityTree, err := newTreeFromFrontier(groupPreKey.IdentityFrontier.Frontier())
+	identityNodes := make([]Node, len(groupPreKey.IdentityFrontier))
+	for i, n := range groupPreKey.IdentityFrontier {
+		identityNodes[i] = n
+	}
+
+	identityTree, err := newTreeFromFrontier(merkleNodeDefn, groupPreKey.GroupSize, identityNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +47,7 @@ func rootForSignedGPK(signedGPK *RosterSigned) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return rootNode.([]byte), nil
 }
 
@@ -177,18 +183,20 @@ func NewStateFromGroupPreKey(identityKey ECPrivateKey, leafKey ECPrivateKey, pri
 }
 
 func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey, groupPreKey *GroupPreKey) (*State, error) {
+	treeSize := groupPreKey.GroupSize
+
 	// Initialize trees and add this node
-	identityTree, err := newTreeFromFrontier(groupPreKey.IdentityFrontier.Frontier())
+	identityTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.IdentityFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	leafTree, err := newTreeFromFrontier(groupPreKey.LeafFrontier.Frontier())
+	leafTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.LeafFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	ratchetTree, err := newTreeFromFrontier(groupPreKey.RatchetFrontier.Frontier())
+	ratchetTree, err := newTreeFromFrontier(ecdhNodeDefn, treeSize, groupPreKey.RatchetFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +277,7 @@ func (s State) groupPreKey() (*RosterSigned, error) {
 	gpk := &GroupPreKey{
 		Epoch:            s.epoch,
 		GroupID:          s.groupID,
+		GroupSize:        s.identityTree.size,
 		UpdateKey:        s.updateKey.PublicKey,
 		IdentityFrontier: Ifr,
 		LeafFrontier:     Lfr,

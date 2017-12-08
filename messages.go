@@ -13,6 +13,7 @@ type UserPreKey struct {
 type GroupPreKey struct {
 	Epoch            uint
 	GroupID          []byte
+	GroupSize        uint
 	UpdateKey        ECPublicKey
 	IdentityFrontier MerkleFrontier
 	LeafFrontier     MerkleFrontier

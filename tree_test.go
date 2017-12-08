@@ -155,16 +155,12 @@ func TestNewTreeFromCopath(t *testing.T) {
 }
 
 func TestNewTreeFromFrontier(t *testing.T) {
-	aF := &Frontier{
-		defn: stringNodeDefn,
-		Entries: []FrontierEntry{
-			{Value: "ab", Size: 2},
-			{Value: "c", Size: 1},
-		},
-	}
+	aDefn := stringNodeDefn
+	aSize := uint(3)
+	aF := []Node{"ab", "c"}
 
 	// Test newTree / Frontier() round trip
-	tree, err := newTreeFromFrontier(aF)
+	tree, err := newTreeFromFrontier(aDefn, aSize, aF)
 	if err != nil {
 		t.Fatalf("Error constructing tree from frontier: %v", err)
 	}
@@ -176,23 +172,6 @@ func TestNewTreeFromFrontier(t *testing.T) {
 
 	if !reflect.DeepEqual(F, aF) {
 		t.Fatalf("Incorrect frontier value: %v != %v", F, aF)
-	}
-
-	// Test JSON marshal / unmarshal round trip
-	Fj, err := json.Marshal(aF)
-	if err != nil {
-		t.Fatalf("Error marshaling frontier: %v", err)
-	}
-
-	F2 := new(Frontier)
-	err = json.Unmarshal(Fj, F2)
-	if err != nil {
-		t.Fatalf("Error unmarshaling frontier: %v", err)
-	}
-
-	F2.defn = stringNodeDefn
-	if !reflect.DeepEqual(F2, aF) {
-		t.Fatalf("Incorrect frontier value: %v != %v", F2, aF)
 	}
 }
 
@@ -211,13 +190,7 @@ func TestTreeAdd(t *testing.T) {
 		7: "abcde",
 		8: "e",
 	}
-	aFrontier := &Frontier{
-		defn: stringNodeDefn,
-		Entries: []FrontierEntry{
-			{Value: "abcd", Size: 4},
-			{Value: "e", Size: 1},
-		},
-	}
+	aFrontier := []Node{"abcd", "e"}
 
 	// Build tree by additions
 	tree := newTree(stringNodeDefn)

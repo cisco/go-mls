@@ -7,11 +7,9 @@ import (
 )
 
 var (
-	aData        = []byte("messages")
-	aPrivateKey  = NewECPrivateKey()
-	aKey         = aPrivateKey.PublicKey
-	aMerkleEntry = MerkleFrontierEntry{Value: aData, Size: 4}
-	aECEntry     = ECFrontierEntry{Value: aKey, Size: 4}
+	aData       = []byte("messages")
+	aPrivateKey = NewECPrivateKey()
+	aKey        = aPrivateKey.PublicKey
 
 	aUserPreKey = &UserPreKey{PreKey: aKey}
 
@@ -19,9 +17,9 @@ var (
 		Epoch:            2,
 		GroupID:          []byte{0x00, 0x01, 0x02, 0x03},
 		UpdateKey:        aKey,
-		IdentityFrontier: MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		LeafFrontier:     MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		RatchetFrontier:  ECFrontier{aECEntry, aECEntry},
+		IdentityFrontier: MerkleFrontier{aData, aData},
+		LeafFrontier:     MerkleFrontier{aData, aData},
+		RatchetFrontier:  ECFrontier{aKey, aKey},
 	}
 
 	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aKey, aKey}}
