@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/bifurcation/mint/syntax"
 )
 
 // struct {
@@ -19,7 +20,43 @@ import (
 //
 // TODO(right now): Align this with the struct above
 type UserPreKey struct {
-	PreKey ECPublicKey
+	PreKey      ECPublicKey
+	IdentityKey ECPublicKey
+	Signature   []byte `tls:"head=2"`
+}
+
+func NewUserPreKey(identityKey ECPrivateKey) (priv ECPrivateKey, upk *UserPreKey, err error) {
+	priv = NewECPrivateKey()
+	upk = &UserPreKey{
+		PreKey:      priv.PublicKey,
+		IdentityKey: identityKey.PublicKey,
+		Signature:   nil,
+	}
+
+	tbs, err := syntax.Marshal(upk)
+	if err != nil {
+		return
+	}
+
+	// Strip the signature header octets
+	tbs = tbs[:len(tbs)-2]
+
+	upk.Signature, err = identityKey.sign(tbs)
+	return
+}
+
+func (upk UserPreKey) Verify() error {
+	tbs, err := syntax.Marshal(upk)
+	if err != nil {
+		return err
+	}
+	tbs = tbs[:len(tbs)-len(upk.Signature)-2]
+
+	if !upk.IdentityKey.verify(tbs, upk.Signature) {
+		return fmt.Errorf("Invalid signature")
+	}
+
+	return nil
 }
 
 // struct {
@@ -52,7 +89,7 @@ type UserAdd struct {
 //     UserPreKey pre_key;
 // } GroupAdd;
 type GroupAdd struct {
-	PreKey *Signed
+	PreKey UserPreKey
 }
 
 // struct {

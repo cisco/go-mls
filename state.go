@@ -156,7 +156,7 @@ func NewStateFromGroupAdd(identityKey ECPrivateKey, preKey ECPrivateKey, signedG
 		return nil, err
 	}
 
-	if !groupAdd.PreKey.PublicKey.Equal(identityKey.PublicKey) {
+	if !groupAdd.PreKey.IdentityKey.Equal(identityKey.PublicKey) {
 		return nil, fmt.Errorf("PreKey signed by wrong identity key")
 	}
 
@@ -333,15 +333,13 @@ func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *RosterSigned) 
 	return signedAdd, newGPK, nil
 }
 
-func (s State) Add(signedUserPreKey *Signed) (*RosterSigned, error) {
-	userPreKey := new(UserPreKey)
-	err := signedUserPreKey.Verify(userPreKey)
-	if err != nil {
+func (s State) Add(userPreKey *UserPreKey) (*RosterSigned, error) {
+	if err := userPreKey.Verify(); err != nil {
 		return nil, err
 	}
 
 	groupAdd := &GroupAdd{
-		PreKey: signedUserPreKey,
+		PreKey: *userPreKey,
 	}
 
 	return s.sign(groupAdd)
@@ -470,14 +468,12 @@ func (s *State) HandleGroupAdd(signedGroupAdd *RosterSigned) error {
 		return err
 	}
 
-	userPreKey := new(UserPreKey)
-	err = groupAdd.PreKey.Verify(userPreKey)
-	if err != nil {
+	if err = groupAdd.PreKey.Verify(); err != nil {
 		return err
 	}
 
-	preKey := userPreKey.PreKey
-	identityKey := groupAdd.PreKey.PublicKey
+	preKey := groupAdd.PreKey.PreKey
+	identityKey := groupAdd.PreKey.IdentityKey
 
 	// Derive the new leaf and add it to the ratchet tree
 	leafData := s.updateKey.derive(preKey)

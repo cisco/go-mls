@@ -72,20 +72,14 @@ func TestGroupAdd(t *testing.T) {
 
 	for k := 1; k < aTestGroupSize; k += 1 {
 		identityKey := NewECPrivateKey()
-		preKey := NewECPrivateKey()
-
-		upk := UserPreKey{PreKey: preKey.PublicKey}
-		supk, err := NewSigned(upk, identityKey)
-		if err != nil {
-			t.Fatalf("Error in creating UserPreKey: %v", err)
-		}
+		preKey, upk, err := NewUserPreKey(identityKey)
 
 		gpk, err := states[k-1].groupPreKey()
 		if err != nil {
 			t.Fatalf("Error in creating GroupPreKey: %v", err)
 		}
 
-		add, err := states[k-1].Add(supk)
+		add, err := states[k-1].Add(upk)
 		if err != nil {
 			t.Fatalf("Error in creating GroupAdd: %v", err)
 		}

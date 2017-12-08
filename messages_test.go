@@ -15,7 +15,11 @@ var (
 	aPublicKey  = aPrivateKey.PublicKey
 	aECPath     = ECPath{aPublicKey, aPublicKey}
 
-	aUserPreKey = &UserPreKey{PreKey: aPublicKey}
+	aUserPreKey = &UserPreKey{
+		PreKey:      aPublicKey,
+		IdentityKey: aPublicKey,
+		Signature:   aData,
+	}
 
 	aGroupPreKey = &GroupPreKey{
 		Epoch:            2,
@@ -28,9 +32,8 @@ var (
 
 	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aPublicKey, aPublicKey}}
 
-	aSignedUserPreKey, _ = NewSigned(aUserPreKey, aPrivateKey)
-	aGroupAdd            = &GroupAdd{
-		PreKey: aSignedUserPreKey,
+	aGroupAdd = &GroupAdd{
+		PreKey: *aUserPreKey,
 	}
 
 	aUpdate = &Update{
@@ -92,9 +95,21 @@ func TestMessageTLS(t *testing.T) {
 	testTLS("UserPreKey", aUserPreKey, new(UserPreKey))
 	testTLS("GroupPreKey", aGroupPreKey, new(GroupPreKey))
 	testTLS("UserAdd", aUserAdd, new(UserAdd))
-	//testTLS("GroupAdd", aGroupAdd, new(GroupAdd))  // TODO re-enable once UserPreKey is signed directly
+	testTLS("GroupAdd", aGroupAdd, new(GroupAdd))
 	testTLS("Update", aUpdate, new(Update))
 	testTLS("Delete", aDelete, new(Delete))
+}
+
+func TestUserPreKeySigning(t *testing.T) {
+	identityKey := NewECPrivateKey()
+	_, upk, err := NewUserPreKey(identityKey)
+	if err != nil {
+		t.Fatalf("Error in UserPreKey signing: %v", err)
+	}
+
+	if err := upk.Verify(); err != nil {
+		t.Fatalf("Error in UserPreKey verification: %v", err)
+	}
 }
 
 func TestSigned(t *testing.T) {
