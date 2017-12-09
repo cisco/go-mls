@@ -1,43 +1,71 @@
 \documentclass[11pt, oneside]{article} 
-\usepackage{geometry}
-\geometry{letterpaper}
-\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
-\usepackage{graphicx}		
+
+\usepackage[parfill]{parskip} % Begin paragraphs with newline not indent
 \usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{graphicx}		
+\usepackage{xspace}
+
+\geometry{letterpaper}
 
 \title{Messaging Layer Security (MLS)}
 \author{TODO}
+
+\newcommand{\protoname}{Foo\xspace}
+
+\usepackage{todonotes}
+\newcommand{\todokcg}[1]{\todo[inline,color=pink!60,author=Katriel]{#1}}
+\newcommand{\todorlb}[1]{\todo[inline,color=blue!20,author=bifurcation]{#1}}
 
 \begin{document}
 \maketitle
 
 \section{Overview}
 
-This protocol enables of group of participants to establish a secret that is shared only by the members of the group, even as the membership in the group changes.  
+The \protoname protocol enables a group of participants to
 
-We assume that each participant is provisioned with an \textit{identity key} which can be used compute digital signatures.  In the course of the protocol, each participant will also have a \textit{leaf key} that can change over time.
+\begin{itemize}
+\item derive a shared, authentic, symmetric key known only to the members of the group;
+\item add new members to the group; and
+\item remove members from the group.
+\end{itemize}
 
+We assume that each participant is provisioned with an \emph{identity key} which can also be used
+to compute digital signatures.  In the course of the protocol, each participant will also have a
+\emph{leaf key} that can change over time.
+
+\todokcg{Reusing the identity key as a signature key is a nasty hack that we did because Signal does
+  it. I think a greenfield protocol should have separate keys: the identity key can be a signing
+  key, and it can sign a DH key used in the protocol.}
 
 \subsection{State}
+
+\todokcg{This \S{} dives into a lot of the details without defining some of its concepts. We should
+  probably define: agent, agent ID, epoch, conference, leaf key}
 
 Logically, the state of a group $G$ comprises the following data:
 
 \begin{itemize}
-\item{An \textit{epoch number} $G.E$ that is updated whenever the secret shared by the group changes.  We will call this shared secret the \textit{epoch secret}.}
-\item{A \textit{group ID} $G.id$ that uniquely identifies the group within the scope of the messaging system}
-\item{A Merkle tree $G.T_I$ over the identity keys of participants in the conference}
-\item{A Merkle tree $G.T_L$ over the leaf keys of participants in the conference}
-\item{A "ratchet tree" $C.T_R$ over the leaf keys of the participants in the conference}
-\item{For each epoch, a set of shared secret values derived from the epoch secret:
+\item An \emph{epoch secret} $G.k$, the symmetric key derived by \protoname
+\item An \emph{epoch number} $G.E$, incremented whenever $G.k$ is changed
+\item A public \emph{group ID} $G.id$ that uniquely identifies the group within the scope of the messaging system
+\item A Merkle tree $G.T_I$ over the identity keys of participants in the conference
+\item A Merkle tree $G.T_L$ over the leaf keys of participants in the conference
+\item A "ratchet tree" $C.T_R$ over the leaf keys of the participants in the conference
+\item For each epoch, a set of shared secret values derived from the epoch secret:
 	\begin{itemize}
-	\item{A \textit{message root key} $G.k_m$ used for deriving keys to protect messages}
-	\item{An \textit{update secret}  $G.k_u$ used updating leaf keys}
-	\item{An assymetric \textit{add private key} $G.k_a$ used adding members to the group}
+	\item A \emph{message root key} $G.k_m$ used for deriving keys to protect messages
+	\item An \emph{update secret}  $G.k_u$ used updating leaf keys
+	\item An asymmetric \emph{add private key} $G.k_a$ used adding members to the group
 	\end{itemize}
-}
 \end{itemize}
 
-The Merkle trees are used to verify participants' membership in the group, while avoiding the need to cache or transmit the full list of participants.  A participant must have the full participant list in order to remove participants, and a delete message has $O(N)$ size, but all other messages are of size $O(\log N)$.
+The Merkle trees are used to verify participants' membership in the group, while avoiding the need
+to cache or transmit the full list of participants.  A participant must have the full participant
+list in order to remove participants, and a delete message has $O(N)$ size, but all other messages
+are of size $O(\log N)$.
+
+\todokcg{Removals can probably be dealt with later, this is just initial state}
 
 Each participant caches a view of this state that is sufficient to generate and consume messages that update the group's membership.  A participant is added to the group by initializing a view of the state of the group.  A participant is removed by updating the group's secrets such that they are no longer known to the removed participant.
 
@@ -57,12 +85,14 @@ Each change is accomplished by sending a single message to the group.
 
 Each message is premised on a given epoch; it represents a change from epoch $n$ to a new epoch $n+1$.  If multiple messages are issued premised on the same epoch, only one can be applied.  If the underlying messaging system imposes a consistent ordering on messages (i.e., that all participants will process messages in the same order), then the participants can simply accept the first message delivered per epoch.  Rejected messages can be recalculated on the new epoch and resent.  
 
-[Note: Adds by the group actually do not need to be bound to an epoch; as long as they are applied in the same order, the message carries enough information for participants to rebase on a new epoch, rather than the sender having to do the rebase.]
+\todorlb{Note: Adds by the group actually do not need to be bound to an epoch; as long as they are applied in the same order, the message carries enough information for participants to rebase on a new epoch, rather than the sender having to do the rebase.}
 
 
 \section{Signing and Roster Signing}
 
-All messages in MLS are signed by the sender.  A \textit{roster signed} message also includes a proof of the signer's membership in the group.  A signed / roster signed message has the following components:
+\todokcg{What is a roster?}
+
+All messages in MLS are signed by the sender.  A \emph{roster signed} message also includes a proof of the signer's membership in the group.  A signed / roster signed message has the following components:
 
 \begin{enumerate}
 \item{The signed message, encoded as an octet string}
@@ -82,7 +112,7 @@ In addition to standard signature verification, verification of a roster signed 
 
 \section{Prekeys}
 
-To allow for asynchronous additions of new participants, both users and groups can publish \textit{prekeys} that the other side can use to perform an add operation.  Individual participants can use a \textit{group prekey} to add themselves to the group.  Members of the group can use a \textit{user prekey} to add a user to the group.  In both cases, once members of the group have processed the add message, they can begin transmitting messages under a key that is held by all group members.
+To allow for asynchronous additions of new participants, both users and groups can publish \emph{prekeys} that the other side can use to perform an add operation.  Individual participants can use a \emph{group prekey} to add themselves to the group.  Members of the group can use a \emph{user prekey} to add a user to the group.  In both cases, once members of the group have processed the add message, they can begin transmitting messages under a key that is held by all group members.
 
 A UserPreKey is a signed message, where the signing key is the identity key for the user and the payload of the message is an initial leaf public key for the user.  Thus the consumer of a user prekey receives an identity key and a leaf key for the user in question, as well as a proof of possession of the identity key.
 
