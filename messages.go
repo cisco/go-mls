@@ -166,7 +166,7 @@ func (d Delete) Type() HandshakeType {
 //     GroupPreKey pre_key;
 //
 //     uint32 signer_index;
-//     MerkleNode roster_proof<1..2^16-1>;
+//     MerkleNode identity_proof<1..2^16-1>;
 //     SignaturePublicKey identity_key;
 //
 //     SignatureScheme algorithm;
