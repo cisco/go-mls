@@ -22,8 +22,8 @@ func prettyPrintTree(t *tree) {
 			switch val := n.(type) {
 			case []byte:
 				data = val
-			case (*ECNode):
-				data = MerkleNodeFromPublicKey(val.PrivateKey.PublicKey).Value
+			case (*DHNode):
+				data = NewMerkleNode(val.PrivateKey.PublicKey).Value
 			}
 
 			if level(i) != L {

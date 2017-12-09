@@ -11,7 +11,7 @@ var (
 
 func TestUserAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECPrivateKey()
+	creatorKey := NewSignaturePrivateKey()
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -20,8 +20,8 @@ func TestUserAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECPrivateKey()
-		leafKey := NewECPrivateKey()
+		identityKey := NewSignaturePrivateKey()
+		leafKey := NewDHPrivateKey()
 		oldGPK, err := states[k-1].SignedGroupPreKey()
 		if err != nil {
 			t.Fatalf("Error in fetching GPK: %v", err)
@@ -64,7 +64,7 @@ func TestUserAdd(t *testing.T) {
 
 func TestGroupAdd(t *testing.T) {
 	groupID := []byte("treehouse")
-	creatorKey := NewECPrivateKey()
+	creatorKey := NewSignaturePrivateKey()
 	creator, err := NewStateForEmptyGroup(groupID, creatorKey)
 	if err != nil {
 		t.Fatalf("Error in creating group: %v", err)
@@ -73,7 +73,7 @@ func TestGroupAdd(t *testing.T) {
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECPrivateKey()
+		identityKey := NewSignaturePrivateKey()
 		preKey, upk, err := NewUserPreKey(identityKey)
 
 		gpk, err := states[k-1].SignedGroupPreKey()
@@ -120,13 +120,13 @@ func TestGroupAdd(t *testing.T) {
 // XXX Ignoring errors throughout; should be caught in TestUserAdd
 func createGroup() []*State {
 	groupID := []byte("treehouse")
-	creatorKey := NewECPrivateKey()
+	creatorKey := NewSignaturePrivateKey()
 	creator, _ := NewStateForEmptyGroup(groupID, creatorKey)
 	states := []*State{creator}
 
 	for k := 1; k < aTestGroupSize; k += 1 {
-		identityKey := NewECPrivateKey()
-		leafKey := NewECPrivateKey()
+		identityKey := NewSignaturePrivateKey()
+		leafKey := NewDHPrivateKey()
 		oldGPK, _ := states[k-1].SignedGroupPreKey()
 		add, _ := Join(identityKey, leafKey, oldGPK)
 
@@ -146,7 +146,7 @@ func TestUpdate(t *testing.T) {
 
 	// Update each participant
 	for i, s0 := range states {
-		leafKey := NewECPrivateKey()
+		leafKey := NewDHPrivateKey()
 		update, err := s0.Update(leafKey)
 		if err != nil {
 			t.Fatalf("Error generating update: %v", err)
@@ -179,10 +179,10 @@ func TestDelete(t *testing.T) {
 
 	// Import leaves and identities to the penultimate node
 	identities := make([]MerkleNode, len(states))
-	leafKeys := make([]ECPublicKey, len(states))
+	leafKeys := make([]DHPublicKey, len(states))
 	for i, s := range states {
 		leafKeys[i] = s.myLeafKey.PublicKey
-		identities[i] = MerkleNodeFromPublicKey(s.myIdentityKey.PublicKey)
+		identities[i] = NewMerkleNode(s.myIdentityKey.PublicKey)
 	}
 
 	err := states[len(states)-2].importIdentities(identities)

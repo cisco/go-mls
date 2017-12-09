@@ -7,19 +7,24 @@ import (
 )
 
 var (
-	aData       = []byte("messages")
-	aPrivateKey = NewECPrivateKey()
+	aData          = []byte("messages")
+	aSigPrivateKey = NewSignaturePrivateKey()
+	aSigPublicKey  = aSigPrivateKey.PublicKey
+
+	aDHPrivateKey = NewDHPrivateKey()
+	aDHPublicKey  = aDHPrivateKey.PublicKey
+
 	aMerkleNode = MerkleNode{aData}
 	aMerklePath = MerklePath{aMerkleNode, aMerkleNode}
-	aPublicKey  = aPrivateKey.PublicKey
-	aECPath     = ECPath{aPublicKey, aPublicKey}
 
-	aIdentityLeaf    = MerkleNodeFromPublicKey(aPublicKey)
+	aDHPath = DHPath{aDHPublicKey, aDHPublicKey}
+
+	aIdentityLeaf    = NewMerkleNode(aSigPublicKey)
 	aIdentityRoot, _ = merkleNodeDefn.combine(aIdentityLeaf, aIdentityLeaf)
 
 	aUserPreKey = &UserPreKey{
-		PreKey:      aPublicKey,
-		IdentityKey: aPublicKey,
+		PreKey:      aDHPublicKey,
+		IdentityKey: aSigPublicKey,
 		Signature:   aData,
 	}
 
@@ -27,15 +32,15 @@ var (
 		Epoch:            2,
 		GroupID:          []byte{0x00, 0x01, 0x02, 0x03},
 		GroupSize:        2,
-		UpdateKey:        aPublicKey,
+		UpdateKey:        aDHPublicKey,
 		IdentityFrontier: aMerklePath,
 		LeafFrontier:     aMerklePath,
-		RatchetFrontier:  aECPath,
+		RatchetFrontier:  aDHPath,
 	}
 
 	aNone = &None{}
 
-	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aPublicKey, aPublicKey}}
+	aUserAdd = &UserAdd{AddPath: []DHPublicKey{aDHPublicKey, aDHPublicKey}}
 
 	aGroupAdd = &GroupAdd{
 		PreKey: *aUserPreKey,
@@ -43,13 +48,13 @@ var (
 
 	aUpdate = &Update{
 		LeafPath:    aMerklePath,
-		RatchetPath: aECPath,
+		RatchetPath: aDHPath,
 	}
 
 	aDelete = &Delete{
 		Deleted:    []uint32{0, 1},
-		Path:       aECPath,
-		Leaves:     aECPath,
+		Path:       aDHPath,
+		Leaves:     aDHPath,
 		Identities: aMerklePath,
 	}
 )
@@ -82,7 +87,7 @@ func TestMessageTLS(t *testing.T) {
 }
 
 func TestUserPreKeySignVerify(t *testing.T) {
-	identityKey := NewECPrivateKey()
+	identityKey := NewSignaturePrivateKey()
 	_, upk, err := NewUserPreKey(identityKey)
 	if err != nil {
 		t.Fatalf("Error in UserPreKey signing: %v", err)
@@ -97,7 +102,7 @@ func TestHandshakeSignMarshalUnmarshalVerify(t *testing.T) {
 	original := &Handshake{
 		PreKey:        *aGroupPreKey,
 		SignerIndex:   0,
-		IdentityProof: MerklePath{MerkleNodeFromPublicKey(aPublicKey)},
+		IdentityProof: MerklePath{NewMerkleNode(aSigPublicKey)},
 	}
 
 	testHandshake := func(label string, body HandshakeMessageBody) {
@@ -105,7 +110,7 @@ func TestHandshakeSignMarshalUnmarshalVerify(t *testing.T) {
 
 		original.Body = body
 
-		err := original.Sign(aPrivateKey)
+		err := original.Sign(aSigPrivateKey)
 		if err != nil {
 			t.Fatalf("Error in sign: %v", err)
 		}
