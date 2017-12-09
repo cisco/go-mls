@@ -2,7 +2,6 @@ package mls
 
 import (
 	"bytes"
-	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -58,40 +57,20 @@ func TestMerkleTree(t *testing.T) {
 	}
 }
 
-func TestECNodeJSON(t *testing.T) {
-	aData := []byte("data")
-	aKey := ECNodeFromData(aData)
-
-	kj, err := json.Marshal(aKey)
-	if err != nil {
-		t.Fatalf("Error marshaling ECNode: %v", err)
-	}
-
-	k2 := new(ECNode)
-	err = json.Unmarshal(kj, k2)
-	if err != nil {
-		t.Fatalf("Error unmarshaling ECNode: %v", err)
-	}
-
-	if !ecdhNodeDefn.publicEqual(aKey, k2) {
-		t.Fatalf("JSON round-trip failed: %v != %v", aKey, k2)
-	}
-}
-
-func TestECDHTree(t *testing.T) {
-	aLeaves := make([]*ECNode, len(aLeafData))
+func TestDHDHTree(t *testing.T) {
+	aLeaves := make([]*DHNode, len(aLeafData))
 	aLeafNodes := make([]Node, len(aLeafData))
 	for i, data := range aLeafData {
-		aLeaves[i] = ECNodeFromData(data)
+		aLeaves[i] = DHNodeFromData(data)
 		aLeafNodes[i] = aLeaves[i]
 	}
 
-	ab := ECNodeFromData(aLeaves[0].PrivateKey.derive(aLeaves[1].PrivateKey.PublicKey))
-	cd := ECNodeFromData(aLeaves[2].PrivateKey.derive(aLeaves[3].PrivateKey.PublicKey))
-	abcd := ECNodeFromData(ab.PrivateKey.derive(cd.PrivateKey.PublicKey))
-	abcde := ECNodeFromData(abcd.PrivateKey.derive(aLeaves[4].PrivateKey.PublicKey))
+	ab := DHNodeFromData(aLeaves[0].PrivateKey.derive(aLeaves[1].PrivateKey.PublicKey))
+	cd := DHNodeFromData(aLeaves[2].PrivateKey.derive(aLeaves[3].PrivateKey.PublicKey))
+	abcd := DHNodeFromData(ab.PrivateKey.derive(cd.PrivateKey.PublicKey))
+	abcde := DHNodeFromData(abcd.PrivateKey.derive(aLeaves[4].PrivateKey.PublicKey))
 
-	tree, err := newTreeFromLeaves(ecdhNodeDefn, aLeafNodes)
+	tree, err := newTreeFromLeaves(dhNodeDefn, aLeafNodes)
 	if err != nil {
 		t.Fatalf("Error building tree: %v", err)
 	}
@@ -101,20 +80,20 @@ func TestECDHTree(t *testing.T) {
 		t.Fatalf("Error fetching tree root: %v", err)
 	}
 
-	rootData, ok := root.(*ECNode)
+	rootData, ok := root.(*DHNode)
 	if !ok {
-		t.Fatalf("ECDH tree root not of type *ecdhKey")
+		t.Fatalf("DHDH tree root not of type *ecdhKey")
 	}
 
-	if !ecdhNodeDefn.valid(root) {
-		t.Fatalf("ECDH tree root is not valid")
+	if !dhNodeDefn.valid(root) {
+		t.Fatalf("DHDH tree root is not valid")
 	}
 
-	if !ecdhNodeDefn.valid(root) {
-		t.Fatalf("ECDH tree root is not equal to itself")
+	if !dhNodeDefn.valid(root) {
+		t.Fatalf("DHDH tree root is not equal to itself")
 	}
 
 	if !reflect.DeepEqual(rootData.PrivateKey.PublicKey, abcde.PrivateKey.PublicKey) {
-		t.Fatalf("Incorrect ECDH tree root: %x != %x", rootData, abcde)
+		t.Fatalf("Incorrect DHDH tree root: %x != %x", rootData, abcde)
 	}
 }

@@ -16,16 +16,14 @@ import (
 //
 // TODO(rlb@ipv.sx): Add credentials
 // TODO(rlb@ipv.sx): Crypto agility
-//
-// TODO(right now): Align this with the struct above
 type UserPreKey struct {
-	PreKey      ECPublicKey
-	IdentityKey ECPublicKey
+	PreKey      DHPublicKey
+	IdentityKey SignaturePublicKey
 	Signature   []byte `tls:"head=2"`
 }
 
-func NewUserPreKey(identityKey ECPrivateKey) (priv ECPrivateKey, upk *UserPreKey, err error) {
-	priv = NewECPrivateKey()
+func NewUserPreKey(identityKey SignaturePrivateKey) (priv DHPrivateKey, upk *UserPreKey, err error) {
+	priv = NewDHPrivateKey()
 	upk = &UserPreKey{
 		PreKey:      priv.PublicKey,
 		IdentityKey: identityKey.PublicKey,
@@ -40,7 +38,7 @@ func NewUserPreKey(identityKey ECPrivateKey) (priv ECPrivateKey, upk *UserPreKey
 	// Strip the signature header octets
 	tbs = tbs[:len(tbs)-2]
 
-	upk.Signature, err = identityKey.sign(tbs)
+	upk.Signature = identityKey.sign(tbs)
 	return
 }
 
@@ -71,10 +69,10 @@ type GroupPreKey struct {
 	Epoch            uint32
 	GroupID          []byte `tls:"head=2"`
 	GroupSize        uint32
-	UpdateKey        ECPublicKey
+	UpdateKey        DHPublicKey
 	IdentityFrontier MerklePath `tls:"min=1,head=2"`
 	LeafFrontier     MerklePath `tls:"min=1,head=2"`
-	RatchetFrontier  ECPath     `tls:"min=1,head=2"`
+	RatchetFrontier  DHPath     `tls:"min=1,head=2"`
 }
 
 ///
@@ -106,7 +104,7 @@ func (n None) Type() HandshakeType {
 //     DHPublicKey add_path<1..2^16-1>;
 // } UserAdd;
 type UserAdd struct {
-	AddPath []ECPublicKey `tls:"min=1,head=2"`
+	AddPath []DHPublicKey `tls:"min=1,head=2"`
 }
 
 func (ua UserAdd) Type() HandshakeType {
@@ -130,7 +128,7 @@ func (ga GroupAdd) Type() HandshakeType {
 // } Update;
 type Update struct {
 	LeafPath    MerklePath `tls:"min=1,head=2"`
-	RatchetPath ECPath     `tls:"min=1,head=2"`
+	RatchetPath DHPath     `tls:"min=1,head=2"`
 }
 
 func (u Update) Type() HandshakeType {
@@ -145,8 +143,8 @@ func (u Update) Type() HandshakeType {
 // } Delete;
 type Delete struct {
 	Deleted    []uint32   `tls:"min=1,head=2"`
-	Path       ECPath     `tls:"min=1,head=2"`
-	Leaves     ECPath     `tls:"min=1,head=2"`
+	Path       DHPath     `tls:"min=1,head=2"`
+	Leaves     DHPath     `tls:"min=1,head=2"`
 	Identities MerklePath `tls:"min=1,head=2"`
 }
 
@@ -182,11 +180,11 @@ type Handshake struct {
 	PreKey        GroupPreKey
 	SignerIndex   uint32
 	IdentityProof MerklePath
-	IdentityKey   ECPublicKey
+	IdentityKey   SignaturePublicKey
 	Signature     []byte
 }
 
-func (h *Handshake) Sign(identityKey ECPrivateKey) error {
+func (h *Handshake) Sign(identityKey SignaturePrivateKey) error {
 	h.IdentityKey = identityKey.PublicKey
 
 	// Marshal, then trim off the header octets for the empty signature
@@ -197,7 +195,7 @@ func (h *Handshake) Sign(identityKey ECPrivateKey) error {
 	}
 	tbs = tbs[:len(tbs)-2]
 
-	h.Signature, err = identityKey.sign(tbs)
+	h.Signature = identityKey.sign(tbs)
 	return err
 }
 
@@ -221,7 +219,7 @@ func (h Handshake) Verify(identityRoot []byte) error {
 	if identityRoot != nil {
 		index := uint(h.SignerIndex)
 		size := uint(h.PreKey.GroupSize)
-		leaf := MerkleNodeFromPublicKey(h.IdentityKey)
+		leaf := NewMerkleNode(h.IdentityKey)
 		root, err := h.IdentityProof.RootAsCopath(index, size, leaf)
 		if err != nil {
 			return err
@@ -241,7 +239,7 @@ type rawHandshake struct {
 	PreKey        GroupPreKey
 	SignerIndex   uint32
 	IdentityProof []MerkleNode `tls:"min=0,head=2"`
-	IdentityKey   ECPublicKey
+	IdentityKey   SignaturePublicKey
 	Signature     []byte `tls:"min=0,head=2"`
 }
 

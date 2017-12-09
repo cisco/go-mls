@@ -2,37 +2,37 @@ package mls
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
+
 	"github.com/bifurcation/mint/syntax"
-	"math/big"
-)
-
-var (
-	// Parameters for Merkle tree
-	emptyNodeValue = []byte{0x00}
-	leafHashPrefix = []byte{0x01}
-	pairHashPrefix = []byte{0x02}
-
-	// Parameters for ECDH
-	ecdhCurve = elliptic.P256()
+	"golang.org/x/crypto/curve25519"
+	"golang.org/x/crypto/ed25519"
 )
 
 ///
 /// Merkle Tree
 ///
 
+var (
+	emptyNodeValue = []byte{0x00}
+	leafHashPrefix = []byte{0x01}
+	pairHashPrefix = []byte{0x02}
+)
+
 // opaque MerkleNode<1..2^8-1>;
 type MerkleNode struct {
 	Value []byte `tls:"min=1,head=1"`
 }
 
-func MerkleNodeFromPublicKey(pub ECPublicKey) MerkleNode {
-	return MerkleNode{merkleLeaf(pub.bytes())}
+func NewMerkleNode(obj interface{}) MerkleNode {
+	data, err := syntax.Marshal(obj)
+	if err != nil {
+		panic(err)
+	}
+
+	return MerkleNode{merkleLeaf(data)}
 }
 
 func emptyMerkleLeaf() []byte {
@@ -153,215 +153,182 @@ func (mp MerklePath) RootAsCopath(index, size uint, leaf MerkleNode) ([]byte, er
 /// ECDH Tree
 ///
 
-type ECNode struct {
+type ECDHNode struct {
 	Data       []byte
-	PrivateKey ECPrivateKey
+	PrivateKey DHPrivateKey
+	PublicKey  DHPublicKey
 }
 
-type ECPrivateKey struct {
-	D         *big.Int
-	PublicKey ECPublicKey
+type DHPrivateKey struct {
+	priv      [32]byte
+	PublicKey DHPublicKey
 }
 
-type ECPublicKey struct {
-	Curve elliptic.Curve
-	X, Y  *big.Int
+func NewDHPrivateKey() DHPrivateKey {
+	priv := DHPrivateKey{}
+	rand.Read(priv.priv[:])
+	curve25519.ScalarBaseMult(&priv.PublicKey.pub, &priv.priv)
+	return priv
+}
+
+func (priv DHPrivateKey) derive(other DHPublicKey) []byte {
+	out := [32]byte{}
+	curve25519.ScalarMult(&out, &priv.priv, &other.pub)
+	return out[:]
+}
+
+type DHPublicKey struct {
+	pub [32]byte
 }
 
 // opaque DHPublicKey<1..2^16-1>;
-// opaque SignaturePublicKey<1..2^16-1>;
 type rawECPublicKey struct {
-	Value []byte `tls:"min=1,head=2"`
+	Value []byte `tls:"head=2,min=1"`
 }
 
-func (k ECPublicKey) MarshalTLS() ([]byte, error) {
-	return syntax.Marshal(rawECPublicKey{k.bytes()})
+func (pub DHPublicKey) Equal(other DHPublicKey) bool {
+	return pub == other
 }
 
-func (k *ECPublicKey) UnmarshalTLS(data []byte) (int, error) {
+func (pub DHPublicKey) MarshalTLS() ([]byte, error) {
+	return syntax.Marshal(rawECPublicKey{pub.pub[:]})
+}
+
+func (pub *DHPublicKey) UnmarshalTLS(data []byte) (int, error) {
 	var raw rawECPublicKey
 	n, err := syntax.Unmarshal(data, &raw)
 	if err != nil {
 		return 0, err
 	}
 
-	x, y := elliptic.Unmarshal(ecdhCurve, raw.Value)
-	if x == nil {
-		return 0, fmt.Errorf("Invalid EC public key")
+	if len(raw.Value) != 32 {
+		return 0, fmt.Errorf("DH key has incorrect length %d != 32", len(raw.Value))
 	}
 
-	k.Curve, k.X, k.Y = ecdhCurve, x, y
+	copy(pub.pub[:], raw.Value)
 	return n, nil
 }
 
-func (k ECPublicKey) bytes() []byte {
-	return elliptic.Marshal(ecdhCurve, k.X, k.Y)
+type SignaturePrivateKey struct {
+	priv      ed25519.PrivateKey
+	PublicKey SignaturePublicKey
 }
 
-func (k ECPublicKey) Equal(other ECPublicKey) bool {
-	return bytes.Equal(k.bytes(), other.bytes())
+func NewSignaturePrivateKey() SignaturePrivateKey {
+	// XXX: Ignoring error
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	return SignaturePrivateKey{
+		priv:      priv,
+		PublicKey: SignaturePublicKey{pub: pub},
+	}
 }
 
-func (pub ECPublicKey) MarshalJSON() ([]byte, error) {
-	pt := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
-	return json.Marshal(pt)
+func (priv SignaturePrivateKey) sign(message []byte) []byte {
+	return ed25519.Sign(priv.priv, message)
 }
 
-func (pub *ECPublicKey) UnmarshalJSON(data []byte) error {
-	var pt []byte
-	err := json.Unmarshal(data, &pt)
+// opaque SignaturePublicKey<1..2^16-1>;
+type SignaturePublicKey struct {
+	pub ed25519.PublicKey `tls:"head=2"`
+}
+
+func (pub SignaturePublicKey) MarshalTLS() ([]byte, error) {
+	return syntax.Marshal(rawECPublicKey{pub.pub})
+}
+
+func (pub *SignaturePublicKey) UnmarshalTLS(data []byte) (int, error) {
+	var raw rawECPublicKey
+	n, err := syntax.Unmarshal(data, &raw)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	x, y := elliptic.Unmarshal(ecdhCurve, pt)
-	if x == nil {
-		return fmt.Errorf("Improperly formatted elliptic curve point")
-	}
-
-	pub.Curve, pub.X, pub.Y = ecdhCurve, x, y
-	return nil
+	pub.pub = raw.Value
+	return n, nil
 }
 
-func (k ECPrivateKey) derive(other ECPublicKey) []byte {
-	zz, _ := ecdhCurve.ScalarMult(other.X, other.Y, k.D.Bytes())
-
-	// TODO Use a real KDF
-	h := sha256.New()
-	h.Write(zz.Bytes())
-	return h.Sum(nil)
+func (pub SignaturePublicKey) verify(message []byte, signature []byte) bool {
+	return ed25519.Verify(pub.pub, message, signature)
 }
 
-func (k ECPrivateKey) sign(message []byte) ([]byte, error) {
-	if k.D == nil {
-		return nil, fmt.Errorf("Cannot sign without private key")
-	}
-
-	h := sha256.New()
-	h.Write(message)
-	priv := &ecdsa.PrivateKey{
-		D: k.D,
-		PublicKey: ecdsa.PublicKey{
-			Curve: k.PublicKey.Curve,
-			X:     k.PublicKey.X,
-			Y:     k.PublicKey.Y,
-		},
-	}
-	r, s, err := ecdsa.Sign(rand.Reader, priv, h.Sum(nil))
-	if err != nil {
-		return nil, err
-	}
-
-	// XXX Ad-hoc signature encoding, because padding is hard
-	signature := []byte{byte(len(r.Bytes()))}
-	signature = append(signature, r.Bytes()...)
-	signature = append(signature, s.Bytes()...)
-	return signature, nil
+func (pub SignaturePublicKey) Equal(other SignaturePublicKey) bool {
+	return bytes.Equal(pub.pub, other.pub)
 }
 
-func (k ECPublicKey) verify(message, signature []byte) bool {
-	// XXX Should be more defensive here
-	cut := int(signature[0])
-	r := big.NewInt(0).SetBytes(signature[1 : cut+1])
-	s := big.NewInt(0).SetBytes(signature[cut+1:])
-
-	pub := &ecdsa.PublicKey{Curve: k.Curve, X: k.X, Y: k.Y}
-	h := sha256.New()
-	h.Write(message)
-	return ecdsa.Verify(pub, h.Sum(nil), r, s)
+type DHNode struct {
+	hasPrivate bool
+	Data       []byte
+	PrivateKey DHPrivateKey
 }
 
-func NewECPrivateKey() ECPrivateKey {
-	priv, _ := ecdsa.GenerateKey(ecdhCurve, rand.Reader)
-	return ECPrivateKey{
-		D: priv.D,
-		PublicKey: ECPublicKey{
-			Curve: priv.PublicKey.Curve,
-			X:     priv.PublicKey.X,
-			Y:     priv.PublicKey.Y,
-		},
-	}
-}
-
-func ECNodeFromData(data []byte) *ECNode {
+func DHNodeFromData(data []byte) *DHNode {
 	h := sha256.New()
 	h.Write(data)
-	db := h.Sum(nil)
-	x, y := ecdhCurve.ScalarBaseMult(db)
+	digest := h.Sum(nil)
 
-	d := big.NewInt(0).SetBytes(db)
-	return &ECNode{
-		Data: data,
-		PrivateKey: ECPrivateKey{
-			D:         d,
-			PublicKey: ECPublicKey{Curve: ecdhCurve, X: x, Y: y},
+	var priv, pub [32]byte
+	copy(priv[:], digest)
+	curve25519.ScalarBaseMult(&pub, &priv)
+
+	return &DHNode{
+		hasPrivate: true,
+		Data:       data,
+		PrivateKey: DHPrivateKey{
+			priv:      priv,
+			PublicKey: DHPublicKey{pub},
 		},
 	}
 }
 
-func ECNodeFromPrivateKey(priv ECPrivateKey) *ECNode {
-	return &ECNode{PrivateKey: priv}
+func DHNodeFromPrivateKey(priv DHPrivateKey) *DHNode {
+	return &DHNode{
+		hasPrivate: true,
+		PrivateKey: priv,
+	}
 }
 
-func ECNodeFromPublicKey(pub ECPublicKey) *ECNode {
-	return &ECNode{PrivateKey: ECPrivateKey{PublicKey: pub}}
+func DHNodeFromPublicKey(pub DHPublicKey) *DHNode {
+	return &DHNode{
+		hasPrivate: false,
+		PrivateKey: DHPrivateKey{PublicKey: pub},
+	}
 }
 
-var ecdhNodeDefn = &nodeDefinition{
+var dhNodeDefn = &nodeDefinition{
 	valid: func(x Node) bool {
-		xk, ok := x.(*ECNode)
-		if !ok {
-			return false
-		}
-
-		// Must have a public key
-		return xk.PrivateKey.PublicKey.X != nil &&
-			xk.PrivateKey.PublicKey.Y != nil
+		_, ok := x.(*DHNode)
+		return ok
 	},
 
 	equal: func(x, y Node) bool {
-		xk, okx := x.(*ECNode)
-		yk, oky := y.(*ECNode)
-		if !okx || !oky {
-			return false
-		}
-
-		// Either both D values are nil or they have equal values
-		xd := xk.PrivateKey.D
-		yd := yk.PrivateKey.D
-		xdn := (xk.PrivateKey.D == nil)
-		ydn := (yk.PrivateKey.D == nil)
-		deq := ((xdn && ydn) || (!xdn && !ydn && xd.Cmp(yd) == 0))
-		if !deq {
-			return false
-		}
-
-		xb := xk.PrivateKey.PublicKey.bytes()
-		yb := yk.PrivateKey.PublicKey.bytes()
-		return bytes.Equal(xb, yb)
+		xk, okx := x.(*DHNode)
+		yk, oky := y.(*DHNode)
+		return okx && oky &&
+			(xk.PrivateKey.priv == yk.PrivateKey.priv) &&
+			xk.PrivateKey.PublicKey.Equal(yk.PrivateKey.PublicKey)
 	},
 
 	publicEqual: func(x, y Node) bool {
-		xk, okx := x.(*ECNode)
-		yk, oky := y.(*ECNode)
+		xk, okx := x.(*DHNode)
+		yk, oky := y.(*DHNode)
 		return okx && oky && xk.PrivateKey.PublicKey.Equal(yk.PrivateKey.PublicKey)
 	},
 
 	create: func(data []byte) Node {
-		return ECNodeFromData(data)
+		return DHNodeFromData(data)
 	},
 
 	combine: func(x, y Node) ([]byte, error) {
-		xk, okx := x.(*ECNode)
-		yk, oky := y.(*ECNode)
+		xk, okx := x.(*DHNode)
+		yk, oky := y.(*DHNode)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
 
 		switch {
-		case xk.PrivateKey.D != nil:
+		case xk.hasPrivate:
 			return xk.PrivateKey.derive(yk.PrivateKey.PublicKey), nil
-		case yk.PrivateKey.D != nil:
+		case yk.hasPrivate:
 			return yk.PrivateKey.derive(xk.PrivateKey.PublicKey), nil
 		default:
 			return nil, IncompatibleNodesError
@@ -369,25 +336,25 @@ var ecdhNodeDefn = &nodeDefinition{
 	},
 }
 
-type ECPath []ECPublicKey
+type DHPath []DHPublicKey
 
-func NewECPath(f []Node) (ECPath, error) {
-	ecp := make(ECPath, len(f))
+func NewDHPath(f []Node) (DHPath, error) {
+	ecp := make(DHPath, len(f))
 	for i, e := range f {
-		if !ecdhNodeDefn.valid(e) {
+		if !dhNodeDefn.valid(e) {
 			return nil, InvalidNodeError
 		}
 
-		ecp[i] = e.(*ECNode).PrivateKey.PublicKey
+		ecp[i] = e.(*DHNode).PrivateKey.PublicKey
 	}
 
 	return ecp, nil
 }
 
-func (ecp ECPath) Nodes() []Node {
+func (ecp DHPath) Nodes() []Node {
 	f := make([]Node, len(ecp))
 	for i, e := range ecp {
-		f[i] = ECNodeFromPublicKey(e)
+		f[i] = DHNodeFromPublicKey(e)
 	}
 
 	return f
