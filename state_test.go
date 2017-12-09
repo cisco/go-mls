@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -21,20 +22,21 @@ func TestUserAdd(t *testing.T) {
 	for k := 1; k < aTestGroupSize; k += 1 {
 		identityKey := NewECPrivateKey()
 		leafKey := NewECPrivateKey()
-		oldGPK, err := states[k-1].groupPreKey()
+		oldGPK, err := states[k-1].SignedGroupPreKey()
 		if err != nil {
 			t.Fatalf("Error in fetching GPK: %v", err)
 		}
 
-		add, newGPK, err := Join(identityKey, leafKey, oldGPK)
+		add, err := Join(identityKey, leafKey, oldGPK)
 		if err != nil {
 			t.Fatalf("Error in creating join messages: %v", err)
 		}
 
 		// Update existing participants
 		for i, s := range states {
-			err = s.HandleUserAdd(add, newGPK)
+			err = s.HandleUserAdd(add)
 			if err != nil {
+				t.Logf("%+v", reflect.TypeOf(add.Body))
 				t.Fatalf("Error updating existing participant @ %d -> %d: %v", k-1, i, err)
 			}
 		}
@@ -48,7 +50,7 @@ func TestUserAdd(t *testing.T) {
 		states = append(states, newState)
 
 		// Verify that everyone ended up in the right state
-		if states[0].epoch != uint(k) {
+		if states[0].epoch != uint32(k) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
@@ -72,20 +74,14 @@ func TestGroupAdd(t *testing.T) {
 
 	for k := 1; k < aTestGroupSize; k += 1 {
 		identityKey := NewECPrivateKey()
-		preKey := NewECPrivateKey()
+		preKey, upk, err := NewUserPreKey(identityKey)
 
-		upk := UserPreKey{PreKey: preKey.PublicKey}
-		supk, err := NewSigned(upk, identityKey)
-		if err != nil {
-			t.Fatalf("Error in creating UserPreKey: %v", err)
-		}
-
-		gpk, err := states[k-1].groupPreKey()
+		gpk, err := states[k-1].SignedGroupPreKey()
 		if err != nil {
 			t.Fatalf("Error in creating GroupPreKey: %v", err)
 		}
 
-		add, err := states[k-1].Add(supk)
+		add, err := states[k-1].Add(upk)
 		if err != nil {
 			t.Fatalf("Error in creating GroupAdd: %v", err)
 		}
@@ -94,6 +90,7 @@ func TestGroupAdd(t *testing.T) {
 		for i, s := range states {
 			err = s.HandleGroupAdd(add)
 			if err != nil {
+				t.Logf("%+v", reflect.TypeOf(add.Body))
 				t.Fatalf("Error updating existing participant @ %d -> %d: %v", k-1, i, err)
 			}
 		}
@@ -107,7 +104,7 @@ func TestGroupAdd(t *testing.T) {
 		states = append(states, newState)
 
 		// Verify that everyone ended up in the right state
-		if states[0].epoch != uint(k) {
+		if states[0].epoch != uint32(k) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
@@ -130,11 +127,11 @@ func createGroup() []*State {
 	for k := 1; k < aTestGroupSize; k += 1 {
 		identityKey := NewECPrivateKey()
 		leafKey := NewECPrivateKey()
-		oldGPK, _ := states[k-1].groupPreKey()
-		add, newGPK, _ := Join(identityKey, leafKey, oldGPK)
+		oldGPK, _ := states[k-1].SignedGroupPreKey()
+		add, _ := Join(identityKey, leafKey, oldGPK)
 
 		for _, s := range states {
-			s.HandleUserAdd(add, newGPK)
+			s.HandleUserAdd(add)
 		}
 
 		newState, _ := NewStateFromGroupPreKey(identityKey, leafKey, oldGPK)
@@ -181,11 +178,11 @@ func TestDelete(t *testing.T) {
 	states := createGroup()
 
 	// Import leaves and identities to the penultimate node
-	identities := make([][]byte, len(states))
+	identities := make([]MerkleNode, len(states))
 	leafKeys := make([]ECPublicKey, len(states))
 	for i, s := range states {
 		leafKeys[i] = s.myLeafKey.PublicKey
-		identities[i] = merkleLeaf(s.myIdentityKey.PublicKey.bytes())
+		identities[i] = MerkleNodeFromPublicKey(s.myIdentityKey.PublicKey)
 	}
 
 	err := states[len(states)-2].importIdentities(identities)
@@ -200,7 +197,7 @@ func TestDelete(t *testing.T) {
 
 	// Each node deletes its successor
 	startingEpoch := states[0].epoch
-	epochSteps := uint(0)
+	epochSteps := uint32(0)
 
 	for k := uint(len(states) - 2); ; k -= 1 {
 		delete, err := states[k].Delete([]uint{k + 1})

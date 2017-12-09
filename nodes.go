@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/bifurcation/mint/syntax"
 	"math/big"
 )
 
@@ -24,6 +25,15 @@ var (
 ///
 /// Merkle Tree
 ///
+
+// opaque MerkleNode<1..2^8-1>;
+type MerkleNode struct {
+	Value []byte `tls:"min=1,head=1"`
+}
+
+func MerkleNodeFromPublicKey(pub ECPublicKey) MerkleNode {
+	return MerkleNode{merkleLeaf(pub.bytes())}
+}
 
 func emptyMerkleLeaf() []byte {
 	h := sha256.New()
@@ -48,123 +58,65 @@ func merklePairHash(lhs, rhs []byte) []byte {
 
 var merkleNodeDefn = &nodeDefinition{
 	valid: func(x Node) bool {
-		_, ok := x.([]byte)
+		_, ok := x.(MerkleNode)
 		return ok
 	},
 
 	equal: func(x, y Node) bool {
-		xb, okx := x.([]byte)
-		yb, oky := y.([]byte)
-		return okx && oky && bytes.Equal(xb, yb)
+		xn, okx := x.(MerkleNode)
+		yn, oky := y.(MerkleNode)
+		return okx && oky && bytes.Equal(xn.Value, yn.Value)
 	},
 
 	publicEqual: func(x, y Node) bool {
-		xb, okx := x.([]byte)
-		yb, oky := y.([]byte)
-		return okx && oky && bytes.Equal(xb, yb)
+		xn, okx := x.(MerkleNode)
+		yn, oky := y.(MerkleNode)
+		return okx && oky && bytes.Equal(xn.Value, yn.Value)
 	},
 
 	create: func(data []byte) Node {
-		return data
+		return MerkleNode{data}
 	},
 
 	combine: func(x, y Node) ([]byte, error) {
-		xb, okx := x.([]byte)
-		yb, oky := y.([]byte)
+		xn, okx := x.(MerkleNode)
+		yn, oky := y.(MerkleNode)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
 
-		return merklePairHash(xb, yb), nil
+		return merklePairHash(xn.Value, yn.Value), nil
 	},
 }
 
-type MerkleFrontierEntry struct {
-	Value []byte
-	Size  uint
-}
+// MerklePath is used mainly for converting to/from []Node for marshal/unmarshal
+type MerklePath []MerkleNode
 
-type MerkleFrontier []MerkleFrontierEntry
-
-func NewMerkleFrontier(f *Frontier) (MerkleFrontier, error) {
-	mf := make(MerkleFrontier, len(f.Entries))
-	for i, e := range f.Entries {
-		if !merkleNodeDefn.valid(e.Value) {
+func NewMerklePath(f []Node) (MerklePath, error) {
+	mp := make(MerklePath, len(f))
+	for i, e := range f {
+		if !merkleNodeDefn.valid(e) {
 			return nil, InvalidNodeError
 		}
 
-		mf[i] = MerkleFrontierEntry{
-			Value: e.Value.([]byte),
-			Size:  e.Size,
-		}
+		mp[i] = e.(MerkleNode)
 	}
 
-	return mf, nil
+	return mp, nil
 }
 
-func (mf MerkleFrontier) Frontier() *Frontier {
-	f := &Frontier{
-		defn:    merkleNodeDefn,
-		Entries: make([]FrontierEntry, len(mf)),
+func (mp MerklePath) Nodes() []Node {
+	f := make([]Node, len(mp))
+	for i, e := range mp {
+		f[i] = e
 	}
-
-	for i, e := range mf {
-		f.Entries[i] = FrontierEntry{
-			Value: e.Value,
-			Size:  e.Size,
-		}
-	}
-
 	return f
 }
 
-type MerkleCopath struct {
-	Index uint
-	Size  uint
-	Nodes [][]byte
-}
-
-func NewMerkleCopath(c *Copath) (*MerkleCopath, error) {
-	mc := &MerkleCopath{
-		Index: c.Index,
-		Size:  c.Size,
-		Nodes: make([][]byte, len(c.Nodes)),
-	}
-
-	for i, n := range c.Nodes {
-		if !merkleNodeDefn.valid(n) {
-			return nil, InvalidNodeError
-		}
-		mc.Nodes[i] = n.([]byte)
-	}
-
-	return mc, nil
-}
-
-func (mc MerkleCopath) Copath() *Copath {
-	c := &Copath{
-		defn:  merkleNodeDefn,
-		Index: mc.Index,
-		Size:  mc.Size,
-		Nodes: make([]Node, len(mc.Nodes)),
-	}
-
-	for i, e := range mc.Nodes {
-		c.Nodes[i] = e
-	}
-
-	return c
-}
-
-func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
-	tree, err := newTreeFromCopath(mc.Copath())
-	if err != nil {
-		return nil, err
-	}
-
-	tree.nodes[2*mc.Index] = leaf
-
-	err = tree.Build([]uint{2 * mc.Index})
+func (mp MerklePath) RootAsFrontier() ([]byte, error) {
+	// The size only matters because its frontier has the same number of nodes as mp
+	size := uint(1<<uint(len(mp))) - 1
+	tree, err := newTreeFromFrontier(merkleNodeDefn, size, mp.Nodes())
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +126,27 @@ func (mc MerkleCopath) Root(leaf []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return root.([]byte), nil
+	return root.(MerkleNode).Value, nil
+}
+
+// Interpret the path as a copath and compute the root
+func (mp MerklePath) RootAsCopath(index, size uint, leaf MerkleNode) ([]byte, error) {
+	tree, err := newTreeFromCopath(merkleNodeDefn, index, size, mp.Nodes())
+	if err != nil {
+		return nil, err
+	}
+
+	err = tree.Update(index, leaf)
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := tree.Root()
+	if err != nil {
+		return nil, err
+	}
+
+	return root.(MerkleNode).Value, nil
 }
 
 ///
@@ -194,6 +166,32 @@ type ECPrivateKey struct {
 type ECPublicKey struct {
 	Curve elliptic.Curve
 	X, Y  *big.Int
+}
+
+// opaque DHPublicKey<1..2^16-1>;
+// opaque SignaturePublicKey<1..2^16-1>;
+type rawECPublicKey struct {
+	Value []byte `tls:"min=1,head=2"`
+}
+
+func (k ECPublicKey) MarshalTLS() ([]byte, error) {
+	return syntax.Marshal(rawECPublicKey{k.bytes()})
+}
+
+func (k *ECPublicKey) UnmarshalTLS(data []byte) (int, error) {
+	var raw rawECPublicKey
+	n, err := syntax.Unmarshal(data, &raw)
+	if err != nil {
+		return 0, err
+	}
+
+	x, y := elliptic.Unmarshal(ecdhCurve, raw.Value)
+	if x == nil {
+		return 0, fmt.Errorf("Invalid EC public key")
+	}
+
+	k.Curve, k.X, k.Y = ecdhCurve, x, y
+	return n, nil
 }
 
 func (k ECPublicKey) bytes() []byte {
@@ -371,40 +369,25 @@ var ecdhNodeDefn = &nodeDefinition{
 	},
 }
 
-type ECFrontierEntry struct {
-	Value ECPublicKey
-	Size  uint
-}
+type ECPath []ECPublicKey
 
-type ECFrontier []ECFrontierEntry
-
-func NewECFrontier(f *Frontier) (ECFrontier, error) {
-	mf := make(ECFrontier, len(f.Entries))
-	for i, e := range f.Entries {
-		if !ecdhNodeDefn.valid(e.Value) {
+func NewECPath(f []Node) (ECPath, error) {
+	ecp := make(ECPath, len(f))
+	for i, e := range f {
+		if !ecdhNodeDefn.valid(e) {
 			return nil, InvalidNodeError
 		}
 
-		mf[i] = ECFrontierEntry{
-			Value: e.Value.(*ECNode).PrivateKey.PublicKey,
-			Size:  e.Size,
-		}
+		ecp[i] = e.(*ECNode).PrivateKey.PublicKey
 	}
 
-	return mf, nil
+	return ecp, nil
 }
 
-func (mf ECFrontier) Frontier() *Frontier {
-	f := &Frontier{
-		defn:    ecdhNodeDefn,
-		Entries: make([]FrontierEntry, len(mf)),
-	}
-
-	for i, e := range mf {
-		f.Entries[i] = FrontierEntry{
-			Value: ECNodeFromPublicKey(e.Value),
-			Size:  e.Size,
-		}
+func (ecp ECPath) Nodes() []Node {
+	f := make([]Node, len(ecp))
+	for i, e := range ecp {
+		f[i] = ECNodeFromPublicKey(e)
 	}
 
 	return f

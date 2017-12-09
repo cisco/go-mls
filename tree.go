@@ -29,23 +29,6 @@ type tree struct {
 	nodes map[uint]Node
 }
 
-type FrontierEntry struct {
-	Value Node
-	Size  uint
-}
-
-type Frontier struct {
-	defn    *nodeDefinition
-	Entries []FrontierEntry
-}
-
-type Copath struct {
-	defn  *nodeDefinition
-	Size  uint
-	Index uint
-	Nodes []Node
-}
-
 func newTree(defn *nodeDefinition) *tree {
 	return &tree{
 		defn:  defn,
@@ -80,28 +63,23 @@ func newTreeFromLeaves(defn *nodeDefinition, leaves []Node) (*tree, error) {
 	return t, nil
 }
 
-func newTreeFromFrontier(F *Frontier) (*tree, error) {
-	if F.defn == nil {
+func newTreeFromFrontier(defn *nodeDefinition, size uint, F []Node) (*tree, error) {
+	if defn == nil {
 		return nil, InvalidParameterError
 	}
 
-	size := uint(0)
-	for _, entry := range F.Entries {
-		size += entry.Size
-	}
-
 	f := frontier(size)
-	if len(F.Entries) != len(f) {
+	if len(F) != len(f) {
 		return nil, InvalidPathError
 	}
 
 	nodes := map[uint]Node{}
 	for i, j := range f {
-		nodes[j] = F.Entries[i].Value
+		nodes[j] = F[i]
 	}
 
 	t := &tree{
-		defn:  F.defn,
+		defn:  defn,
 		size:  size,
 		nodes: nodes,
 	}
@@ -114,24 +92,28 @@ func newTreeFromFrontier(F *Frontier) (*tree, error) {
 	return t, nil
 }
 
-func newTreeFromCopath(C *Copath) (*tree, error) {
-	if C.defn == nil {
+func newTreeFromCopath(defn *nodeDefinition, index, size uint, C []Node) (*tree, error) {
+	if defn == nil {
 		return nil, InvalidParameterError
 	}
 
-	c := copath(2*C.Index, C.Size)
-	if len(C.Nodes) != len(c) {
+	if index >= size {
+		return nil, InvalidParameterError
+	}
+
+	c := copath(2*index, size)
+	if len(C) != len(c) {
 		return nil, InvalidPathError
 	}
 
 	nodes := map[uint]Node{}
 	for i, j := range c {
-		nodes[j] = C.Nodes[i]
+		nodes[j] = C[i]
 	}
 
 	t := &tree{
-		defn:  C.defn,
-		size:  C.Size,
+		defn:  defn,
+		size:  size,
 		nodes: nodes,
 	}
 
@@ -315,7 +297,7 @@ func (t tree) DirectPath(index uint) ([]Node, error) {
 	return D, nil
 }
 
-func (t tree) Copath(index uint) (*Copath, error) {
+func (t tree) Copath(index uint) ([]Node, error) {
 	if index >= t.size {
 		return nil, InvalidIndexError
 	}
@@ -330,30 +312,22 @@ func (t tree) Copath(index uint) (*Copath, error) {
 		}
 	}
 
-	return &Copath{
-		defn:  t.defn,
-		Size:  t.size,
-		Index: index,
-		Nodes: C,
-	}, nil
+	return C, nil
 }
 
-func (t tree) Frontier() (*Frontier, error) {
+func (t tree) Frontier() ([]Node, error) {
 	f := frontier(t.size)
-	F := make([]FrontierEntry, len(f))
+	F := make([]Node, len(f))
 	for i, j := range f {
 		node, ok := t.nodes[j]
 		if !ok {
 			return nil, MissingNodeError
 		}
 
-		F[i] = FrontierEntry{
-			Value: node,
-			Size:  subtreeSize(j, t.size),
-		}
+		F[i] = node
 	}
 
-	return &Frontier{defn: t.defn, Entries: F}, nil
+	return F, nil
 }
 
 func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {

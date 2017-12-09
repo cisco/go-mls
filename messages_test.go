@@ -1,153 +1,139 @@
 package mls
 
 import (
-	"encoding/json"
+	"github.com/bifurcation/mint/syntax"
 	"reflect"
 	"testing"
 )
 
 var (
-	aData        = []byte("messages")
-	aPrivateKey  = NewECPrivateKey()
-	aKey         = aPrivateKey.PublicKey
-	aMerkleEntry = MerkleFrontierEntry{Value: aData, Size: 4}
-	aECEntry     = ECFrontierEntry{Value: aKey, Size: 4}
+	aData       = []byte("messages")
+	aPrivateKey = NewECPrivateKey()
+	aMerkleNode = MerkleNode{aData}
+	aMerklePath = MerklePath{aMerkleNode, aMerkleNode}
+	aPublicKey  = aPrivateKey.PublicKey
+	aECPath     = ECPath{aPublicKey, aPublicKey}
 
-	aUserPreKey = &UserPreKey{PreKey: aKey}
+	aIdentityLeaf    = MerkleNodeFromPublicKey(aPublicKey)
+	aIdentityRoot, _ = merkleNodeDefn.combine(aIdentityLeaf, aIdentityLeaf)
+
+	aUserPreKey = &UserPreKey{
+		PreKey:      aPublicKey,
+		IdentityKey: aPublicKey,
+		Signature:   aData,
+	}
 
 	aGroupPreKey = &GroupPreKey{
 		Epoch:            2,
 		GroupID:          []byte{0x00, 0x01, 0x02, 0x03},
-		UpdateKey:        aKey,
-		IdentityFrontier: MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		LeafFrontier:     MerkleFrontier{aMerkleEntry, aMerkleEntry},
-		RatchetFrontier:  ECFrontier{aECEntry, aECEntry},
+		GroupSize:        2,
+		UpdateKey:        aPublicKey,
+		IdentityFrontier: aMerklePath,
+		LeafFrontier:     aMerklePath,
+		RatchetFrontier:  aECPath,
 	}
 
-	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aKey, aKey}}
+	aNone = &None{}
 
-	aSignedUserPreKey, _ = NewSigned(aUserPreKey, aPrivateKey)
-	aGroupAdd            = &GroupAdd{
-		PreKey: aSignedUserPreKey,
+	aUserAdd = &UserAdd{AddPath: []ECPublicKey{aPublicKey, aPublicKey}}
+
+	aGroupAdd = &GroupAdd{
+		PreKey: *aUserPreKey,
 	}
 
 	aUpdate = &Update{
-		LeafPath:    [][]byte{aData, aData},
-		RatchetPath: []ECPublicKey{aKey, aKey},
+		LeafPath:    aMerklePath,
+		RatchetPath: aECPath,
 	}
 
 	aDelete = &Delete{
-		Deleted:    []uint{0, 1},
-		Path:       []ECPublicKey{aKey, aKey},
-		Leaves:     []ECPublicKey{aKey, aKey},
-		Identities: [][]byte{aData, aData},
+		Deleted:    []uint32{0, 1},
+		Path:       aECPath,
+		Leaves:     aECPath,
+		Identities: aMerklePath,
 	}
 )
 
-func TestMessageJSON(t *testing.T) {
-	testJSON := func(x interface{}, out interface{}) {
-		xj, err := json.Marshal(x)
+func TestMessageTLS(t *testing.T) {
+	testTLS := func(label string, x interface{}, out interface{}) {
+		t.Logf(label)
+		xj, err := syntax.Marshal(x)
 		if err != nil {
-			t.Fatalf("Error in JSON marshal: %v", err)
+			t.Fatalf("Error in TLS marshal: %v", err)
 		}
 
-		err = json.Unmarshal(xj, out)
+		_, err = syntax.Unmarshal(xj, out)
 		if err != nil {
-			t.Fatalf("Error in JSON unmarshal: %v", err)
+			t.Fatalf("Error in TLS unmarshal: %v", err)
 		}
 
 		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("JSON round-trip failed: %+v != %+v", x, out)
+			t.Fatalf("TLS round-trip failed: %+v != %+v", x, out)
 		}
 	}
 
-	testJSON(aUserPreKey, new(UserPreKey))
-	testJSON(aGroupPreKey, new(GroupPreKey))
-	testJSON(aUserAdd, new(UserAdd))
-	testJSON(aGroupAdd, new(GroupAdd))
-	testJSON(aUpdate, new(Update))
-	testJSON(aDelete, new(Delete))
+	testTLS("UserPreKey", aUserPreKey, new(UserPreKey))
+	testTLS("GroupPreKey", aGroupPreKey, new(GroupPreKey))
+	testTLS("None", aNone, new(None))
+	testTLS("UserAdd", aUserAdd, new(UserAdd))
+	testTLS("GroupAdd", aGroupAdd, new(GroupAdd))
+	testTLS("Update", aUpdate, new(Update))
+	testTLS("Delete", aDelete, new(Delete))
 }
 
-func TestSigned(t *testing.T) {
-	k := ECNodeFromData([]byte("signing test")).PrivateKey
-
-	in := aUserPreKey
-	s, err := NewSigned(in, k)
+func TestUserPreKeySignVerify(t *testing.T) {
+	identityKey := NewECPrivateKey()
+	_, upk, err := NewUserPreKey(identityKey)
 	if err != nil {
-		t.Fatalf("Error in signing: %v", err)
+		t.Fatalf("Error in UserPreKey signing: %v", err)
 	}
 
-	sj, err := json.Marshal(s)
-	if err != nil {
-		t.Fatalf("Error in JSON marshal: %v", err)
-	}
-
-	s2 := new(Signed)
-	err = json.Unmarshal(sj, s2)
-	if err != nil {
-		t.Fatalf("Error in JSON unmarshal: %v", err)
-	}
-
-	out := new(UserPreKey)
-	err = s2.Verify(out)
-	if err != nil {
-		t.Fatalf("Error in verification: %v", err)
-	}
-
-	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("Sign/verify round-trip failed: %+v != %+v", in, out)
+	if err := upk.Verify(); err != nil {
+		t.Fatalf("Error in UserPreKey verification: %v", err)
 	}
 }
 
-func TestRosterSigned(t *testing.T) {
-	aGroupSize := 7
-	aLeafKeys := make([]ECPrivateKey, aGroupSize)
-	aLeaves := make([]Node, aGroupSize)
-	for i := range aLeafKeys {
-		aLeafKeys[i] = NewECPrivateKey()
-		aLeaves[i] = merkleLeaf(aLeafKeys[i].PublicKey.bytes())
+func TestHandshakeSignMarshalUnmarshalVerify(t *testing.T) {
+	original := &Handshake{
+		PreKey:        *aGroupPreKey,
+		SignerIndex:   0,
+		IdentityProof: MerklePath{MerkleNodeFromPublicKey(aPublicKey)},
 	}
 
-	aTree, err := newTreeFromLeaves(merkleNodeDefn, aLeaves)
-	if err != nil {
-		t.Fatalf("Error generating Merkle tree: %v", err)
-	}
+	testHandshake := func(label string, body HandshakeMessageBody) {
+		t.Logf(label)
 
-	rootNode, err := aTree.Root()
-	if err != nil {
-		t.Fatalf("Error fetching root: %v", err)
-	}
+		original.Body = body
 
-	expectedRoot := rootNode.([]byte)
-
-	for i, k := range aLeafKeys {
-		in := aUserPreKey
-		c, err := aTree.Copath(uint(i))
+		err := original.Sign(aPrivateKey)
 		if err != nil {
-			t.Fatalf("Error fetching copath @ %d: %v", i, err)
+			t.Fatalf("Error in sign: %v", err)
 		}
 
-		rs, err := NewRosterSigned(in, k, c)
+		encoded, err := syntax.Marshal(original)
 		if err != nil {
-			t.Fatalf("Error in roster-signing @ %d: %v", i, err)
+			t.Fatalf("Error in TLS marshal: %v", err)
 		}
 
-		rsj, err := json.Marshal(rs)
+		decoded := new(Handshake)
+		_, err = syntax.Unmarshal(encoded, decoded)
 		if err != nil {
-			t.Fatalf("Error in JSON marshal @ %d: %v", i, err)
+			t.Fatalf("Error in TLS unmarshal: %v", err)
 		}
 
-		rs2 := new(RosterSigned)
-		err = json.Unmarshal(rsj, rs2)
+		err = decoded.Verify(aIdentityRoot)
 		if err != nil {
-			t.Fatalf("Error in JSON unmarshal @ %d: %v", i, err)
+			t.Fatalf("Error in verify: %v", err)
 		}
 
-		out := new(UserPreKey)
-		err = rs2.Verify(out, expectedRoot)
-		if err != nil {
-			t.Fatalf("Error in verifying roster-signed @ %d: %v", i, err)
+		if !reflect.DeepEqual(original, decoded) {
+			t.Fatalf("Sign/Marshal/Unmarshal/Verify round-trip failed: %+v != %+v", original, decoded)
 		}
 	}
+
+	testHandshake("None", aNone)
+	testHandshake("UserAdd", aUserAdd)
+	testHandshake("GroupAdd", aGroupAdd)
+	testHandshake("Update", aUpdate)
+	testHandshake("Delete", aDelete)
 }

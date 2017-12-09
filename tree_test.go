@@ -1,7 +1,6 @@
 package mls
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -24,7 +23,7 @@ func prettyPrintTree(t *tree) {
 			case []byte:
 				data = val
 			case (*ECNode):
-				data = merkleLeaf(val.PrivateKey.PublicKey.bytes())
+				data = MerkleNodeFromPublicKey(val.PrivateKey.PublicKey).Value
 			}
 
 			if level(i) != L {
@@ -114,15 +113,11 @@ func TestNewTree(t *testing.T) {
 
 func TestNewTreeFromCopath(t *testing.T) {
 	aIndex := uint(0)
-	aC := &Copath{
-		defn:  stringNodeDefn,
-		Index: aIndex,
-		Size:  3,
-		Nodes: []Node{"b", "c"},
-	}
+	aSize := uint(3)
+	aC := []Node{"b", "c"}
 
 	// Test newTree / Copath() round trip
-	tree, err := newTreeFromCopath(aC)
+	tree, err := newTreeFromCopath(stringNodeDefn, aIndex, aSize, aC)
 	if err != nil {
 		t.Fatalf("Error constructing tree from copath: %v", err)
 	}
@@ -135,36 +130,15 @@ func TestNewTreeFromCopath(t *testing.T) {
 	if !reflect.DeepEqual(C, aC) {
 		t.Fatalf("Incorrect copath value: %v != %v", C, aC)
 	}
-
-	// Test JSON marshal / unmarshal round trip
-	Cj, err := json.Marshal(aC)
-	if err != nil {
-		t.Fatalf("Error marshaling copath: %v", err)
-	}
-
-	C2 := new(Copath)
-	err = json.Unmarshal(Cj, C2)
-	if err != nil {
-		t.Fatalf("Error unmarshaling copath: %v", err)
-	}
-
-	C2.defn = stringNodeDefn
-	if !reflect.DeepEqual(C2, aC) {
-		t.Fatalf("Incorrect copath value: %v != %v", C2, aC)
-	}
 }
 
 func TestNewTreeFromFrontier(t *testing.T) {
-	aF := &Frontier{
-		defn: stringNodeDefn,
-		Entries: []FrontierEntry{
-			{Value: "ab", Size: 2},
-			{Value: "c", Size: 1},
-		},
-	}
+	aDefn := stringNodeDefn
+	aSize := uint(3)
+	aF := []Node{"ab", "c"}
 
 	// Test newTree / Frontier() round trip
-	tree, err := newTreeFromFrontier(aF)
+	tree, err := newTreeFromFrontier(aDefn, aSize, aF)
 	if err != nil {
 		t.Fatalf("Error constructing tree from frontier: %v", err)
 	}
@@ -176,23 +150,6 @@ func TestNewTreeFromFrontier(t *testing.T) {
 
 	if !reflect.DeepEqual(F, aF) {
 		t.Fatalf("Incorrect frontier value: %v != %v", F, aF)
-	}
-
-	// Test JSON marshal / unmarshal round trip
-	Fj, err := json.Marshal(aF)
-	if err != nil {
-		t.Fatalf("Error marshaling frontier: %v", err)
-	}
-
-	F2 := new(Frontier)
-	err = json.Unmarshal(Fj, F2)
-	if err != nil {
-		t.Fatalf("Error unmarshaling frontier: %v", err)
-	}
-
-	F2.defn = stringNodeDefn
-	if !reflect.DeepEqual(F2, aF) {
-		t.Fatalf("Incorrect frontier value: %v != %v", F2, aF)
 	}
 }
 
@@ -211,13 +168,7 @@ func TestTreeAdd(t *testing.T) {
 		7: "abcde",
 		8: "e",
 	}
-	aFrontier := &Frontier{
-		defn: stringNodeDefn,
-		Entries: []FrontierEntry{
-			{Value: "abcd", Size: 4},
-			{Value: "e", Size: 1},
-		},
-	}
+	aFrontier := []Node{"abcd", "e"}
 
 	// Build tree by additions
 	tree := newTree(stringNodeDefn)
@@ -276,16 +227,8 @@ func TestTreeAdd(t *testing.T) {
 			t.Fatalf("Error fetching copath @ %v: %v", i, err)
 		}
 
-		if C.Index != i {
-			t.Fatalf("Copath has wrong index @ %v: %v != %v", i, C.Index, i)
-		}
-
-		if C.Size != tree.size {
-			t.Fatalf("Copath has wrong size @ %v: %v != %v", i, C.Size, tree.size)
-		}
-
-		if len(C.Nodes) != len(c) {
-			t.Fatalf("Copath has wrong path length @ %v: %v != %v", i, len(C.Nodes), len(c))
+		if len(C) != len(c) {
+			t.Fatalf("Copath has wrong path length @ %v: %v != %v", i, len(C), len(c))
 		}
 	}
 }

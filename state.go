@@ -26,25 +26,6 @@ func kdf(label string, data ...[]byte) []byte {
 	return h.Sum(nil)
 }
 
-func rootForSignedGPK(signedGPK *RosterSigned) ([]byte, error) {
-	groupPreKey := new(GroupPreKey)
-	err := signedGPK.Verify(groupPreKey, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	identityTree, err := newTreeFromFrontier(groupPreKey.IdentityFrontier.Frontier())
-	if err != nil {
-		return nil, err
-	}
-
-	rootNode, err := identityTree.Root()
-	if err != nil {
-		return nil, err
-	}
-	return rootNode.([]byte), nil
-}
-
 type State struct {
 	// Details for this node
 	myIndex       uint
@@ -52,7 +33,7 @@ type State struct {
 	myIdentityKey ECPrivateKey
 
 	// Description of the group
-	epoch        uint
+	epoch        uint32
 	groupID      []byte
 	identityTree *tree
 	leafTree     *tree
@@ -111,12 +92,12 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 		deleteKey:      NewECPrivateKey(),
 	}
 
-	err := state.identityTree.Add(merkleLeaf(state.myIdentityKey.PublicKey.bytes()))
+	err := state.identityTree.Add(MerkleNodeFromPublicKey(state.myIdentityKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
 
-	err = state.leafTree.Add(merkleLeaf(state.myLeafKey.PublicKey.bytes()))
+	err = state.leafTree.Add(MerkleNodeFromPublicKey(state.myLeafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -131,74 +112,75 @@ func NewStateForEmptyGroup(groupID []byte, identityKey ECPrivateKey) (*State, er
 	return state, nil
 }
 
-func NewStateFromGroupAdd(identityKey ECPrivateKey, preKey ECPrivateKey, signedGroupAdd *RosterSigned, priorGPK *RosterSigned) (*State, error) {
-	priorRoot, err := rootForSignedGPK(priorGPK)
+func NewStateFromGroupAdd(identityKey ECPrivateKey, preKey ECPrivateKey, signedGroupAdd *Handshake, priorGPK *Handshake) (*State, error) {
+	// Verify the prior Handshake and GroupAdd against the previous root
+	priorRoot, err := priorGPK.IdentityRoot()
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify the GroupAdd and GroupPreKey against the previous root
-	groupPreKey := new(GroupPreKey)
-	err = priorGPK.Verify(groupPreKey, priorRoot)
-	if err != nil {
+	if err := priorGPK.Verify(priorRoot); err != nil {
 		return nil, err
 	}
 
-	groupAdd := new(GroupAdd)
-	err = signedGroupAdd.Verify(groupAdd, priorRoot)
-	if err != nil {
+	if err := signedGroupAdd.Verify(priorRoot); err != nil {
 		return nil, err
 	}
 
-	if !groupAdd.PreKey.PublicKey.Equal(identityKey.PublicKey) {
+	groupAdd, ok := signedGroupAdd.Body.(*GroupAdd)
+	if !ok {
+		return nil, fmt.Errorf("NewStateFromGroupAdd was not provided with a GroupAdd")
+	}
+
+	if !groupAdd.PreKey.IdentityKey.Equal(identityKey.PublicKey) {
 		return nil, fmt.Errorf("PreKey signed by wrong identity key")
 	}
 
 	// Generate the leaf key and add to the state
-	leafKey := ECNodeFromData(preKey.derive(groupPreKey.UpdateKey)).PrivateKey
+	leafKey := ECNodeFromData(preKey.derive(priorGPK.PreKey.UpdateKey)).PrivateKey
 
-	return newStateFromVerifiedDetails(identityKey, leafKey, groupPreKey)
+	return newStateFromVerifiedDetails(identityKey, leafKey, priorGPK.PreKey)
 }
 
-func NewStateFromGroupPreKey(identityKey ECPrivateKey, leafKey ECPrivateKey, priorGPK *RosterSigned) (*State, error) {
-	priorRoot, err := rootForSignedGPK(priorGPK)
+func NewStateFromGroupPreKey(identityKey ECPrivateKey, leafKey ECPrivateKey, priorGPK *Handshake) (*State, error) {
+	// Verify the prior Handshake and GroupAdd against the previous root
+	priorRoot, err := priorGPK.IdentityRoot()
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify the GroupAdd against the previous root
-	groupPreKey := new(GroupPreKey)
-	err = priorGPK.Verify(groupPreKey, priorRoot)
-	if err != nil {
+	if err := priorGPK.Verify(priorRoot); err != nil {
 		return nil, err
 	}
 
-	return newStateFromVerifiedDetails(identityKey, leafKey, groupPreKey)
+	return newStateFromVerifiedDetails(identityKey, leafKey, priorGPK.PreKey)
 }
 
-func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey, groupPreKey *GroupPreKey) (*State, error) {
+func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey, groupPreKey GroupPreKey) (*State, error) {
+	treeSize := uint(groupPreKey.GroupSize)
+
 	// Initialize trees and add this node
-	identityTree, err := newTreeFromFrontier(groupPreKey.IdentityFrontier.Frontier())
+	identityTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.IdentityFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	leafTree, err := newTreeFromFrontier(groupPreKey.LeafFrontier.Frontier())
+	leafTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.LeafFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	ratchetTree, err := newTreeFromFrontier(groupPreKey.RatchetFrontier.Frontier())
+	ratchetTree, err := newTreeFromFrontier(ecdhNodeDefn, treeSize, groupPreKey.RatchetFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
-	err = identityTree.Add(merkleLeaf(identityKey.PublicKey.bytes()))
+	err = identityTree.Add(MerkleNodeFromPublicKey(identityKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
 
-	err = leafTree.Add(merkleLeaf(leafKey.PublicKey.bytes()))
+	err = leafTree.Add(MerkleNodeFromPublicKey(leafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -237,50 +219,66 @@ func newStateFromVerifiedDetails(identityKey ECPrivateKey, leafKey ECPrivateKey,
 /// Convenience functions
 ///
 
-func (s State) sign(body interface{}) (*RosterSigned, error) {
-	copath, err := s.identityTree.Copath(s.myIndex)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewRosterSigned(body, s.myIdentityKey, copath)
-}
-
-func (s State) verifyForCurrentRoster(rs *RosterSigned, out interface{}) error {
-	rootNode, err := s.identityTree.Root()
-	if err != nil {
-		return err
-	}
-
-	root := rootNode.([]byte)
-	return rs.Verify(out, root)
-}
-
-func (s State) groupPreKey() (*RosterSigned, error) {
+func (s State) groupPreKey() GroupPreKey {
 	// XXX: Ignoring errors
 	ifr, _ := s.identityTree.Frontier()
 	lfr, _ := s.leafTree.Frontier()
 	rfr, _ := s.ratchetTree.Frontier()
 
-	Ifr, _ := NewMerkleFrontier(ifr)
-	Lfr, _ := NewMerkleFrontier(lfr)
-	Rfr, _ := NewECFrontier(rfr)
+	Ifr, _ := NewMerklePath(ifr)
+	Lfr, _ := NewMerklePath(lfr)
+	Rfr, _ := NewECPath(rfr)
 
-	gpk := &GroupPreKey{
+	return GroupPreKey{
 		Epoch:            s.epoch,
 		GroupID:          s.groupID,
+		GroupSize:        uint32(s.identityTree.size),
 		UpdateKey:        s.updateKey.PublicKey,
 		IdentityFrontier: Ifr,
 		LeafFrontier:     Lfr,
 		RatchetFrontier:  Rfr,
 	}
+}
 
-	return s.sign(gpk)
+func (s State) sign(body HandshakeMessageBody) (*Handshake, error) {
+	abstractCopath, err := s.identityTree.Copath(s.myIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	copath, err := NewMerklePath(abstractCopath)
+	if err != nil {
+		return nil, err
+	}
+
+	h := &Handshake{
+		Body:          body,
+		PreKey:        s.groupPreKey(),
+		SignerIndex:   uint32(s.myIndex),
+		IdentityProof: copath,
+		IdentityKey:   s.myIdentityKey.PublicKey,
+	}
+
+	if err := h.Sign(s.myIdentityKey); err != nil {
+		return nil, err
+	}
+
+	return h, nil
+}
+
+func (s State) verifyForCurrentRoster(h *Handshake) error {
+	rootNode, err := s.identityTree.Root()
+	if err != nil {
+		return err
+	}
+
+	root := rootNode.(MerkleNode).Value
+	return h.Verify(root)
 }
 
 func (s *State) deriveEpochKeys(epochSecret []byte) {
 	// TODO: Hash in additional context, e.g.:
-	// * Key management messages
+	// * Handshake messages
 	// * Identity tree root
 	s.messageRootKey = kdf(labelMessageRootKey, epochSecret)
 	s.updateSecret = kdf(labelUpdateSecret, epochSecret)
@@ -289,20 +287,20 @@ func (s *State) deriveEpochKeys(epochSecret []byte) {
 }
 
 ///
-/// Functions to generate epoch-changing messages
+/// Functions to generate handshake messages
 ///
 
-func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *RosterSigned) (*RosterSigned, *RosterSigned, error) {
+func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *Handshake) (*Handshake, error) {
 	// Construct a temporary state as if we had already joined
 	s, err := NewStateFromGroupPreKey(identityKey, leafKey, oldGPK)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Extract the direct ratchet path for the new node
 	abstractAddPath, err := s.ratchetTree.DirectPath(s.myIndex)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	addPath := make([]ECPublicKey, len(abstractAddPath))
@@ -310,36 +308,28 @@ func Join(identityKey ECPrivateKey, leafKey ECPrivateKey, oldGPK *RosterSigned) 
 		addPath[i] = n.(*ECNode).PrivateKey.PublicKey
 	}
 
-	add := UserAdd{AddPath: addPath}
-	signedAdd, err := s.sign(add)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	newGPK, err := s.groupPreKey()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return signedAdd, newGPK, nil
+	userAdd := &UserAdd{AddPath: addPath}
+	return s.sign(userAdd)
 }
 
-func (s State) Add(signedUserPreKey *Signed) (*RosterSigned, error) {
-	userPreKey := new(UserPreKey)
-	err := signedUserPreKey.Verify(userPreKey)
-	if err != nil {
+func (s State) SignedGroupPreKey() (*Handshake, error) {
+	return s.sign(None{})
+}
+
+func (s State) Add(userPreKey *UserPreKey) (*Handshake, error) {
+	if err := userPreKey.Verify(); err != nil {
 		return nil, err
 	}
 
 	groupAdd := &GroupAdd{
-		PreKey: signedUserPreKey,
+		PreKey: *userPreKey,
 	}
 
 	return s.sign(groupAdd)
 }
 
-func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
-	leafPath, err := s.leafTree.UpdatePath(s.myIndex, merkleLeaf(leafKey.PublicKey.bytes()))
+func (s State) Update(leafKey ECPrivateKey) (*Handshake, error) {
+	leafPath, err := s.leafTree.UpdatePath(s.myIndex, MerkleNodeFromPublicKey(leafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -349,21 +339,22 @@ func (s State) Update(leafKey ECPrivateKey) (*RosterSigned, error) {
 		return nil, err
 	}
 
-	update := Update{
-		LeafPath:    make([][]byte, len(leafPath)),
-		RatchetPath: make([]ECPublicKey, len(ratchetPath)),
+	update := &Update{}
+
+	update.LeafPath, err = NewMerklePath(leafPath)
+	if err != nil {
+		return nil, err
 	}
-	for i, n := range leafPath {
-		update.LeafPath[i] = n.([]byte)
-	}
-	for i, n := range ratchetPath {
-		update.RatchetPath[i] = n.(*ECNode).PrivateKey.PublicKey
+
+	update.RatchetPath, err = NewECPath(ratchetPath)
+	if err != nil {
+		return nil, err
 	}
 
 	return s.sign(update)
 }
 
-func (s State) Delete(indices []uint) (*RosterSigned, error) {
+func (s State) Delete(indices []uint) (*Handshake, error) {
 	hasLeaves := (len(s.leafList) > 0)
 	hasIdentities := s.identityTree.HasAllLeaves()
 	if !hasLeaves || !hasIdentities {
@@ -390,18 +381,23 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 		path = append(path, head.PublicKey)
 	}
 
+	indices32 := make([]uint32, len(indices))
+	for i, x := range indices {
+		indices32[i] = uint32(x)
+	}
+
 	abstractIdentities, err := s.identityTree.Leaves()
 	if err != nil {
 		return nil, err
 	}
 
-	identities := make([][]byte, len(abstractIdentities))
-	for i, id := range abstractIdentities {
-		identities[i] = id.([]byte)
+	identities, err := NewMerklePath(abstractIdentities)
+	if err != nil {
+		return nil, err
 	}
 
-	delete := Delete{
-		Deleted:    indices,
+	delete := &Delete{
+		Deleted:    indices32,
 		Path:       path,
 		Leaves:     s.leafList,
 		Identities: identities,
@@ -411,27 +407,24 @@ func (s State) Delete(indices []uint) (*RosterSigned, error) {
 }
 
 ///
-/// Functions to handle epoch-changing messages
+/// Functions to handle handshake messages
 ///
 
-func (s *State) HandleUserAdd(signedUserAdd *RosterSigned, signedNewGPK *RosterSigned) error {
+func (s *State) HandleUserAdd(signedUserAdd *Handshake) error {
 	// TODO Verify that the new identity tree is a successor to the old one
-	newIdentityRoot, err := rootForSignedGPK(signedNewGPK)
+	newIdentityRoot, err := signedUserAdd.IdentityRoot()
 	if err != nil {
 		return err
 	}
 
-	// Verify the UserAdd and GroupPreKey against the previous root
-	userAdd := new(UserAdd)
-	err = signedUserAdd.Verify(userAdd, newIdentityRoot)
-	if err != nil {
+	// Verify the UserAdd and GroupPreKey against the new root (since the signer is presumably not in the group)
+	if err := signedUserAdd.Verify(newIdentityRoot); err != nil {
 		return err
 	}
 
-	groupPreKey := new(GroupPreKey)
-	err = signedNewGPK.Verify(groupPreKey, newIdentityRoot)
-	if err != nil {
-		return err
+	userAdd, ok := signedUserAdd.Body.(*UserAdd)
+	if !ok {
+		return fmt.Errorf("HandleUserAdd was not provided with a UserAdd message")
 	}
 
 	// Update ratchet tree
@@ -442,27 +435,29 @@ func (s *State) HandleUserAdd(signedUserAdd *RosterSigned, signedNewGPK *RosterS
 	err = s.ratchetTree.AddWithPath(addPath)
 
 	// Update other state
-	identityKey := signedUserAdd.Signed.PublicKey
+	identityKey := signedUserAdd.IdentityKey
 	leafKey := userAdd.AddPath[len(userAdd.AddPath)-1]
 
 	return s.addToSymmetricState(identityKey, leafKey)
 }
 
-func (s *State) HandleGroupAdd(signedGroupAdd *RosterSigned) error {
-	groupAdd := new(GroupAdd)
-	err := s.verifyForCurrentRoster(signedGroupAdd, groupAdd)
+func (s *State) HandleGroupAdd(signedGroupAdd *Handshake) error {
+	err := s.verifyForCurrentRoster(signedGroupAdd)
 	if err != nil {
 		return err
 	}
 
-	userPreKey := new(UserPreKey)
-	err = groupAdd.PreKey.Verify(userPreKey)
-	if err != nil {
+	groupAdd, ok := signedGroupAdd.Body.(*GroupAdd)
+	if !ok {
+		return fmt.Errorf("HandleGroupAdd was not provided with a GroupAdd message")
+	}
+
+	if err = groupAdd.PreKey.Verify(); err != nil {
 		return err
 	}
 
-	preKey := userPreKey.PreKey
-	identityKey := groupAdd.PreKey.PublicKey
+	preKey := groupAdd.PreKey.PreKey
+	identityKey := groupAdd.PreKey.IdentityKey
 
 	// Derive the new leaf and add it to the ratchet tree
 	leafData := s.updateKey.derive(preKey)
@@ -480,12 +475,12 @@ func (s *State) HandleGroupAdd(signedGroupAdd *RosterSigned) error {
 func (s *State) addToSymmetricState(identityKey, leafKey ECPublicKey) error {
 	s.epoch += 1
 
-	err := s.identityTree.Add(merkleLeaf(identityKey.bytes()))
+	err := s.identityTree.Add(MerkleNodeFromPublicKey(identityKey))
 	if err != nil {
 		return err
 	}
 
-	err = s.leafTree.Add(merkleLeaf(leafKey.bytes()))
+	err = s.leafTree.Add(MerkleNodeFromPublicKey(leafKey))
 	if err != nil {
 		return err
 	}
@@ -506,7 +501,7 @@ func (s *State) addToSymmetricState(identityKey, leafKey ECPublicKey) error {
 	return nil
 }
 
-func (s *State) HandleSelfUpdate(leafKey ECPrivateKey, signedUpdate *RosterSigned) error {
+func (s *State) HandleSelfUpdate(leafKey ECPrivateKey, signedUpdate *Handshake) error {
 	err := s.handleUpdateInner(signedUpdate, &leafKey)
 	if err != nil {
 		return err
@@ -516,19 +511,23 @@ func (s *State) HandleSelfUpdate(leafKey ECPrivateKey, signedUpdate *RosterSigne
 	return nil
 }
 
-func (s *State) HandleUpdate(signedUpdate *RosterSigned) error {
+func (s *State) HandleUpdate(signedUpdate *Handshake) error {
 	return s.handleUpdateInner(signedUpdate, nil)
 }
 
-func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivateKey) error {
-	update := new(Update)
-	err := s.verifyForCurrentRoster(signedUpdate, update)
+func (s *State) handleUpdateInner(signedUpdate *Handshake, leafKey *ECPrivateKey) error {
+	err := s.verifyForCurrentRoster(signedUpdate)
 	if err != nil {
 		return err
 	}
 
+	update, ok := signedUpdate.Body.(*Update)
+	if !ok {
+		return fmt.Errorf("HandleUpdate was not provided with an Update message")
+	}
+
 	// Update leaf tree
-	index := signedUpdate.Copath.Index
+	index := uint(signedUpdate.SignerIndex)
 	leafPath := make([]Node, len(update.LeafPath))
 	for i, n := range update.LeafPath {
 		leafPath[i] = n
@@ -571,7 +570,7 @@ func (s *State) handleUpdateInner(signedUpdate *RosterSigned, leafKey *ECPrivate
 	return nil
 }
 
-func (s *State) importIdentities(identities [][]byte) error {
+func (s *State) importIdentities(identities MerklePath) error {
 	leaves := make([]Node, len(identities))
 	for i, id := range identities {
 		leaves[i] = id
@@ -591,10 +590,10 @@ func (s *State) importIdentities(identities [][]byte) error {
 	return nil
 }
 
-func (s *State) importLeaves(leafKeys []ECPublicKey) error {
+func (s *State) importLeaves(leafKeys ECPath) error {
 	leaves := make([]Node, len(leafKeys))
 	for i, leafKey := range leafKeys {
-		leaves[i] = merkleLeaf(leafKey.bytes())
+		leaves[i] = MerkleNodeFromPublicKey(leafKey)
 	}
 
 	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
@@ -630,16 +629,20 @@ func compareTreeRoots(local, remote *tree) error {
 	return nil
 }
 
-func (s *State) HandleDelete(signedDelete *RosterSigned) error {
-	delete := new(Delete)
-	err := s.verifyForCurrentRoster(signedDelete, delete)
+func (s *State) HandleDelete(signedDelete *Handshake) error {
+	err := s.verifyForCurrentRoster(signedDelete)
 	if err != nil {
 		return err
 	}
 
+	delete, ok := signedDelete.Body.(*Delete)
+	if !ok {
+		return fmt.Errorf("HandleDelete was not provided with a Delete message")
+	}
+
 	deleted := map[uint]bool{}
 	for _, i := range delete.Deleted {
-		deleted[i] = true
+		deleted[uint(i)] = true
 	}
 
 	// Verify and import lists of leaf and identity keys
@@ -680,7 +683,7 @@ func (s *State) HandleDelete(signedDelete *RosterSigned) error {
 
 	// Replace the delelted nodes with the delete key in the ratchet tree
 	// Replace the deleted nodes with empty nodes in the identity tree
-	emptyNode := emptyMerkleLeaf()
+	emptyNode := MerkleNode{emptyMerkleLeaf()}
 	deleteNode := ECNodeFromPublicKey(s.deleteKey.PublicKey)
 	for i := range deleted {
 		err := s.identityTree.Update(i, emptyNode)
