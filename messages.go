@@ -283,7 +283,7 @@ func (h *Handshake) UnmarshalTLS(data []byte) (int, error) {
 		h.Body = new(Delete)
 	}
 
-	_, err = syntax.Unmarshal(data, h.Body)
+	_, err = syntax.Unmarshal(raw.MsgBody, h.Body)
 	if err != nil {
 		return 0, err
 	}

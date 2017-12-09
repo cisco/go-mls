@@ -1,7 +1,6 @@
 package mls
 
 import (
-	"encoding/json"
 	"github.com/bifurcation/mint/syntax"
 	"reflect"
 	"testing"
@@ -55,32 +54,6 @@ var (
 	}
 )
 
-func TestMessageJSON(t *testing.T) {
-	testJSON := func(x interface{}, out interface{}) {
-		xj, err := json.Marshal(x)
-		if err != nil {
-			t.Fatalf("Error in JSON marshal: %v", err)
-		}
-
-		err = json.Unmarshal(xj, out)
-		if err != nil {
-			t.Fatalf("Error in JSON unmarshal: %v", err)
-		}
-
-		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("JSON round-trip failed: %+v != %+v", x, out)
-		}
-	}
-
-	testJSON(aUserPreKey, new(UserPreKey))
-	testJSON(aGroupPreKey, new(GroupPreKey))
-	testJSON(aNone, new(None))
-	testJSON(aUserAdd, new(UserAdd))
-	testJSON(aGroupAdd, new(GroupAdd))
-	testJSON(aUpdate, new(Update))
-	testJSON(aDelete, new(Delete))
-}
-
 func TestMessageTLS(t *testing.T) {
 	testTLS := func(label string, x interface{}, out interface{}) {
 		t.Logf(label)
@@ -95,7 +68,7 @@ func TestMessageTLS(t *testing.T) {
 		}
 
 		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("JSON round-trip failed: %+v != %+v", x, out)
+			t.Fatalf("TLS round-trip failed: %+v != %+v", x, out)
 		}
 	}
 
@@ -121,45 +94,46 @@ func TestUserPreKeySignVerify(t *testing.T) {
 }
 
 func TestHandshakeSignMarshalUnmarshalVerify(t *testing.T) {
-	handshake := &Handshake{
+	original := &Handshake{
 		PreKey:        *aGroupPreKey,
 		SignerIndex:   0,
 		IdentityProof: MerklePath{MerkleNodeFromPublicKey(aPublicKey)},
 	}
 
-	testHandshake := func(label string, x HandshakeMessageBody, out interface{}) {
+	testHandshake := func(label string, body HandshakeMessageBody) {
 		t.Logf(label)
 
-		handshake.Body = x
+		original.Body = body
 
-		err := handshake.Sign(aPrivateKey)
+		err := original.Sign(aPrivateKey)
 		if err != nil {
 			t.Fatalf("Error in sign: %v", err)
 		}
 
-		xj, err := syntax.Marshal(x)
+		encoded, err := syntax.Marshal(original)
 		if err != nil {
 			t.Fatalf("Error in TLS marshal: %v", err)
 		}
 
-		_, err = syntax.Unmarshal(xj, out)
+		decoded := new(Handshake)
+		_, err = syntax.Unmarshal(encoded, decoded)
 		if err != nil {
 			t.Fatalf("Error in TLS unmarshal: %v", err)
 		}
 
-		err = handshake.Verify(aIdentityRoot)
+		err = decoded.Verify(aIdentityRoot)
 		if err != nil {
 			t.Fatalf("Error in verify: %v", err)
 		}
 
-		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("JSON round-trip failed: %+v != %+v", x, out)
+		if !reflect.DeepEqual(original, decoded) {
+			t.Fatalf("Sign/Marshal/Unmarshal/Verify round-trip failed: %+v != %+v", original, decoded)
 		}
 	}
 
-	testHandshake("None", aNone, new(None))
-	testHandshake("UserAdd", aUserAdd, new(UserAdd))
-	testHandshake("GroupAdd", aGroupAdd, new(GroupAdd))
-	testHandshake("Update", aUpdate, new(Update))
-	testHandshake("Delete", aDelete, new(Delete))
+	testHandshake("None", aNone)
+	testHandshake("UserAdd", aUserAdd)
+	testHandshake("GroupAdd", aGroupAdd)
+	testHandshake("Update", aUpdate)
+	testHandshake("Delete", aDelete)
 }
