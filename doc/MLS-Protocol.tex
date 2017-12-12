@@ -1,13 +1,12 @@
 \documentclass[11pt, oneside]{article} 
 
+\usepackage[letterpaper]{geometry}
 \usepackage[parfill]{parskip} % Begin paragraphs with newline not indent
 \usepackage{amssymb}
-\usepackage{geometry}
+\usepackage{cleveref}
 \usepackage{graphicx}		
-\usepackage{xspace}
 \usepackage{listings}
-
-\geometry{letterpaper}
+\usepackage{xspace}
 
 \title{Messaging Layer Security (MLS)}
 \author{TODO}
@@ -22,6 +21,9 @@
 \maketitle
 
 \section{Overview}
+\label{sec:overview}
+
+\todokcg{I think there should be a problem statement near the start, briefly explaining the shortcomings of current approaches (i.e. lack of PCS for group messaging) and the reason for MLS.}
 
 The \protoname protocol enables a group of participants to
 
@@ -31,9 +33,22 @@ The \protoname protocol enables a group of participants to
 \item remove members from the group.
 \end{itemize}
 
+In addition to the traditional security notions of confidentiality, authentication and forward secrecy, \protoname aims to provide \emph{post-compromise security}: an adversary 
+
 We assume that each participant is provisioned with an \emph{identity key pair} which is used to compute and verify digital signatures.  In the course of the protocol, each participant will also have a Diffie-Hellman \emph{leaf key pair} that can change over time.
 
+\section{Design}
+\label{sec:design}
+
+\todokcg{This would be a good location for a brief overview of the entire design. Two phases: setup and ongoing. Setup is asynchronous and relies on prekeys. Ongoing is also asynchronous and ...}
+
+\subsection{Notation}
+\label{sec:notation}
+
+\todokcg{Add notation here where necessary}
+
 \subsection{Cryptographic Primitives}
+\label{sec:crypt-prim}
 
 An instantiation of \protoname requires the following cryptographic primitives:
 
@@ -45,6 +60,9 @@ An instantiation of \protoname requires the following cryptographic primitives:
 \end{itemize}
 
 \subsection{State}
+\label{sec:state}
+
+\todokcg{I think this entire section can go: the itemize lists can move to \Cref{sec:participant-state} and the prose explanation can move to the top of \Cref{sec:design}.}
 
 A \emph{group} in the context of \protoname comprises a set of participants with shared state.  Each participant $\pi$ holds the following participant-specific data at a given time:
 
@@ -64,7 +82,7 @@ Each group is identified within an application by a static identifier $G.id$. At
 \item A static, public \emph{group ID} $G_e.id$ that uniquely identifies the group within the scope of the messaging system
 \item A Merkle tree $G_e.T_I$ over the identity keys of participants in the conference
 \item A Merkle tree $G_e.T_L$ over the leaf keys of participants in the conference
-\item A "ratchet tree" $G_e.T_R$ over the leaf keys of the participants in the conference
+\item A ``ratchet tree'' $G_e.T_R$ over the leaf keys of the participants in the conference
 \item An \emph{epoch secret} $G_e.k$, the symmetric key derived by \protoname
 \item A set of shared secret values derived from the epoch secret:
 	\begin{itemize}
@@ -103,6 +121,7 @@ Each message is premised on a given epoch; it represents a change from epoch $n$
 
 
 \subsection{Participant State}
+\label{sec:participant-state}
 
 Each participant maintains the following state for a group:
 
@@ -342,7 +361,7 @@ Given a list of nodes to be deleted, the sender of a Delete message generates it
 
 \begin{itemize}
 \item{Construct a list of the leaf keys in tree order, with the deleted nodes omitted}
-\item{Construct a "delete path" as a sequence of public keys of the same length as the list of leaf keys}
+\item{Construct a ``delete path'' as a sequence of public keys of the same length as the list of leaf keys}
 \item{Initialize a temporary private key from the current group add private key $G_e.k_a$}
 \item{For each leaf key in the list of leaf keys:
 	\begin{itemize}
@@ -363,7 +382,7 @@ An existing participant receiving a Delete message first verifies the signature 
 \item{Find the public key in the delete path corresponding to the highest index less than this node's index}
 \item{Compute a new key pair by combining this node's leaf key with the previous public key in the delete path}
 \item{For each leaf key to the right of this node, combine the leaf key with the generated private key to get a new key pair}
-\item{For the last leaf key, do not generate a new key pair, but keep the output of the DH operation directly as a "delete secret"}
+\item{For the last leaf key, do not generate a new key pair, but keep the output of the DH operation directly as a ``delete secret''}
 \item{Combine the delete secret with the prior epoch's update secret to get the new epoch secret}
 \item{Derive the group secrets for the epoch from the new epoch secret}
 \item{In the identity tree, replace the deleted nodes with empty nodes}
