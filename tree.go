@@ -361,3 +361,18 @@ func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {
 
 	return nodes, nil
 }
+
+func (t tree) Puncture(punctures []uint) ([]Node, error) {
+	heads := puncture(t.size, punctures)
+	nodes := make([]Node, len(heads))
+	for i, h := range heads {
+		n, ok := t.nodes[h]
+		if !ok {
+			return nil, MissingNodeError
+		}
+
+		nodes[i] = n
+	}
+
+	return nodes, nil
+}
