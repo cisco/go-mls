@@ -62,7 +62,6 @@ func (upk UserPreKey) Verify() error {
 //     opaque group_id<0..2^16-1>;
 //     DHPublicKey update_key;
 //     MerkleNode identityFrontier<0..2^16-1>;
-//     MerkleNode leafFrontier<0..2^16-1>;
 //     DHPublicKey ratchetFrontier<0..2^16-1>;
 // } GroupPreKey;
 type GroupPreKey struct {
@@ -71,7 +70,6 @@ type GroupPreKey struct {
 	GroupSize        uint32
 	UpdateKey        DHPublicKey
 	IdentityFrontier MerklePath `tls:"min=1,head=2"`
-	LeafFrontier     MerklePath `tls:"min=1,head=2"`
 	RatchetFrontier  DHPath     `tls:"min=1,head=2"`
 }
 
@@ -123,12 +121,10 @@ func (ga GroupAdd) Type() HandshakeType {
 }
 
 // struct {
-//     MerkleNode leafPath<1..2^16-1>;
 //     DHPublicKey ratchetPath<1..2^16-1>;
 // } Update;
 type Update struct {
-	LeafPath    MerklePath `tls:"min=1,head=2"`
-	RatchetPath DHPath     `tls:"min=1,head=2"`
+	RatchetPath DHPath `tls:"min=1,head=2"`
 }
 
 func (u Update) Type() HandshakeType {
@@ -137,15 +133,13 @@ func (u Update) Type() HandshakeType {
 
 // struct {
 //     uint32 deleted<1..2^16-1>;
+//     DHPublicKey heads<1..2^16-1>;
 //     DHPublicKey path<1..2^16-1>;
-//     DHPublicKey leaves<1..2^16-1>;
-//     MerkleNode hashed_identities<1..2^16-1>;
 // } Delete;
 type Delete struct {
-	Deleted    []uint32   `tls:"min=1,head=2"`
-	Path       DHPath     `tls:"min=1,head=2"`
-	Leaves     DHPath     `tls:"min=1,head=2"`
-	Identities MerklePath `tls:"min=1,head=2"`
+	Deleted []uint32 `tls:"min=1,head=2"`
+	Heads   DHPath   `tls:"min=1,head=2"`
+	Path    DHPath   `tls:"min=1,head=2"`
 }
 
 func (d Delete) Type() HandshakeType {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"reflect"
 )
 
 var (
@@ -15,7 +14,7 @@ var (
 	labelEpochSecret    = "epoch secret"
 )
 
-// TODO Use a real KDF
+// TODO(rlb@ipv.sx) Use a real KDF
 func kdf(label string, data ...[]byte) []byte {
 	h := sha256.New()
 	h.Write([]byte(label))
@@ -36,9 +35,7 @@ type State struct {
 	epoch        uint32
 	groupID      []byte
 	identityTree *tree
-	leafTree     *tree
 	ratchetTree  *tree
-	leafList     []DHPublicKey
 
 	// Secrets for the current epoch
 	messageRootKey []byte
@@ -52,7 +49,6 @@ func (lhs State) Equal(rhs *State) bool {
 	epoch := (lhs.epoch == rhs.epoch)
 	groupID := bytes.Equal(lhs.groupID, rhs.groupID)
 	identityTree := lhs.identityTree.Equal(rhs.identityTree)
-	leafTree := lhs.leafTree.Equal(rhs.leafTree)
 	ratchetTree := lhs.ratchetTree.Equal(rhs.ratchetTree)
 	messageRootKey := bytes.Equal(lhs.messageRootKey, rhs.messageRootKey)
 	updateSecret := bytes.Equal(lhs.updateSecret, rhs.updateSecret)
@@ -60,12 +56,11 @@ func (lhs State) Equal(rhs *State) bool {
 	deleteKey := lhs.deleteKey.PublicKey.Equal(rhs.deleteKey.PublicKey)
 
 	// XXX Uncomment for helpful debug info
-	//fmt.Printf("%v %v %v %v %v %v %v %v %v \n", epoch, groupID, identityTree, leafTree, ratchetTree, messageRootKey, updateSecret, updateKey, deleteKey)
+	//fmt.Printf("%v %v %v %v %v %v %v %v %v \n", epoch, groupID, identityTree, ratchetTree, messageRootKey, updateSecret, updateKey, deleteKey)
 
 	return epoch &&
 		groupID &&
 		identityTree &&
-		leafTree &&
 		ratchetTree &&
 		messageRootKey &&
 		updateSecret &&
@@ -82,9 +77,7 @@ func NewStateForEmptyGroup(groupID []byte, identityKey SignaturePrivateKey) (*St
 		epoch:        0,
 		groupID:      groupID,
 		identityTree: newTree(merkleNodeDefn),
-		leafTree:     newTree(merkleNodeDefn),
 		ratchetTree:  newTree(dhNodeDefn),
-		leafList:     []DHPublicKey{},
 
 		messageRootKey: nil,
 		updateSecret:   nil,
@@ -97,17 +90,10 @@ func NewStateForEmptyGroup(groupID []byte, identityKey SignaturePrivateKey) (*St
 		return nil, err
 	}
 
-	err = state.leafTree.Add(NewMerkleNode(state.myLeafKey.PublicKey))
-	if err != nil {
-		return nil, err
-	}
-
 	err = state.ratchetTree.Add(DHNodeFromPrivateKey(state.myLeafKey))
 	if err != nil {
 		return nil, err
 	}
-
-	state.leafList = []DHPublicKey{state.myLeafKey.PublicKey}
 
 	return state, nil
 }
@@ -165,22 +151,12 @@ func newStateFromVerifiedDetails(identityKey SignaturePrivateKey, leafKey DHPriv
 		return nil, err
 	}
 
-	leafTree, err := newTreeFromFrontier(merkleNodeDefn, treeSize, groupPreKey.LeafFrontier.Nodes())
-	if err != nil {
-		return nil, err
-	}
-
 	ratchetTree, err := newTreeFromFrontier(dhNodeDefn, treeSize, groupPreKey.RatchetFrontier.Nodes())
 	if err != nil {
 		return nil, err
 	}
 
 	err = identityTree.Add(NewMerkleNode(identityKey.PublicKey))
-	if err != nil {
-		return nil, err
-	}
-
-	err = leafTree.Add(NewMerkleNode(leafKey.PublicKey))
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +175,6 @@ func newStateFromVerifiedDetails(identityKey SignaturePrivateKey, leafKey DHPriv
 		epoch:        groupPreKey.Epoch + 1,
 		groupID:      groupPreKey.GroupID,
 		identityTree: identityTree,
-		leafTree:     leafTree,
 		ratchetTree:  ratchetTree,
 	}
 
@@ -222,11 +197,9 @@ func newStateFromVerifiedDetails(identityKey SignaturePrivateKey, leafKey DHPriv
 func (s State) groupPreKey() GroupPreKey {
 	// XXX: Ignoring errors
 	ifr, _ := s.identityTree.Frontier()
-	lfr, _ := s.leafTree.Frontier()
 	rfr, _ := s.ratchetTree.Frontier()
 
 	Ifr, _ := NewMerklePath(ifr)
-	Lfr, _ := NewMerklePath(lfr)
 	Rfr, _ := NewDHPath(rfr)
 
 	return GroupPreKey{
@@ -235,7 +208,6 @@ func (s State) groupPreKey() GroupPreKey {
 		GroupSize:        uint32(s.identityTree.size),
 		UpdateKey:        s.updateKey.PublicKey,
 		IdentityFrontier: Ifr,
-		LeafFrontier:     Lfr,
 		RatchetFrontier:  Rfr,
 	}
 }
@@ -277,7 +249,7 @@ func (s State) verifyForCurrentRoster(h *Handshake) error {
 }
 
 func (s *State) deriveEpochKeys(epochSecret []byte) {
-	// TODO: Hash in additional context, e.g.:
+	// TODO(rlb@ipv.sx): Hash in additional context, e.g.:
 	// * Handshake messages
 	// * Identity tree root
 	s.messageRootKey = kdf(labelMessageRootKey, epochSecret)
@@ -329,81 +301,21 @@ func (s State) Add(userPreKey *UserPreKey) (*Handshake, error) {
 }
 
 func (s State) Update(leafKey DHPrivateKey) (*Handshake, error) {
-	leafPath, err := s.leafTree.UpdatePath(s.myIndex, NewMerkleNode(leafKey.PublicKey))
-	if err != nil {
-		return nil, err
-	}
-
 	ratchetPath, err := s.ratchetTree.UpdatePath(s.myIndex, DHNodeFromPrivateKey(leafKey))
 	if err != nil {
 		return nil, err
 	}
 
-	update := &Update{}
-
-	update.LeafPath, err = NewMerklePath(leafPath)
+	dhPath, err := NewDHPath(ratchetPath)
 	if err != nil {
 		return nil, err
 	}
 
-	update.RatchetPath, err = NewDHPath(ratchetPath)
-	if err != nil {
-		return nil, err
+	update := &Update{
+		RatchetPath: dhPath,
 	}
 
 	return s.sign(update)
-}
-
-func (s State) Delete(indices []uint) (*Handshake, error) {
-	hasLeaves := (len(s.leafList) > 0)
-	hasIdentities := s.identityTree.HasAllLeaves()
-	if !hasLeaves || !hasIdentities {
-		return nil, fmt.Errorf("Cannot delete without having all leaves and identities")
-	}
-
-	deleted := map[uint]bool{}
-	for _, i := range indices {
-		deleted[i] = true
-	}
-
-	head := s.updateKey
-	path := []DHPublicKey{}
-
-	for i, leafKey := range s.leafList {
-		if deleted[uint(i)] {
-			continue
-		}
-
-		headData := head.derive(leafKey)
-		newHead := DHNodeFromData(headData).PrivateKey
-
-		head = newHead
-		path = append(path, head.PublicKey)
-	}
-
-	indices32 := make([]uint32, len(indices))
-	for i, x := range indices {
-		indices32[i] = uint32(x)
-	}
-
-	abstractIdentities, err := s.identityTree.Leaves()
-	if err != nil {
-		return nil, err
-	}
-
-	identities, err := NewMerklePath(abstractIdentities)
-	if err != nil {
-		return nil, err
-	}
-
-	delete := &Delete{
-		Deleted:    indices32,
-		Path:       path,
-		Leaves:     s.leafList,
-		Identities: identities,
-	}
-
-	return s.sign(delete)
 }
 
 ///
@@ -411,7 +323,7 @@ func (s State) Delete(indices []uint) (*Handshake, error) {
 ///
 
 func (s *State) HandleUserAdd(signedUserAdd *Handshake) error {
-	// TODO Verify that the new identity tree is a successor to the old one
+	// TODO(rlb@ipv.sx) Verify that the new identity tree is a successor to the old one
 	newIdentityRoot, err := signedUserAdd.IdentityRoot()
 	if err != nil {
 		return err
@@ -480,15 +392,6 @@ func (s *State) addToSymmetricState(identityKey SignaturePublicKey, leafKey DHPu
 		return err
 	}
 
-	err = s.leafTree.Add(NewMerkleNode(leafKey))
-	if err != nil {
-		return err
-	}
-
-	if len(s.leafList) > 0 {
-		s.leafList = append(s.leafList, leafKey)
-	}
-
 	// Update group secrets
 	rootNode, err := s.ratchetTree.Root()
 	if err != nil {
@@ -526,18 +429,6 @@ func (s *State) handleUpdateInner(signedUpdate *Handshake, leafKey *DHPrivateKey
 		return fmt.Errorf("HandleUpdate was not provided with an Update message")
 	}
 
-	// Update leaf tree
-	index := uint(signedUpdate.SignerIndex)
-	leafPath := make([]Node, len(update.LeafPath))
-	for i, n := range update.LeafPath {
-		leafPath[i] = n
-	}
-
-	err = s.leafTree.UpdateWithPath(index, leafPath)
-	if err != nil {
-		return err
-	}
-
 	// Update ratchet tree
 	ratchetPath := make([]Node, len(update.RatchetPath))
 	for i, n := range update.RatchetPath {
@@ -547,14 +438,10 @@ func (s *State) handleUpdateInner(signedUpdate *Handshake, leafKey *DHPrivateKey
 		ratchetPath[len(ratchetPath)-1] = DHNodeFromPrivateKey(*leafKey)
 	}
 
+	index := uint(signedUpdate.SignerIndex)
 	err = s.ratchetTree.UpdateWithPath(index, ratchetPath)
 	if err != nil {
 		return err
-	}
-
-	// Update leaf list (if applicable)
-	if len(s.leafList) > 0 {
-		s.leafList[index] = update.RatchetPath[len(update.RatchetPath)-1]
 	}
 
 	// Update group secrets
@@ -570,63 +457,40 @@ func (s *State) handleUpdateInner(signedUpdate *Handshake, leafKey *DHPrivateKey
 	return nil
 }
 
-func (s *State) importIdentities(identities MerklePath) error {
-	leaves := make([]Node, len(identities))
-	for i, id := range identities {
-		leaves[i] = id
+//////////
+//////////
+//////////
+
+func (s *State) Delete(indices []uint) (*Handshake, error) {
+	headNodes := s.ratchetTree.Puncture(indices)
+	curr := NewDHPrivateKey()
+	path := []DHPublicKey{curr.PublicKey}
+	heads := []DHPublicKey{}
+
+	for _, headNode := range headNodes {
+		headDHNode := headNode.(*DHNode)
+		if headDHNode == nil {
+			return nil, MissingNodeError
+		}
+
+		data := curr.derive(headDHNode.PrivateKey.PublicKey)
+		curr = DHNodeFromData(data).PrivateKey
+		path = append(path, curr.PublicKey)
+		heads = append(heads, headDHNode.PrivateKey.PublicKey)
 	}
 
-	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
-	if err != nil {
-		return err
+	indices32 := make([]uint32, len(indices))
+	for i, x := range indices {
+		indices32[i] = uint32(x)
 	}
 
-	err = compareTreeRoots(s.identityTree, t)
-	if err != nil {
-		return err
+	delete := &Delete{
+		Deleted: indices32,
+		Path:    path,
+		Heads:   heads,
 	}
 
-	s.identityTree = t
-	return nil
-}
-
-func (s *State) importLeaves(leafKeys DHPath) error {
-	leaves := make([]Node, len(leafKeys))
-	for i, leafKey := range leafKeys {
-		leaves[i] = NewMerkleNode(leafKey)
-	}
-
-	t, err := newTreeFromLeaves(merkleNodeDefn, leaves)
-	if err != nil {
-		return err
-	}
-
-	err = compareTreeRoots(s.leafTree, t)
-	if err != nil {
-		return err
-	}
-
-	s.leafTree = t
-	s.leafList = leafKeys
-	return nil
-}
-
-func compareTreeRoots(local, remote *tree) error {
-	localRoot, err := local.Root()
-	if err != nil {
-		return err
-	}
-
-	remoteRoot, err := remote.Root()
-	if err != nil {
-		return err
-	}
-
-	if !reflect.DeepEqual(localRoot, remoteRoot) {
-		return fmt.Errorf("Tree root mismatch")
-	}
-
-	return nil
+	return s.sign(delete)
 }
 
 func (s *State) HandleDelete(signedDelete *Handshake) error {
@@ -640,60 +504,29 @@ func (s *State) HandleDelete(signedDelete *Handshake) error {
 		return fmt.Errorf("HandleDelete was not provided with a Delete message")
 	}
 
-	deleted := map[uint]bool{}
-	for _, i := range delete.Deleted {
-		deleted[uint(i)] = true
-	}
-
-	// Verify and import lists of leaf and identity keys
-	err = s.importLeaves(delete.Leaves)
-	if err != nil {
-		return err
-	}
-
-	err = s.importIdentities(delete.Identities)
-	if err != nil {
-		return err
+	deleted := make([]uint, len(delete.Deleted))
+	for i, x := range delete.Deleted {
+		deleted[i] = uint(x)
 	}
 
 	// Compute a secret that is not available to the deleted nodes
-	curr := 0
-	var headData []byte
-	for i, leafKey := range s.leafList {
-		switch {
-		case deleted[uint(i)]:
-			continue
-
-		case i < int(s.myIndex):
-			curr += 1
-			continue
-
-		case i == int(s.myIndex):
-			prevPub := s.updateKey.PublicKey
-			if curr > 0 {
-				prevPub = delete.Path[curr-1]
-			}
-			headData = s.myLeafKey.derive(prevPub)
-
-		default:
+	headNodes := s.ratchetTree.Puncture(deleted)
+	var headData []byte = nil
+	for i, head := range headNodes {
+		if head != nil && head.(*DHNode).hasPrivate && headData == nil {
+			prevPub := delete.Path[i]
+			headData = head.(*DHNode).PrivateKey.derive(prevPub)
+		} else if headData != nil {
 			head := DHNodeFromData(headData).PrivateKey
-			headData = head.derive(leafKey)
+			headData = head.derive(delete.Heads[i])
 		}
 	}
 
-	// Replace the delelted nodes with the delete key in the ratchet tree
-	// Replace the deleted nodes with empty nodes in the identity tree
-	emptyNode := MerkleNode{emptyMerkleLeaf()}
-	deleteNode := DHNodeFromPublicKey(s.deleteKey.PublicKey)
-	for i := range deleted {
-		err := s.identityTree.Update(i, emptyNode)
-		if err != nil {
-			return err
-		}
-
-		// XXX this should be a method, e.g., SetWithoutBuild(i, deleteKey
-		s.ratchetTree.nodes[2*i] = deleteNode
+	if headData == nil {
+		return MissingNodeError
 	}
+
+	// TODO: Replace the deleted nodes blanks in the ratchet tree and idenitty tree
 
 	// Ratchet the epoch forward
 	epochSecret := kdf(labelEpochSecret, s.updateSecret, headData)

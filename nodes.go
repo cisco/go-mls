@@ -153,12 +153,6 @@ func (mp MerklePath) RootAsCopath(index, size uint, leaf MerkleNode) ([]byte, er
 /// ECDH Tree
 ///
 
-type ECDHNode struct {
-	Data       []byte
-	PrivateKey DHPrivateKey
-	PublicKey  DHPublicKey
-}
-
 type DHPrivateKey struct {
 	priv      [32]byte
 	PublicKey DHPublicKey

@@ -361,3 +361,15 @@ func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {
 
 	return nodes, nil
 }
+
+// Note that missing nodes here do not result in MissingNodeError.
+// Instead, they are passed on to the caller as nil.
+func (t tree) Puncture(punctures []uint) []Node {
+	heads := puncture(t.size, punctures)
+	nodes := make([]Node, len(heads))
+	for i, h := range heads {
+		nodes[i] = t.nodes[h]
+	}
+
+	return nodes
+}

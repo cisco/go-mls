@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// XXX DELE
 func prettyPrintTree(t *tree) {
 	w := 2
 	pad := strings.Repeat(" ", 2*w)
@@ -309,5 +308,19 @@ func TestTreeUpdatePath(t *testing.T) {
 
 	if !reflect.DeepEqual(path, aPath) {
 		t.Fatalf("Incorrect computed update path: %v != %v", path, aPath)
+	}
+}
+
+func TestTreePuncture(t *testing.T) {
+	aLeaves := []Node{"a", "b", "c", "d", "e"}
+	aPunctureSet := []uint{2, 3}
+	aHeads := []Node{"ab", "e"}
+
+	// Build tree, then generate update path
+	tree, _ := newTreeFromLeaves(stringNodeDefn, aLeaves)
+
+	heads := tree.Puncture(aPunctureSet)
+	if !reflect.DeepEqual(heads, aHeads) {
+		t.Fatalf("Incorrect computed punctured tree: %v != %v", heads, aHeads)
 	}
 }

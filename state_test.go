@@ -185,16 +185,6 @@ func TestDelete(t *testing.T) {
 		identities[i] = NewMerkleNode(s.myIdentityKey.PublicKey)
 	}
 
-	err := states[len(states)-2].importIdentities(identities)
-	if err != nil {
-		t.Fatalf("Error importing identities: %v", err)
-	}
-
-	err = states[len(states)-2].importLeaves(leafKeys)
-	if err != nil {
-		t.Fatalf("Error importing leaves: %v", err)
-	}
-
 	// Each node deletes its successor
 	startingEpoch := states[0].epoch
 	epochSteps := uint32(0)
@@ -232,17 +222,19 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteMultiple(t *testing.T) {
 	states := createGroup()
+	n := len(states)
 
 	// Room creator deletes everyone but himself and the last participant
 	startingEpoch := states[0].epoch
 
-	toDelete := make([]uint, len(states))
+	toDelete := []uint{}
 	for i := range states {
 		if i == 0 || i == len(states)-1 {
 			continue
 		}
-		toDelete[i] = uint(i)
+		toDelete = append(toDelete, uint(i))
 	}
+
 	delete, err := states[0].Delete(toDelete)
 	if err != nil {
 		t.Fatalf("Error generating delete: %v", err)
@@ -253,7 +245,7 @@ func TestDeleteMultiple(t *testing.T) {
 		t.Fatalf("Error handling delete (0): %v", err)
 	}
 
-	err = states[1].HandleDelete(delete)
+	err = states[n-1].HandleDelete(delete)
 	if err != nil {
 		t.Fatalf("Error handling delete (1): %v", err)
 	}
@@ -262,13 +254,13 @@ func TestDeleteMultiple(t *testing.T) {
 		t.Fatalf("Incorrect epoch: %v", states[0].epoch, startingEpoch+1)
 	}
 
-	if !states[0].Equal(states[1]) {
+	if !states[0].Equal(states[n-1]) {
 		t.Fatalf("State mismatch")
 	}
 }
 
 func TestChaosMonkey(t *testing.T) {
-	// TODO For N steps, randomly decide to take one of the following actions:
+	// TODO(rlb@ipv.sx) For N steps, randomly decide to take one of the following actions:
 	// * Add by a random member of the group
 	// * Add by the new participant
 	// * Update a random group member

@@ -34,7 +34,6 @@ var (
 		GroupSize:        2,
 		UpdateKey:        aDHPublicKey,
 		IdentityFrontier: aMerklePath,
-		LeafFrontier:     aMerklePath,
 		RatchetFrontier:  aDHPath,
 	}
 
@@ -47,15 +46,13 @@ var (
 	}
 
 	aUpdate = &Update{
-		LeafPath:    aMerklePath,
 		RatchetPath: aDHPath,
 	}
 
 	aDelete = &Delete{
-		Deleted:    []uint32{0, 1},
-		Path:       aDHPath,
-		Leaves:     aDHPath,
-		Identities: aMerklePath,
+		Deleted: []uint32{0, 1},
+		Path:    aDHPath,
+		Heads:   aDHPath,
 	}
 )
 
