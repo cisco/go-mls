@@ -701,3 +701,83 @@ func (s *State) HandleDelete(signedDelete *Handshake) error {
 	s.epoch += 1
 	return nil
 }
+
+//////////
+//////////
+//////////
+
+func (s *State) LogDelete(indices []uint) (*Handshake, error) {
+	headNodes := s.ratchetTree.Puncture(indices)
+	curr := NewDHPrivateKey()
+	path := []DHPublicKey{curr.PublicKey}
+	heads := []DHPublicKey{}
+
+	for _, headNode := range headNodes {
+		headDHNode := headNode.(*DHNode)
+		if headDHNode == nil {
+			return nil, MissingNodeError
+		}
+
+		data := curr.derive(headDHNode.PrivateKey.PublicKey)
+		curr = DHNodeFromData(data).PrivateKey
+		path = append(path, curr.PublicKey)
+		heads = append(heads, headDHNode.PrivateKey.PublicKey)
+	}
+
+	indices32 := make([]uint32, len(indices))
+	for i, x := range indices {
+		indices32[i] = uint32(x)
+	}
+
+	delete := &LogDelete{
+		Deleted: indices32,
+		Path:    path,
+		Heads:   heads,
+	}
+
+	return s.sign(delete)
+}
+
+func (s *State) HandleLogDelete(signedDelete *Handshake) error {
+	err := s.verifyForCurrentRoster(signedDelete)
+	if err != nil {
+		return err
+	}
+
+	delete, ok := signedDelete.Body.(*LogDelete)
+	if !ok {
+		return fmt.Errorf("HandleDelete was not provided with a Delete message")
+	}
+
+	deleted := make([]uint, len(delete.Deleted))
+	for i, x := range delete.Deleted {
+		deleted[i] = uint(x)
+	}
+
+	// TODO: Remove importLeaves / importIdentities
+
+	// Compute a secret that is not available to the deleted nodes
+	headNodes := s.ratchetTree.Puncture(deleted)
+	var headData []byte = nil
+	for i, head := range headNodes {
+		if head != nil && head.(*DHNode).hasPrivate && headData == nil {
+			prevPub := delete.Path[i]
+			headData = head.(*DHNode).PrivateKey.derive(prevPub)
+		} else if headData != nil {
+			head := DHNodeFromData(headData).PrivateKey
+			headData = head.derive(delete.Heads[i])
+		}
+	}
+
+	if headData == nil {
+		return MissingNodeError
+	}
+
+	// TODO: Replace the deleted nodes blanks in the ratchet tree and idenitty tree
+
+	// Ratchet the epoch forward
+	epochSecret := kdf(labelEpochSecret, s.updateSecret, headData)
+	s.deriveEpochKeys(epochSecret)
+	s.epoch += 1
+	return nil
+}

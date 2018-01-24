@@ -320,11 +320,7 @@ func TestTreePuncture(t *testing.T) {
 	// Build tree, then generate update path
 	tree, _ := newTreeFromLeaves(stringNodeDefn, aLeaves)
 
-	heads, err := tree.Puncture(aPunctureSet)
-	if err != nil {
-		t.Fatalf("Error computing punctured tree: %v", err)
-	}
-
+	heads := tree.Puncture(aPunctureSet)
 	if !reflect.DeepEqual(heads, aHeads) {
 		t.Fatalf("Incorrect computed punctured tree: %v != %v", heads, aHeads)
 	}

@@ -267,6 +267,101 @@ func TestDeleteMultiple(t *testing.T) {
 	}
 }
 
+func TestLogDelete(t *testing.T) {
+	states := createGroup()
+
+	// Import leaves and identities to the penultimate node
+	identities := make([]MerkleNode, len(states))
+	leafKeys := make([]DHPublicKey, len(states))
+	for i, s := range states {
+		leafKeys[i] = s.myLeafKey.PublicKey
+		identities[i] = NewMerkleNode(s.myIdentityKey.PublicKey)
+	}
+
+	err := states[len(states)-2].importIdentities(identities)
+	if err != nil {
+		t.Fatalf("Error importing identities: %v", err)
+	}
+
+	err = states[len(states)-2].importLeaves(leafKeys)
+	if err != nil {
+		t.Fatalf("Error importing leaves: %v", err)
+	}
+
+	// Each node deletes its successor
+	startingEpoch := states[0].epoch
+	epochSteps := uint32(0)
+
+	for k := uint(len(states) - 2); ; k -= 1 {
+		delete, err := states[k].LogDelete([]uint{k + 1})
+		if err != nil {
+			t.Fatalf("Error generating delete @ %d: %v", k, err)
+		}
+
+		for i := uint(0); i <= k; i += 1 {
+			err = states[i].HandleLogDelete(delete)
+			if err != nil {
+				t.Fatalf("Error handling delete @ %d -> %d: %v", k, i, err)
+			}
+		}
+
+		// Check that the remaining nodes end up in the same place
+		epochSteps += 1
+		if states[k].epoch != startingEpoch+epochSteps {
+			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[k].epoch, startingEpoch+epochSteps)
+		}
+
+		for i := uint(k); i < k; i += 1 {
+			if !states[i].Equal(states[k]) {
+				t.Fatalf("State mismatch @ %d: %v != %v", k, i, 0)
+			}
+		}
+
+		if k == 0 {
+			break
+		}
+	}
+}
+
+func TestLogDeleteMultiple(t *testing.T) {
+	states := createGroup()
+	n := len(states)
+
+	// Room creator deletes everyone but himself and the last participant
+	startingEpoch := states[0].epoch
+
+	toDelete := []uint{}
+	for i := range states {
+		if i == 0 || i == len(states)-1 {
+			continue
+		}
+		toDelete = append(toDelete, uint(i))
+	}
+
+	delete, err := states[0].LogDelete(toDelete)
+	if err != nil {
+		t.Fatalf("Error generating delete: %v", err)
+	}
+
+	err = states[0].HandleLogDelete(delete)
+	if err != nil {
+		t.Fatalf("Error handling delete (0): %v", err)
+	}
+
+	err = states[n-1].HandleLogDelete(delete)
+	if err != nil {
+		t.Fatalf("Error handling delete (1): %v", err)
+	}
+
+	if states[0].epoch != startingEpoch+1 {
+		t.Fatalf("Incorrect epoch: %v", states[0].epoch, startingEpoch+1)
+	}
+
+	if !states[0].Equal(states[n-1]) {
+		t.Fatalf("State mismatch")
+	}
+}
+
 func TestChaosMonkey(t *testing.T) {
 	// TODO For N steps, randomly decide to take one of the following actions:
 	// * Add by a random member of the group

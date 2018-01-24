@@ -153,6 +153,21 @@ func (d Delete) Type() HandshakeType {
 }
 
 // struct {
+//     uint32 deleted<1..2^16-1>;
+//     DHPublicKey heads<1..2^16-1>;
+//     DHPublicKey path<1..2^16-1>;
+// } Delete;
+type LogDelete struct {
+	Deleted []uint32 `tls:"min=1,head=2"`
+	Heads   DHPath   `tls:"min=1,head=2"`
+	Path    DHPath   `tls:"min=1,head=2"`
+}
+
+func (d LogDelete) Type() HandshakeType {
+	return HandshakeTypeDelete
+}
+
+// struct {
 //     HandshakeType msg_type;
 //     uint24 inner_length;
 //     select (Handshake.msg_type) {
