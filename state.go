@@ -14,7 +14,7 @@ var (
 	labelEpochSecret    = "epoch secret"
 )
 
-// TODO Use a real KDF
+// TODO(rlb@ipv.sx) Use a real KDF
 func kdf(label string, data ...[]byte) []byte {
 	h := sha256.New()
 	h.Write([]byte(label))
@@ -249,7 +249,7 @@ func (s State) verifyForCurrentRoster(h *Handshake) error {
 }
 
 func (s *State) deriveEpochKeys(epochSecret []byte) {
-	// TODO: Hash in additional context, e.g.:
+	// TODO(rlb@ipv.sx): Hash in additional context, e.g.:
 	// * Handshake messages
 	// * Identity tree root
 	s.messageRootKey = kdf(labelMessageRootKey, epochSecret)
@@ -323,7 +323,7 @@ func (s State) Update(leafKey DHPrivateKey) (*Handshake, error) {
 ///
 
 func (s *State) HandleUserAdd(signedUserAdd *Handshake) error {
-	// TODO Verify that the new identity tree is a successor to the old one
+	// TODO(rlb@ipv.sx) Verify that the new identity tree is a successor to the old one
 	newIdentityRoot, err := signedUserAdd.IdentityRoot()
 	if err != nil {
 		return err
@@ -508,8 +508,6 @@ func (s *State) HandleDelete(signedDelete *Handshake) error {
 	for i, x := range delete.Deleted {
 		deleted[i] = uint(x)
 	}
-
-	// TODO: Remove importLeaves / importIdentities
 
 	// Compute a secret that is not available to the deleted nodes
 	headNodes := s.ratchetTree.Puncture(deleted)

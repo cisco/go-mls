@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// XXX DELE
 func prettyPrintTree(t *tree) {
 	w := 2
 	pad := strings.Repeat(" ", 2*w)

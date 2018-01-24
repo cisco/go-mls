@@ -260,7 +260,7 @@ func TestDeleteMultiple(t *testing.T) {
 }
 
 func TestChaosMonkey(t *testing.T) {
-	// TODO For N steps, randomly decide to take one of the following actions:
+	// TODO(rlb@ipv.sx) For N steps, randomly decide to take one of the following actions:
 	// * Add by a random member of the group
 	// * Add by the new participant
 	// * Update a random group member
