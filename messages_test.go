@@ -52,10 +52,9 @@ var (
 	}
 
 	aDelete = &Delete{
-		Deleted:    []uint32{0, 1},
-		Path:       aDHPath,
-		Leaves:     aDHPath,
-		Identities: aMerklePath,
+		Deleted: []uint32{0, 1},
+		Path:    aDHPath,
+		Heads:   aDHPath,
 	}
 )
 

@@ -137,33 +137,16 @@ func (u Update) Type() HandshakeType {
 
 // struct {
 //     uint32 deleted<1..2^16-1>;
-//     DHPublicKey path<1..2^16-1>;
-//     DHPublicKey leaves<1..2^16-1>;
-//     MerkleNode hashed_identities<1..2^16-1>;
-// } Delete;
-type Delete struct {
-	Deleted    []uint32   `tls:"min=1,head=2"`
-	Path       DHPath     `tls:"min=1,head=2"`
-	Leaves     DHPath     `tls:"min=1,head=2"`
-	Identities MerklePath `tls:"min=1,head=2"`
-}
-
-func (d Delete) Type() HandshakeType {
-	return HandshakeTypeDelete
-}
-
-// struct {
-//     uint32 deleted<1..2^16-1>;
 //     DHPublicKey heads<1..2^16-1>;
 //     DHPublicKey path<1..2^16-1>;
 // } Delete;
-type LogDelete struct {
+type Delete struct {
 	Deleted []uint32 `tls:"min=1,head=2"`
 	Heads   DHPath   `tls:"min=1,head=2"`
 	Path    DHPath   `tls:"min=1,head=2"`
 }
 
-func (d LogDelete) Type() HandshakeType {
+func (d Delete) Type() HandshakeType {
 	return HandshakeTypeDelete
 }
 
