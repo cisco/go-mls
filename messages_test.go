@@ -34,7 +34,6 @@ var (
 		GroupSize:        2,
 		UpdateKey:        aDHPublicKey,
 		IdentityFrontier: aMerklePath,
-		LeafFrontier:     aMerklePath,
 		RatchetFrontier:  aDHPath,
 	}
 
@@ -47,7 +46,6 @@ var (
 	}
 
 	aUpdate = &Update{
-		LeafPath:    aMerklePath,
 		RatchetPath: aDHPath,
 	}
 
