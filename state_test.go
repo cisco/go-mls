@@ -190,7 +190,7 @@ func TestDelete(t *testing.T) {
 	epochSteps := uint32(0)
 
 	for k := uint(len(states) - 2); ; k -= 1 {
-		delete, err := states[k].Delete([]uint{k + 1})
+		delete, err := states[k].Delete(k + 1)
 		if err != nil {
 			t.Fatalf("Error generating delete @ %d: %v", k, err)
 		}
@@ -217,45 +217,6 @@ func TestDelete(t *testing.T) {
 		if k == 0 {
 			break
 		}
-	}
-}
-
-func TestDeleteMultiple(t *testing.T) {
-	states := createGroup()
-	n := len(states)
-
-	// Room creator deletes everyone but himself and the last participant
-	startingEpoch := states[0].epoch
-
-	toDelete := []uint{}
-	for i := range states {
-		if i == 0 || i == len(states)-1 {
-			continue
-		}
-		toDelete = append(toDelete, uint(i))
-	}
-
-	delete, err := states[0].Delete(toDelete)
-	if err != nil {
-		t.Fatalf("Error generating delete: %v", err)
-	}
-
-	err = states[0].HandleDelete(delete)
-	if err != nil {
-		t.Fatalf("Error handling delete (0): %v", err)
-	}
-
-	err = states[n-1].HandleDelete(delete)
-	if err != nil {
-		t.Fatalf("Error handling delete (1): %v", err)
-	}
-
-	if states[0].epoch != startingEpoch+1 {
-		t.Fatalf("Incorrect epoch: %v", states[0].epoch, startingEpoch+1)
-	}
-
-	if !states[0].Equal(states[n-1]) {
-		t.Fatalf("State mismatch")
 	}
 }
 

@@ -10,8 +10,7 @@ type nodeDefinition struct {
 	valid       func(x Node) bool
 	equal       func(x, y Node) bool
 	publicEqual func(x, y Node) bool
-	create      func(d []byte) Node
-	combine     func(x, y Node) ([]byte, error)
+	combine     func(x, y Node) (Node, error)
 }
 
 var (
@@ -172,7 +171,7 @@ func (t *tree) Build(new []uint) error {
 				continue
 			}
 
-			value, err := t.defn.combine(ln, rn)
+			node, err := t.defn.combine(ln, rn)
 			if err == IncompatibleNodesError {
 				continue
 			}
@@ -180,7 +179,6 @@ func (t *tree) Build(new []uint) error {
 				return err
 			}
 
-			node := t.defn.create(value)
 			if !t.defn.equal(t.nodes[i], node) {
 				t.nodes[i] = node
 
@@ -234,6 +232,7 @@ func (t *tree) UpdateWithPath(index uint, path []Node) error {
 	d := dirpath(2*index, t.size)
 	d = append(d, 2*index)
 	if len(path) != len(d) {
+		fmt.Printf("%v =?= %v [%d] [%d]\n", len(path), d, index, t.size)
 		return InvalidPathError
 	}
 
@@ -343,33 +342,21 @@ func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {
 
 		// Determine whether the copath node is the left or right sibling
 		// of nodes[i]
-		var data []byte
+		var node Node
 		var err error
 		s := sibling(c[i], t.size)
 		if s < c[i] {
-			data, err = t.defn.combine(nodes[i], copathNode)
+			node, err = t.defn.combine(nodes[i], copathNode)
 		} else {
-			data, err = t.defn.combine(copathNode, nodes[i])
+			node, err = t.defn.combine(copathNode, nodes[i])
 		}
 
 		if err != nil {
 			return nil, err
 		}
 
-		nodes[i-1] = t.defn.create(data)
+		nodes[i-1] = node
 	}
 
 	return nodes, nil
-}
-
-// Note that missing nodes here do not result in MissingNodeError.
-// Instead, they are passed on to the caller as nil.
-func (t tree) Puncture(punctures []uint) []Node {
-	heads := puncture(t.size, punctures)
-	nodes := make([]Node, len(heads))
-	for i, h := range heads {
-		nodes[i] = t.nodes[h]
-	}
-
-	return nodes
 }

@@ -16,7 +16,7 @@ import (
 ///
 
 var (
-	emptyNodeValue = []byte{0x00}
+	blankNodeValue = []byte{0x00}
 	leafHashPrefix = []byte{0x01}
 	pairHashPrefix = []byte{0x02}
 )
@@ -35,10 +35,8 @@ func NewMerkleNode(obj interface{}) MerkleNode {
 	return MerkleNode{merkleLeaf(data)}
 }
 
-func emptyMerkleLeaf() []byte {
-	h := sha256.New()
-	h.Write(emptyNodeValue)
-	return h.Sum(nil)
+func BlankMerkleNode() MerkleNode {
+	return MerkleNode{blankNodeValue}
 }
 
 func merkleLeaf(value []byte) []byte {
@@ -54,6 +52,10 @@ func merklePairHash(lhs, rhs []byte) []byte {
 	h.Write(lhs)
 	h.Write(rhs)
 	return h.Sum(nil)
+}
+
+func (mn MerkleNode) isBlank() bool {
+	return bytes.Equal(mn.Value, blankNodeValue)
 }
 
 var merkleNodeDefn = &nodeDefinition{
@@ -74,18 +76,20 @@ var merkleNodeDefn = &nodeDefinition{
 		return okx && oky && bytes.Equal(xn.Value, yn.Value)
 	},
 
-	create: func(data []byte) Node {
-		return MerkleNode{data}
-	},
-
-	combine: func(x, y Node) ([]byte, error) {
+	combine: func(x, y Node) (Node, error) {
 		xn, okx := x.(MerkleNode)
 		yn, oky := y.(MerkleNode)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
 
-		return merklePairHash(xn.Value, yn.Value), nil
+		if xn.isBlank() {
+			return yn, nil
+		} else if yn.isBlank() {
+			return xn, nil
+		}
+
+		return MerkleNode{Value: merklePairHash(xn.Value, yn.Value)}, nil
 	},
 }
 
@@ -250,9 +254,14 @@ func (pub SignaturePublicKey) Equal(other SignaturePublicKey) bool {
 }
 
 type DHNode struct {
+	isBlank    bool
 	hasPrivate bool
 	Data       []byte
 	PrivateKey DHPrivateKey
+}
+
+func BlankDHNode() *DHNode {
+	return &DHNode{isBlank: true}
 }
 
 func DHNodeFromData(data []byte) *DHNode {
@@ -308,11 +317,7 @@ var dhNodeDefn = &nodeDefinition{
 		return okx && oky && xk.PrivateKey.PublicKey.Equal(yk.PrivateKey.PublicKey)
 	},
 
-	create: func(data []byte) Node {
-		return DHNodeFromData(data)
-	},
-
-	combine: func(x, y Node) ([]byte, error) {
+	combine: func(x, y Node) (Node, error) {
 		xk, okx := x.(*DHNode)
 		yk, oky := y.(*DHNode)
 		if !okx || !oky {
@@ -320,10 +325,14 @@ var dhNodeDefn = &nodeDefinition{
 		}
 
 		switch {
+		case xk.isBlank:
+			return yk, nil
+		case yk.isBlank:
+			return xk, nil
 		case xk.hasPrivate:
-			return xk.PrivateKey.derive(yk.PrivateKey.PublicKey), nil
+			return DHNodeFromData(xk.PrivateKey.derive(yk.PrivateKey.PublicKey)), nil
 		case yk.hasPrivate:
-			return yk.PrivateKey.derive(xk.PrivateKey.PublicKey), nil
+			return DHNodeFromData(yk.PrivateKey.derive(xk.PrivateKey.PublicKey)), nil
 		default:
 			return nil, IncompatibleNodesError
 		}

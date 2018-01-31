@@ -175,35 +175,3 @@ func frontier(n uint) []uint {
 	f = append(f, r)
 	return f
 }
-
-// Array of punctured tree heads
-func puncture(n uint, p []uint) []uint {
-	if len(p) == 0 {
-		return []uint{root(n)}
-	}
-
-	// Take the union of dirpaths over punctured leaves
-	r := root(n)
-	notOK := map[uint]bool{}
-	for _, q := range p {
-		x := 2 * q
-		for !notOK[x] {
-			notOK[x] = true
-			x = parent(x, n)
-			if x == r {
-				notOK[x] = true
-				break
-			}
-		}
-	}
-
-	// Find the heads just off the excluded dirpaths
-	heads := []uint{}
-	for x := uint(0); x < nodeWidth(n); x += 1 {
-		if !notOK[x] && notOK[parent(x, n)] {
-			heads = append(heads, x)
-		}
-	}
-
-	return heads
-}
