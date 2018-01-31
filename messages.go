@@ -60,9 +60,10 @@ func (upk UserPreKey) Verify() error {
 //     uint32 epoch;
 //     uint32 group_size;
 //     opaque group_id<0..2^16-1>;
+//     CipherSuite cipher_suite;
 //     DHPublicKey update_key;
-//     MerkleNode identityFrontier<0..2^16-1>;
-//     DHPublicKey ratchetFrontier<0..2^16-1>;
+//     MerkleNode identity_frontier<0..2^16-1>;
+//     DHPublicKey ratchet_frontier<0..2^16-1>;
 // } GroupPreKey;
 type GroupPreKey struct {
 	Epoch            uint32
@@ -98,6 +99,8 @@ func (n None) Type() HandshakeType {
 	return HandshakeTypeNone
 }
 
+// TODO(rlb@ipv.sx): Introduce Init message
+
 // struct {
 //     DHPublicKey add_path<1..2^16-1>;
 // } UserAdd;
@@ -121,10 +124,10 @@ func (ga GroupAdd) Type() HandshakeType {
 }
 
 // struct {
-//     DHPublicKey ratchetPath<1..2^16-1>;
+//     DHPublicKey path<1..2^16-1>;
 // } Update;
 type Update struct {
-	RatchetPath DHPath `tls:"min=1,head=2"`
+	Path DHPath `tls:"min=1,head=2"`
 }
 
 func (u Update) Type() HandshakeType {
@@ -132,14 +135,12 @@ func (u Update) Type() HandshakeType {
 }
 
 // struct {
-//     uint32 deleted<1..2^16-1>;
-//     DHPublicKey heads<1..2^16-1>;
+//     uint32 deleted;
 //     DHPublicKey path<1..2^16-1>;
 // } Delete;
 type Delete struct {
-	Deleted []uint32 `tls:"min=1,head=2"`
-	Heads   DHPath   `tls:"min=1,head=2"`
-	Path    DHPath   `tls:"min=1,head=2"`
+	Deleted uint32
+	Path    DHPath `tls:"min=1,head=2"`
 }
 
 func (d Delete) Type() HandshakeType {
@@ -167,7 +168,7 @@ func (d Delete) Type() HandshakeType {
 //     opaque signature<1..2^16-1>;
 // } Handshake;
 //
-// TODO(rlb@ipv.sx): Add credentials (?)
+// TODO(rlb@ipv.sx): Add credentials
 // TODO(rlb@ipv.sx): Crypto agility
 type Handshake struct {
 	Body          HandshakeMessageBody

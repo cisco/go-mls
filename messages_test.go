@@ -46,13 +46,12 @@ var (
 	}
 
 	aUpdate = &Update{
-		RatchetPath: aDHPath,
+		Path: aDHPath,
 	}
 
 	aDelete = &Delete{
-		Deleted: []uint32{0, 1},
+		Deleted: 1,
 		Path:    aDHPath,
-		Heads:   aDHPath,
 	}
 )
 
@@ -123,7 +122,7 @@ func TestHandshakeSignMarshalUnmarshalVerify(t *testing.T) {
 			t.Fatalf("Error in TLS unmarshal: %v", err)
 		}
 
-		err = decoded.Verify(aIdentityRoot)
+		err = decoded.Verify(aIdentityRoot.(MerkleNode).Value)
 		if err != nil {
 			t.Fatalf("Error in verify: %v", err)
 		}

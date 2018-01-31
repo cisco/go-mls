@@ -312,10 +312,30 @@ func (s State) Update(leafKey DHPrivateKey) (*Handshake, error) {
 	}
 
 	update := &Update{
-		RatchetPath: dhPath,
+		Path: dhPath,
 	}
 
 	return s.sign(update)
+}
+
+func (s State) Delete(index uint) (*Handshake, error) {
+	leafKey := NewDHPrivateKey()
+	ratchetPath, err := s.ratchetTree.UpdatePath(index, DHNodeFromPrivateKey(leafKey))
+	if err != nil {
+		return nil, err
+	}
+
+	dhPath, err := NewDHPath(ratchetPath)
+	if err != nil {
+		return nil, err
+	}
+
+	delete := &Delete{
+		Deleted: uint32(index),
+		Path:    dhPath,
+	}
+
+	return s.sign(delete)
 }
 
 ///
@@ -429,68 +449,7 @@ func (s *State) handleUpdateInner(signedUpdate *Handshake, leafKey *DHPrivateKey
 		return fmt.Errorf("HandleUpdate was not provided with an Update message")
 	}
 
-	// Update ratchet tree
-	ratchetPath := make([]Node, len(update.RatchetPath))
-	for i, n := range update.RatchetPath {
-		ratchetPath[i] = DHNodeFromPublicKey(n)
-	}
-	if leafKey != nil {
-		ratchetPath[len(ratchetPath)-1] = DHNodeFromPrivateKey(*leafKey)
-	}
-
-	index := uint(signedUpdate.SignerIndex)
-	err = s.ratchetTree.UpdateWithPath(index, ratchetPath)
-	if err != nil {
-		return err
-	}
-
-	// Update group secrets
-	rootNode, err := s.ratchetTree.Root()
-	if err != nil {
-		return err
-	}
-
-	treeKey := rootNode.(*DHNode).Data
-	epochSecret := kdf(labelEpochSecret, s.updateSecret, treeKey)
-	s.deriveEpochKeys(epochSecret)
-	s.epoch += 1
-	return nil
-}
-
-//////////
-//////////
-//////////
-
-func (s *State) Delete(indices []uint) (*Handshake, error) {
-	headNodes := s.ratchetTree.Puncture(indices)
-	curr := NewDHPrivateKey()
-	path := []DHPublicKey{curr.PublicKey}
-	heads := []DHPublicKey{}
-
-	for _, headNode := range headNodes {
-		headDHNode := headNode.(*DHNode)
-		if headDHNode == nil {
-			return nil, MissingNodeError
-		}
-
-		data := curr.derive(headDHNode.PrivateKey.PublicKey)
-		curr = DHNodeFromData(data).PrivateKey
-		path = append(path, curr.PublicKey)
-		heads = append(heads, headDHNode.PrivateKey.PublicKey)
-	}
-
-	indices32 := make([]uint32, len(indices))
-	for i, x := range indices {
-		indices32[i] = uint32(x)
-	}
-
-	delete := &Delete{
-		Deleted: indices32,
-		Path:    path,
-		Heads:   heads,
-	}
-
-	return s.sign(delete)
+	return s.updateLeaf(uint(signedUpdate.SignerIndex), update.Path, leafKey)
 }
 
 func (s *State) HandleDelete(signedDelete *Handshake) error {
@@ -504,32 +463,40 @@ func (s *State) HandleDelete(signedDelete *Handshake) error {
 		return fmt.Errorf("HandleDelete was not provided with a Delete message")
 	}
 
-	deleted := make([]uint, len(delete.Deleted))
-	for i, x := range delete.Deleted {
-		deleted[i] = uint(x)
+	index := uint(delete.Deleted)
+	err = s.updateLeaf(index, delete.Path, nil)
+	if err != nil {
+		return err
 	}
 
-	// Compute a secret that is not available to the deleted nodes
-	headNodes := s.ratchetTree.Puncture(deleted)
-	var headData []byte = nil
-	for i, head := range headNodes {
-		if head != nil && head.(*DHNode).hasPrivate && headData == nil {
-			prevPub := delete.Path[i]
-			headData = head.(*DHNode).PrivateKey.derive(prevPub)
-		} else if headData != nil {
-			head := DHNodeFromData(headData).PrivateKey
-			headData = head.derive(delete.Heads[i])
-		}
+	s.identityTree.Update(index, BlankMerkleNode())
+	s.ratchetTree.Update(index, BlankDHNode())
+
+	return nil
+}
+
+func (s *State) updateLeaf(index uint, path DHPath, leafKey *DHPrivateKey) error {
+	nodePath := make([]Node, len(path))
+	for i, pub := range path {
+		nodePath[i] = DHNodeFromPublicKey(pub)
+	}
+	if leafKey != nil {
+		nodePath[len(nodePath)-1] = DHNodeFromPrivateKey(*leafKey)
 	}
 
-	if headData == nil {
-		return MissingNodeError
+	err := s.ratchetTree.UpdateWithPath(index, nodePath)
+	if err != nil {
+		return err
 	}
 
-	// TODO: Replace the deleted nodes blanks in the ratchet tree and idenitty tree
+	// Update group secrets
+	rootNode, err := s.ratchetTree.Root()
+	if err != nil {
+		return err
+	}
 
-	// Ratchet the epoch forward
-	epochSecret := kdf(labelEpochSecret, s.updateSecret, headData)
+	treeKey := rootNode.(*DHNode).Data
+	epochSecret := kdf(labelEpochSecret, s.updateSecret, treeKey)
 	s.deriveEpochKeys(epochSecret)
 	s.epoch += 1
 	return nil

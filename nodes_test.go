@@ -26,8 +26,8 @@ func TestMerkleTree(t *testing.T) {
 
 	ab, _ := merkleNodeDefn.combine(aLeaves[0], aLeaves[1])
 	cd, _ := merkleNodeDefn.combine(aLeaves[2], aLeaves[3])
-	abcd, _ := merkleNodeDefn.combine(merkleNodeDefn.create(ab), merkleNodeDefn.create(cd))
-	abcde, _ := merkleNodeDefn.combine(merkleNodeDefn.create(abcd), aLeaves[4])
+	abcd, _ := merkleNodeDefn.combine(ab, cd)
+	abcde, _ := merkleNodeDefn.combine(abcd, aLeaves[4])
 
 	tree, err := newTreeFromLeaves(merkleNodeDefn, aLeafNodes)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestMerkleTree(t *testing.T) {
 		t.Fatalf("Merkle tree root is not equal to itself")
 	}
 
-	if !bytes.Equal(rootData.Value, abcde) {
+	if !bytes.Equal(rootData.Value, abcde.(MerkleNode).Value) {
 		t.Fatalf("Incorrect Merkle tree root: %x != %x", rootData, abcde)
 	}
 }

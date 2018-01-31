@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"strings"
@@ -59,18 +60,14 @@ var stringNodeDefn = &nodeDefinition{
 		return okx && oky && (xs == ys)
 	},
 
-	create: func(d []byte) Node {
-		return string(d)
-	},
-
-	combine: func(x, y Node) ([]byte, error) {
+	combine: func(x, y Node) (Node, error) {
 		xs, okx := x.(string)
 		ys, oky := y.(string)
 		if !okx || !oky {
 			return nil, InvalidNodeError
 		}
 
-		return []byte(xs + ys), nil
+		return xs + ys, nil
 	},
 }
 
@@ -311,16 +308,27 @@ func TestTreeUpdatePath(t *testing.T) {
 	}
 }
 
-func TestTreePuncture(t *testing.T) {
-	aLeaves := []Node{"a", "b", "c", "d", "e"}
-	aPunctureSet := []uint{2, 3}
-	aHeads := []Node{"ab", "e"}
+func TestBlankTree(t *testing.T) {
+	aLeaves := []Node{
+		BlankMerkleNode(),
+		BlankMerkleNode(),
+		MerkleNode{merkleLeaf([]byte("hello"))},
+		BlankMerkleNode(),
+		BlankMerkleNode(),
+	}
+	aValue := aLeaves[2].(MerkleNode).Value
 
-	// Build tree, then generate update path
-	tree, _ := newTreeFromLeaves(stringNodeDefn, aLeaves)
+	tree, err := newTreeFromLeaves(merkleNodeDefn, aLeaves)
+	if err != nil {
+		t.Fatalf("Error creating tree with blanks: %v", err)
+	}
 
-	heads := tree.Puncture(aPunctureSet)
-	if !reflect.DeepEqual(heads, aHeads) {
-		t.Fatalf("Incorrect computed punctured tree: %v != %v", heads, aHeads)
+	root, err := tree.Root()
+	if err != nil {
+		t.Fatalf("Error retreiving tree root: %v", err)
+	}
+
+	if !bytes.Equal(root.(MerkleNode).Value, aValue) {
+		t.Fatalf("Incorrect root for tree with blanks: %x != %x", root.(MerkleNode).Value, aValue)
 	}
 }
