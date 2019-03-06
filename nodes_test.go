@@ -94,6 +94,6 @@ func TestDHDHTree(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(rootData.PrivateKey.PublicKey, abcde.PrivateKey.PublicKey) {
-		t.Fatalf("Incorrect DHDH tree root: %x != %x", rootData, abcde)
+		t.Fatalf("Incorrect DHDH tree root: %x != %x", rootData.Data, abcde.Data)
 	}
 }
