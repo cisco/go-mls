@@ -204,12 +204,12 @@ func (t *tree) Add(leaf Node) error {
 	}
 
 	t.nodes[2*t.size] = leaf
-	t.size += 1
+	t.size++
 	return t.Build([]uint{2 * (t.size - 1)})
 }
 
 func (t *tree) AddWithPath(path []Node) error {
-	t.size += 1
+	t.size++
 	return t.UpdateWithPath(t.size-1, path)
 }
 
@@ -248,7 +248,7 @@ func (t *tree) UpdateWithPath(index uint, path []Node) error {
 
 // Extractors
 func (t tree) HasAllLeaves() bool {
-	for i := uint(0); i < t.size; i += 1 {
+	for i := uint(0); i < t.size; i++ {
 		if _, ok := t.nodes[2*i]; !ok {
 			return false
 		}
@@ -262,7 +262,7 @@ func (t tree) Leaves() ([]Node, error) {
 	}
 
 	ll := make([]Node, t.size)
-	for i := uint(0); i < t.size; i += 1 {
+	for i := uint(0); i < t.size; i++ {
 		ll[i] = t.nodes[2*i]
 	}
 	return ll, nil
@@ -334,7 +334,7 @@ func (t tree) UpdatePath(index uint, newValue Node) ([]Node, error) {
 	nodes := make([]Node, len(c))
 
 	nodes[len(nodes)-1] = newValue
-	for i := len(nodes) - 1; i > 0; i -= 1 {
+	for i := len(nodes) - 1; i > 0; i-- {
 		copathNode, ok := t.nodes[c[i]]
 		if !ok {
 			return nil, MissingNodeError

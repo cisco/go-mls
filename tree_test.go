@@ -14,8 +14,8 @@ func prettyPrintTree(t *tree) {
 	xxx := strings.Repeat("_", 2*w)
 
 	maxLevel := log2(t.size-1) + 1
-	for L := maxLevel; ; L -= 1 {
-		for i := uint(0); i < 2*(t.size-1)+1; i += 1 {
+	for L := maxLevel; ; L-- {
+		for i := uint(0); i < 2*(t.size-1)+1; i++ {
 			n, ok := t.nodes[i]
 
 			var data []byte
@@ -215,7 +215,7 @@ func TestTreeAdd(t *testing.T) {
 	}
 
 	// Verify that Copaths have plausible values
-	for i := uint(0); i < tree.size; i += 1 {
+	for i := uint(0); i < tree.size; i++ {
 		c := copath(2*i, tree.size)
 
 		C, err := tree.Copath(i)

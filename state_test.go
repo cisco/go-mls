@@ -19,7 +19,7 @@ func TestUserAdd(t *testing.T) {
 
 	states := []*State{creator}
 
-	for k := 1; k < aTestGroupSize; k += 1 {
+	for k := 1; k < aTestGroupSize; k++ {
 		identityKey := NewSignaturePrivateKey()
 		leafKey := NewDHPrivateKey()
 		oldGPK, err := states[k-1].SignedGroupPreKey()
@@ -54,7 +54,7 @@ func TestUserAdd(t *testing.T) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
-		for i := 1; i < len(states); i += 1 {
+		for i := 1; i < len(states); i++ {
 			if !states[i].Equal(states[0]) {
 				t.Fatalf("State mismatch @ %d: %v != %v", k, i, 0)
 			}
@@ -72,7 +72,7 @@ func TestGroupAdd(t *testing.T) {
 
 	states := []*State{creator}
 
-	for k := 1; k < aTestGroupSize; k += 1 {
+	for k := 1; k < aTestGroupSize; k++ {
 		identityKey := NewSignaturePrivateKey()
 		preKey, upk, err := NewUserPreKey(identityKey)
 
@@ -108,7 +108,7 @@ func TestGroupAdd(t *testing.T) {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[0].epoch, k)
 		}
 
-		for i := 1; i < len(states); i += 1 {
+		for i := 1; i < len(states); i++ {
 			if !states[i].Equal(states[0]) {
 				t.Fatalf("State mismatch @ %d: %v != %v", k, i, 0)
 			}
@@ -124,7 +124,7 @@ func createGroup() []*State {
 	creator, _ := NewStateForEmptyGroup(groupID, creatorKey)
 	states := []*State{creator}
 
-	for k := 1; k < aTestGroupSize; k += 1 {
+	for k := 1; k < aTestGroupSize; k++ {
 		identityKey := NewSignaturePrivateKey()
 		leafKey := NewDHPrivateKey()
 		oldGPK, _ := states[k-1].SignedGroupPreKey()
@@ -189,13 +189,13 @@ func TestDelete(t *testing.T) {
 	startingEpoch := states[0].epoch
 	epochSteps := uint32(0)
 
-	for k := uint(len(states) - 2); ; k -= 1 {
+	for k := uint(len(states) - 2); ; k-- {
 		delete, err := states[k].Delete(k + 1)
 		if err != nil {
 			t.Fatalf("Error generating delete @ %d: %v", k, err)
 		}
 
-		for i := uint(0); i <= k; i += 1 {
+		for i := uint(0); i <= k; i++ {
 			err = states[i].HandleDelete(delete)
 			if err != nil {
 				t.Fatalf("Error handling delete @ %d -> %d: %v", k, i, err)
@@ -203,12 +203,12 @@ func TestDelete(t *testing.T) {
 		}
 
 		// Check that the remaining nodes end up in the same place
-		epochSteps += 1
+		epochSteps++
 		if states[k].epoch != startingEpoch+epochSteps {
 			t.Fatalf("Incorrect epoch @ %d: %v != %v", k, states[k].epoch, startingEpoch+epochSteps)
 		}
 
-		for i := uint(k); i < k; i += 1 {
+		for i := uint(k); i < k; i++ {
 			if !states[i].Equal(states[k]) {
 				t.Fatalf("State mismatch @ %d: %v != %v", k, i, 0)
 			}
