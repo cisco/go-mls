@@ -73,7 +73,7 @@ func right(x uint, n uint) uint {
 	}
 
 	r := x ^ (0x03 << (level(x) - 1))
-	for r > 2*(n-1) {
+	for r > nodeWidth(n) {
 		r = left(r)
 	}
 	return r
@@ -174,4 +174,8 @@ func frontier(n uint) []uint {
 	}
 	f = append(f, r)
 	return f
+}
+
+func resolve(tree []uint, x, n uint) []uint {
+	return []uint{}
 }
