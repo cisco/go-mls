@@ -8,7 +8,7 @@ import (
 
 var (
 	sigPrivateKey = NewSignaturePrivateKey()
-	sigPublicKey  = aSigPrivateKey.PublicKey
+	sigPublicKey  = sigPrivateKey.PublicKey
 
 	basicCredential = &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},

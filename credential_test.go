@@ -49,8 +49,8 @@ func TestCredentialMarshalUnMarshal(t *testing.T) {
 		}
 	}
 
-	aSigPrivateKey = NewSignaturePrivateKey()
-	aSigPublicKey = aSigPrivateKey.PublicKey
+	aSigPrivateKey := NewSignaturePrivateKey()
+	aSigPublicKey := aSigPrivateKey.PublicKey
 
 	basicCredential := &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
