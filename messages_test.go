@@ -31,7 +31,7 @@ var (
 		ExtensionData: []byte{},
 	}
 
-	extListIn = ExtensionList{extIn, extEmpty}
+	extListIn = ExtensionList{[]Extension{extIn, extEmpty}}
 
 	extValidIn = Extension{
 		ExtensionType: ExtensionType(0x000a),
@@ -42,7 +42,7 @@ var (
 		ExtensionData: []byte{},
 	}
 
-	extListValidIn = ExtensionList{extValidIn, extEmptyIn}
+	extListValidIn = ExtensionList{[]Extension{extValidIn, extEmptyIn}}
 
 	initKey = HPKEPublicKey{
 		Data: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
@@ -54,11 +54,11 @@ var (
 
 	clientInitKey = &ClientInitKey{
 		SupportedVersion: 0xFF,
-		CipherSuite:     0x0001,
-		InitKey:         initKey,
-		Credential:      credentialBasic,
-		Extensions:      extListValidIn,
-		Signature:       sign,
+		CipherSuite:      0x0001,
+		InitKey:          initKey,
+		Credential:       credentialBasic,
+		Extensions:       extListValidIn,
+		Signature:        sign,
 	}
 
 	addProposal = &Proposal{
@@ -95,10 +95,10 @@ var (
 	commits = &Commit{
 		Updates: []ProposalId{
 			{
-			Sender: 4,
-			Hash:   []byte{0x01, 0x03},
+				Sender: 4,
+				Hash:   []byte{0x01, 0x03},
 			},
-	    },
+		},
 		Adds: ProposalId{
 			Sender: 8,
 			Hash:   []byte{0x07, 0x09},
@@ -130,29 +130,29 @@ var (
 	}
 )
 
-func TestMLSMessagesMarshalUnMarshal(t *testing.T) {
+func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
+	return func(t *testing.T) {
+		encoded, err := syntax.Marshal(original)
+		assertNotError(t, err, "Fail to Marshal")
 
-	testMLS := func(label string, x interface{}, out interface{}) {
-		t.Logf(label)
-		encoded, err := syntax.Marshal(x)
-		if err != nil {
-			t.Fatalf("Fail to Marshal Valid: %s, %v", label, err)
-		}
+		_, err = syntax.Unmarshal(encoded, decoded)
+		assertNotError(t, err, "Fail to Unmarshal")
 
-		_, err = syntax.Unmarshal(encoded, out)
 		if err != nil {
 			t.Fatalf("Fail to unmarshal: %v", err)
 		}
 
-		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("Mismatch input vs output: %+v != %+v", x, out)
+		if !reflect.DeepEqual(decoded, original) {
+			t.Fatalf("Mismatch input vs output: %+v != %+v", decoded, original)
 		}
 	}
+}
 
-	testMLS("ClientInitKey", clientInitKey, new(ClientInitKey))
-	testMLS("AddProposal", addProposal, new(Proposal))
-	testMLS("RemoveProposal", removeProposal, new(Proposal))
-	testMLS("UpdateProposal", updateProposal, new(Proposal))
-	testMLS("MLSPlainTextContentApplication", mlsPlainTextIn, new(MLSPlainText))
-	testMLS("MLSCipherText", mlsCiphertextIn, new(MLSCipherText))
+func TestMessagesMarshalUnmarshal(t *testing.T) {
+	t.Run("ClientInitKey", roundTrip(clientInitKey, new(ClientInitKey)))
+	t.Run("AddProposal", roundTrip(addProposal, new(Proposal)))
+	t.Run("RemoveProposal", roundTrip(removeProposal, new(Proposal)))
+	t.Run("UpdateProposal", roundTrip(updateProposal, new(Proposal)))
+	t.Run("MLSPlainTextContentApplication", roundTrip(mlsPlainTextIn, new(MLSPlainText)))
+	t.Run("MLSCipherText", roundTrip(mlsCiphertextIn, new(MLSCipherText)))
 }

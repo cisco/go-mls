@@ -2,38 +2,18 @@ package mls
 
 import "github.com/bifurcation/mint/syntax"
 
-// TODO: move this file to mint/syntax once it looks good for its purpose
+// TODO(suhasHere): move this file to mint/syntax once it looks good for its purpose
 
-// Interface for encoding/decoding data in a peice-meal fashion
-
-type Stream interface {
-	Data() []byte
-}
-
-type StreamReader interface {
-	Stream
-	Read(b []byte, val interface{}) (int, error)
-	ResetCursor(curor int)
-}
-
-type StreamWriter interface {
-	Stream
-	Write(val interface{}) error
-	Append(b []byte) error
-}
-
-func NewStreamReader() StreamReader {
-	return &ReadStream{}
-}
-
-func NewStreamWriter() StreamWriter {
-	return &WriteStream{}
-}
-
-//// Write Stream
+///
+/// Write Stream
+///
 
 type WriteStream struct {
 	buffer []byte
+}
+
+func NewWriteStream() *WriteStream {
+	return &WriteStream{}
 }
 
 func (s *WriteStream) Data() []byte {
@@ -54,26 +34,29 @@ func (s *WriteStream) Append(b []byte) error {
 	return nil
 }
 
-//// ReadStream
+///
+/// ReadStream
+///
 
 type ReadStream struct {
 	buffer []byte
 	cursor int
 }
 
-func (s *ReadStream) Read(enc []byte, val interface{}) (int, error) {
-	read, err := syntax.Unmarshal(enc[s.cursor:], val)
-	s.cursor += read
+func NewReadStream(data []byte) *ReadStream {
+	return &ReadStream{data, 0}
+}
+
+func (s *ReadStream) Read(val interface{}) (int, error) {
+	read, err := syntax.Unmarshal(s.buffer[s.cursor:], val)
 	if err != nil {
 		return 0, err
 	}
-	return s.cursor, nil
+
+	s.cursor += read
+	return read, nil
 }
 
-func (s *ReadStream) ResetCursor(cursor int) {
-	s.cursor = cursor
-}
-
-func (s *ReadStream) Data() []byte {
-	return s.buffer
+func (s *ReadStream) Position() int {
+	return s.cursor
 }

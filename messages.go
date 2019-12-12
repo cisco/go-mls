@@ -2,7 +2,6 @@ package mls
 
 import (
 	"fmt"
-	"github.com/bifurcation/mint/syntax"
 )
 
 ////// ClientInitKey
@@ -26,34 +25,8 @@ type Extension struct {
 	ExtensionData []byte `tls:"head=2"`
 }
 
-func (ext Extension) Marshal() ([]byte, error) {
-	return syntax.Marshal(ext)
-}
-
-func (ext *Extension) Unmarshal(data []byte) (int, error) {
-	return syntax.Unmarshal(data, ext)
-}
-
-type ExtensionList []Extension
-
-type extensionListInner struct {
-	List []Extension `tls:"head=2"`
-}
-
-func (el ExtensionList) Marshal() ([]byte, error) {
-	return syntax.Marshal(extensionListInner{el})
-}
-
-func (el *ExtensionList) Unmarshal(data []byte) (int, error) {
-	var list extensionListInner
-	s := NewStreamReader()
-	read, err := s.Read(data, &list)
-	if err != nil {
-		return 0, err
-	}
-
-	*el = list.List
-	return read, nil
+type ExtensionList struct {
+	Extensions []Extension `tls:"head=2"`
 }
 
 type HPKEPublicKey struct {
@@ -75,83 +48,11 @@ type Signature struct {
 // } ClientInitKey;
 type ClientInitKey struct {
 	SupportedVersion uint8
-	CipherSuite     CipherSuite
-	InitKey         HPKEPublicKey
-	Credential      Credential
-	Extensions      ExtensionList
-	Signature       Signature
-}
-
-
-type cikInner struct {
-	SupportedVersion uint8
-	CipherSuite     CipherSuite
-	InitKey         HPKEPublicKey
-	Credential      Credential
-}
-
-func (cik ClientInitKey) MarshalTLS() ([]byte, error) {
-	s := NewStreamWriter()
-
-	inner := cikInner {
-		SupportedVersion: cik.SupportedVersion,
-		CipherSuite:     cik.CipherSuite,
-		InitKey:         cik.InitKey,
-		Credential:      cik.Credential,
-	}
-
-	err := s.Write(inner)
-
-	// Todo: revisit this to see if we can parse ExtensionList
-	// using usual techniques. mint/syntax seems to have
-	// similar issue too.
-	enc, err := cik.Extensions.Marshal()
-	err = s.Append(enc)
-
-	err = s.Write(cik.Signature)
-
-	if err != nil {
-		fmt.Printf("err: %v", err)
-		return nil, err
-	}
-
-	return s.Data(), nil
-}
-
-func (cik *ClientInitKey) UnmarshalTLS(data []byte) (int, error) {
-	s := NewStreamReader()
-
-	var inner cikInner
-	read, err := s.Read(data, &inner)
-	if err != nil {
-		return 0, err
-	}
-
-	cik.SupportedVersion = inner.SupportedVersion
-	cik.CipherSuite = inner.CipherSuite
-	cik.InitKey = inner.InitKey
-	cik.Credential = inner.Credential
-
-	// Todo: revisit this to see if we can parse ExtensionList
-	// using usual techniques. mint/syntax seems to have
-	// similar issue too.
-	var extList ExtensionList
-	extLen, err := extList.Unmarshal(data[read:])
-	if err != nil {
-		return 0, err
-	}
-	cik.Extensions = extList
-
-	s.ResetCursor(read + extLen)
-
-	var sig Signature
-	read, err = s.Read(data, &sig)
-	cik.Signature = sig
-	if err != nil {
-		return 0, err
-	}
-
-	return read, nil
+	CipherSuite      CipherSuite
+	InitKey          HPKEPublicKey
+	Credential       Credential
+	Extensions       ExtensionList
+	Signature        Signature
 }
 
 //// Proposal
@@ -185,7 +86,7 @@ type Proposal struct {
 }
 
 func (p Proposal) MarshalTLS() ([]byte, error) {
-	s := NewStreamWriter()
+	s := NewWriteStream()
 	err := s.Write(p.Type)
 	if err != nil {
 		return nil, fmt.Errorf("mls.proposal: Marshal failed for ProposalType: %v", err)
@@ -210,8 +111,8 @@ func (p Proposal) MarshalTLS() ([]byte, error) {
 }
 
 func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
-	s := NewStreamReader()
-	_, err := s.Read(data, &p.Type)
+	s := NewReadStream(data)
+	_, err := s.Read(&p.Type)
 	if err != nil {
 		return 0, fmt.Errorf("mls.proposal: Unmarshal failed for ProposalTpe")
 	}
@@ -220,13 +121,13 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 	switch p.Type {
 	case ProposalTypeAdd:
 		p.Add = new(AddProposal)
-		read, err = s.Read(data, p.Add)
+		read, err = s.Read(p.Add)
 	case ProposalTypeUpdate:
 		p.Update = new(UpdateProposal)
-		read, err = s.Read(data, p.Update)
+		read, err = s.Read(p.Update)
 	case ProposalTypeRemove:
 		p.Remove = new(RemoveProposal)
-		read, err = s.Read(data, p.Remove)
+		read, err = s.Read(p.Remove)
 	default:
 		err = fmt.Errorf("mls.proposal: ProposalType type not allowed")
 	}
@@ -338,7 +239,7 @@ type RawMLSPlainTextTrail struct {
 
 func (pt MLSPlainText) MarshalTLS() ([]byte, error) {
 	// todo: move stream api to mint/syntax
-	s := NewStreamWriter()
+	s := NewWriteStream()
 	err := s.Write(struct {
 		GroupId           []byte `tls:"head=1"`
 		Epoch             epoch
@@ -380,9 +281,9 @@ func (pt MLSPlainText) MarshalTLS() ([]byte, error) {
 }
 
 func (pt *MLSPlainText) UnmarshalTLS(data []byte) (int, error) {
-	s := NewStreamReader()
+	s := NewReadStream(data)
 	plainTextBeg := new(RawMLSPlainTextBeg)
-	read, err := s.Read(data, plainTextBeg)
+	read, err := s.Read(plainTextBeg)
 	if err != nil {
 		return 0, fmt.Errorf("mls:mlsplaintext: Unmarshal Error %v", err)
 	}
@@ -396,13 +297,13 @@ func (pt *MLSPlainText) UnmarshalTLS(data []byte) (int, error) {
 	switch pt.ContentType {
 	case ContentTypeApplication:
 		pt.Application = new(ApplicationData)
-		read, err = s.Read(data, pt.Application)
+		read, err = s.Read(pt.Application)
 	case ContentTypeProposal:
 		pt.Proposal = new(ProposalList)
-		read, err = s.Read(data, pt.Proposal)
+		read, err = s.Read(pt.Proposal)
 	case ContentTypeCommit:
 		pt.Commit = new(CommitData)
-		read, err = s.Read(data, pt.Commit)
+		read, err = s.Read(pt.Commit)
 	default:
 		err = fmt.Errorf("mls.mlsplaintext: ContentType type not allowed")
 	}
@@ -413,7 +314,7 @@ func (pt *MLSPlainText) UnmarshalTLS(data []byte) (int, error) {
 
 	// read & populate the signature
 	var sig RawMLSPlainTextTrail
-	read, err = s.Read(data, &sig)
+	read, err = s.Read(&sig)
 	if err != nil {
 		return 0, fmt.Errorf("mls.mlsplaintext: Unmarshal failed for Signature %v", err)
 	}
