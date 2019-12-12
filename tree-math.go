@@ -175,3 +175,7 @@ func frontier(n uint) []uint {
 	f = append(f, r)
 	return f
 }
+
+func resolve(tree []uint, x, n uint) []uint {
+	return []uint{}
+}
