@@ -6,13 +6,12 @@ import (
 )
 
 var (
-	sigPrivateKey = NewSignaturePrivateKey()
-	sigPublicKey  = sigPrivateKey.PublicKey
+	sigPublicKey = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 
 	basicCredential = &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
 		SignatureScheme:    0x0403,
-		SignaturePublicKey: sigPublicKey.pub,
+		SignaturePublicKey: sigPublicKey,
 	}
 
 	credentialBasic = Credential{

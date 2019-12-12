@@ -3,6 +3,7 @@ package mls
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,7 +12,6 @@ import (
 	"hash"
 
 	"github.com/bifurcation/mint/syntax"
-	"golang.org/x/crypto/ed25519"
 )
 
 type CipherSuite uint16
@@ -38,6 +38,9 @@ type cipherConstants struct {
 	KeySize    int
 	NonceSize  int
 	SecretSize int
+	HPKEKDF    hpke.KDFID
+	HPKEAEAD   hpke.AEADID
+	HPKEMAC    hpke.MACID
 }
 
 func (cs CipherSuite) constants() cipherConstants {
@@ -141,21 +144,81 @@ func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node nodeInde
 	return cs.hkdfExpandLabel(secret, label, ctx, length)
 }
 
+///
+/// HPKE
+///
+
+// TODO
+
+///
+/// Signing
+///
+
 type SignaturePrivateKey struct {
-	priv      ed25519.PrivateKey
+	Data      []byte `tls:"head=2"`
 	PublicKey SignaturePublicKey
 }
 
-// opaque SignaturePublicKey<1..2^16-1>;
 type SignaturePublicKey struct {
-	pub ed25519.PublicKey `tls:"head=2"`
+	Data []byte `tls:"head=2"`
 }
 
-func NewSignaturePrivateKey() SignaturePrivateKey {
-	// XXX: Ignoring error
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return SignaturePrivateKey{
-		priv:      priv,
-		PublicKey: SignaturePublicKey{pub: pub},
+type SignatureScheme uint16
+
+const (
+	ECDSA_SECP256R1_SHA256 SignatureScheme = 0x0403
+	Ed25519                SignatureScheme = 0x0807
+)
+
+func (ss SignatureScheme) Supported() bool {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256, Ed25519:
+		return true
 	}
+
+	return false
+}
+
+func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return SignaturePrivateKey{}, err
+		}
+
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
+	}
+	panic("Unsupported algorithm")
+}
+
+func (ss SignatureScheme) Sign(priv SignaturePrivateKey, message []byte) []byte {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		priv25519 := ed25519.PrivateKey(priv.Data)
+		return ed25519.Sign(priv25519, message)
+	}
+	panic("Unsupported algorithm")
+}
+
+func (ss SignatureScheme) Verify(pub SignaturePublicKey, message, signature []byte) bool {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		pub25519 := ed25519.PublicKey(pub.Data)
+		return ed25519.Verify(pub25519, message, signature)
+	}
+	panic("Unsupported algorithm")
 }

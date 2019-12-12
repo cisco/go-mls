@@ -11,13 +11,6 @@ const (
 	CredentialTypeX509  = 1
 )
 
-// enum {
-//       ecdsa_secp256r1_sha256(0x0403),
-//       ed25519(0x0807),
-//       (0xFFFF)
-//   } SignatureScheme;
-type SignatureScheme uint16
-
 // struct {
 //     opaque identity<0..2^16-1>;
 //     SignatureScheme algorithm;
@@ -26,7 +19,7 @@ type SignatureScheme uint16
 type BasicCredential struct {
 	Identity           []byte `tls:"head=2"`
 	SignatureScheme    SignatureScheme
-	SignaturePublicKey []byte `tls:"head=2"`
+	SignaturePublicKey SignaturePublicKey
 }
 
 type X509Credential struct {

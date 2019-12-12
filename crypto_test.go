@@ -12,6 +12,11 @@ var supportedSuites = []CipherSuite{
 	X448_SHA512_AES256GCM,
 }
 
+var supportedSchemes = []SignatureScheme{
+	// ECDSA_SECP256R1_SHA256, // TODO
+	Ed25519,
+}
+
 func TestDigest(t *testing.T) {
 	in := unhex("6162636462636465636465666465666765666768666768696768696a68696a6b6" +
 		"96a6b6c6a6b6c6d6b6c6d6e6c6d6e6f6d6e6f706e6f7071")
@@ -85,5 +90,18 @@ func TestEncryptDecrypt(t *testing.T) {
 		if !bytes.Equal(pt, decrypted) {
 			t.Fatalf("Incorrect decryption: %x != %x", pt, decrypted)
 		}
+	}
+}
+
+func TestSignVerify(t *testing.T) {
+	message := []byte("I promise Suhas five dollars")
+
+	for _, scheme := range supportedSchemes {
+		priv, err := scheme.Generate()
+		assertNotError(t, err, "Error generating signing key")
+
+		signature := scheme.Sign(priv, message)
+		verified := scheme.Verify(priv.PublicKey, message, signature)
+		assertTrue(t, verified, "Signature failed to verify")
 	}
 }
