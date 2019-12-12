@@ -1,8 +1,6 @@
 package mls
 
 import (
-	"github.com/bifurcation/mint/syntax"
-	"reflect"
 	"testing"
 )
 
@@ -31,45 +29,14 @@ yE+vPxsiUkvQHdO2fojCkY8jg70jxM+gu59tPDNbw3Uh/2Ij310FgTHsnGQMyA==
 -----END CERTIFICATE-----`
 
 func TestCredentialMarshalUnMarshal(t *testing.T) {
-
-	testMLS := func(label string, x interface{}, out interface{}) {
-		t.Logf(label)
-		encoded, err := syntax.Marshal(x)
-		if err != nil {
-			t.Fatalf("Fail to Marshal Valid: %s, %v", label, err)
-		}
-
-		_, err = syntax.Unmarshal(encoded, out)
-		if err != nil {
-			t.Fatalf("Fail to unmarshal: %v", err)
-		}
-
-		if !reflect.DeepEqual(x, out) {
-			t.Fatalf("Mismatch input vs output: %+v != %+v", x, out)
-		}
-	}
-
-	aSigPrivateKey := NewSignaturePrivateKey()
-	aSigPublicKey := aSigPrivateKey.PublicKey
-
-	basicCredential := &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    0x0403,
-		SignaturePublicKey: aSigPublicKey.pub,
-	}
-
-	var credentialBasic = &Credential{
-		CredentialType: CredentialTypeBasic,
-		Basic:          basicCredential,
-	}
 	// Todo: snk: support x509 key generation
-	var credentialX509 = &Credential{
-		CredentialType: CredentialTypeX509,
+	var credentialX509 = Credential{
 		X509: &X509Credential{
 			CertData: []byte(certPEM),
 		},
 	}
-	testMLS("BasicCredential", credentialBasic, new(Credential))
-	testMLS("X509Credential", credentialX509, new(Credential))
+
+	t.Run("BasicCredential", roundTrip(&credentialBasic, new(Credential)))
+	t.Run("X509Credential", roundTrip(&credentialX509, new(Credential)))
 
 }
