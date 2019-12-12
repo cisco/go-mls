@@ -3,7 +3,6 @@ package mls
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/bifurcation/hpke"
 	"github.com/bifurcation/mint/syntax"
+	"golang.org/x/crypto/ed25519"
 )
 
 type CipherSuite uint16
