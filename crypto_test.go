@@ -2,14 +2,8 @@ package mls
 
 import (
 	"bytes"
-	"encoding/hex"
 	"testing"
 )
-
-func unhex(s string) []byte {
-	d, _ := hex.DecodeString(s)
-	return d
-}
 
 var supportedSuites = []CipherSuite{
 	P256_SHA256_AES128GCM,
