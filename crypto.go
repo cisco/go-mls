@@ -21,7 +21,7 @@ const (
 	X448_SHA512_AES256GCM   CipherSuite = 0x0011
 )
 
-func (cs CipherSuite) Supported() bool {
+func (cs CipherSuite) supported() bool {
 	switch cs {
 	case P256_SHA256_AES128GCM, P521_SHA512_AES256GCM:
 		fallthrough
@@ -49,7 +49,7 @@ func (cs CipherSuite) constants() cipherConstants {
 	panic("Unsupported ciphersuite")
 }
 
-func (cs CipherSuite) NewDigest() hash.Hash {
+func (cs CipherSuite) newDigest() hash.Hash {
 	switch cs {
 	case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
 		return sha256.New()
@@ -61,11 +61,17 @@ func (cs CipherSuite) NewDigest() hash.Hash {
 	panic("Unsupported ciphersuite")
 }
 
-func (cs CipherSuite) NewHMAC(key []byte) hash.Hash {
-	return hmac.New(cs.NewDigest, key)
+func (cs CipherSuite) digest(data []byte) []byte {
+	d := cs.newDigest()
+	d.Write(data)
+	return d.Sum(nil)
 }
 
-func (cs CipherSuite) NewAEAD(key []byte) (cipher.AEAD, error) {
+func (cs CipherSuite) newHMAC(key []byte) hash.Hash {
+	return hmac.New(cs.newDigest, key)
+}
+
+func (cs CipherSuite) newAEAD(key []byte) (cipher.AEAD, error) {
 	switch cs {
 	case P256_SHA256_AES128GCM, P521_SHA512_AES256GCM:
 		fallthrough
@@ -81,8 +87,8 @@ func (cs CipherSuite) NewAEAD(key []byte) (cipher.AEAD, error) {
 	panic("Unsupported ciphersuite")
 }
 
-func (cs CipherSuite) HKDFExtract(salt, ikm []byte) []byte {
-	mac := cs.NewHMAC(salt)
+func (cs CipherSuite) hkdfExtract(salt, ikm []byte) []byte {
+	mac := cs.newHMAC(salt)
 	mac.Write(ikm)
 	return mac.Sum(nil)
 }
@@ -93,7 +99,7 @@ func (cs CipherSuite) hkdfExpand(secret, info []byte, size int) []byte {
 	}
 
 	infoAndCounter := append(info, 0x01)
-	mac := cs.NewHMAC(secret)
+	mac := cs.newHMAC(secret)
 	mac.Write(infoAndCounter)
 	return mac.Sum(nil)[:size]
 }
@@ -104,11 +110,31 @@ type hkdfLabel struct {
 	Context []byte `tls:"head=4"`
 }
 
-func (cs CipherSuite) HKDFExpandLabel(secret []byte, label string, context []byte, length int) []byte {
+func (cs CipherSuite) hkdfExpandLabel(secret []byte, label string, context []byte, length int) []byte {
 	label_data, err := syntax.Marshal(hkdfLabel{uint16(length), []byte(label), context})
 	if err != nil {
 		panic(fmt.Errorf("Error marshaling HKDF label: %v", err))
 	}
 
 	return cs.hkdfExpand(secret, label_data, length)
+}
+
+func (cs CipherSuite) deriveSecret(secret []byte, label string, context []byte) []byte {
+	contextHash := cs.digest(context)
+	size := cs.constants().SecretSize
+	return cs.hkdfExpandLabel(secret, label, contextHash, size)
+}
+
+type applicationContext struct {
+	Node       nodeIndex
+	Generation uint32
+}
+
+func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node nodeIndex, generation uint32, length int) []byte {
+	ctx, err := syntax.Marshal(applicationContext{node, generation})
+	if err != nil {
+		panic(fmt.Errorf("Error marshaling application context: %v", err))
+	}
+
+	return cs.hkdfExpandLabel(secret, label, ctx, length)
 }
