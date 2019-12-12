@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 
+	"github.com/bifurcation/hpke"
 	"github.com/bifurcation/mint/syntax"
 	"golang.org/x/crypto/ed25519"
 )
@@ -34,18 +35,40 @@ func (cs CipherSuite) supported() bool {
 	return false
 }
 
+func (cs CipherSuite) String() string {
+	switch cs {
+	case P256_SHA256_AES128GCM:
+		return "P256_SHA256_AES128GCM"
+	case X25519_SHA256_AES128GCM:
+		return "X25519_SHA256_AES128GCM"
+	case P521_SHA512_AES256GCM:
+		return "P521_SHA512_AES256GCM"
+	case X448_SHA512_AES256GCM:
+		return "X448_SHA512_AES256GCM"
+	}
+
+	return "UknownCiphersuite"
+}
+
 type cipherConstants struct {
 	KeySize    int
 	NonceSize  int
 	SecretSize int
+	HPKEKEM    hpke.KEMID
+	HPKEKDF    hpke.KDFID
+	HPKEAEAD   hpke.AEADID
 }
 
 func (cs CipherSuite) constants() cipherConstants {
 	switch cs {
-	case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
-		return cipherConstants{16, 12, 32}
-	case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
-		return cipherConstants{32, 12, 64}
+	case P256_SHA256_AES128GCM:
+		return cipherConstants{16, 12, 32, hpke.DHKEM_P256, hpke.KDF_HKDF_SHA256, hpke.AEAD_AESGCM128}
+	case X25519_SHA256_AES128GCM:
+		return cipherConstants{16, 12, 32, hpke.DHKEM_X25519, hpke.KDF_HKDF_SHA256, hpke.AEAD_AESGCM128}
+	case P521_SHA512_AES256GCM:
+		return cipherConstants{32, 12, 64, hpke.DHKEM_P521, hpke.KDF_HKDF_SHA512, hpke.AEAD_AESGCM256}
+	case X448_SHA512_AES256GCM:
+		return cipherConstants{32, 12, 64, hpke.DHKEM_X448, hpke.KDF_HKDF_SHA512, hpke.AEAD_AESGCM256}
 	}
 
 	panic("Unsupported ciphersuite")
@@ -141,21 +164,185 @@ func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node nodeInde
 	return cs.hkdfExpandLabel(secret, label, ctx, length)
 }
 
+func (cs CipherSuite) hpke() hpkeInstance {
+	cc := cs.constants()
+	suite, err := hpke.AssembleCipherSuite(cc.HPKEKEM, cc.HPKEKDF, cc.HPKEAEAD)
+	if err != nil {
+		panic("Unable to construct HPKE ciphersuite")
+	}
+
+	return hpkeInstance{cs, suite}
+}
+
+///
+/// HPKE
+///
+
+type HPKEPrivateKey struct {
+	Data      []byte `tls:"head=2"`
+	PublicKey HPKEPublicKey
+}
+
+type HPKEPublicKey struct {
+	Data []byte `tls:"head=2"`
+}
+
+type HPKECiphertext struct {
+	KEMOutput  []byte `tls:"head=2"`
+	Ciphertext []byte `tls:"head=2"`
+}
+
+type hpkeInstance struct {
+	BaseSuite CipherSuite
+	Suite     hpke.CipherSuite
+}
+
+func (h hpkeInstance) Generate() (HPKEPrivateKey, error) {
+	priv, pub, err := h.Suite.KEM.GenerateKeyPair(rand.Reader)
+	if err != nil {
+		return HPKEPrivateKey{}, err
+	}
+
+	key := HPKEPrivateKey{
+		Data:      h.Suite.KEM.MarshalPrivate(priv),
+		PublicKey: HPKEPublicKey{h.Suite.KEM.Marshal(pub)},
+	}
+	return key, nil
+}
+
+func (h hpkeInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
+	digest := h.BaseSuite.digest(seed)
+
+	var priv hpke.KEMPrivateKey
+	var err error
+	switch h.BaseSuite.constants().HPKEKEM {
+	case hpke.DHKEM_P256, hpke.DHKEM_P521, hpke.DHKEM_X25519:
+		priv, err = h.Suite.KEM.UnmarshalPrivate(digest)
+	case hpke.DHKEM_X448:
+		priv, err = h.Suite.KEM.UnmarshalPrivate(digest[:56])
+	}
+
+	if err != nil {
+		return HPKEPrivateKey{}, err
+	}
+
+	pub := priv.PublicKey()
+	key := HPKEPrivateKey{
+		Data:      h.Suite.KEM.MarshalPrivate(priv),
+		PublicKey: HPKEPublicKey{h.Suite.KEM.Marshal(pub)},
+	}
+	return key, nil
+}
+
+func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext, error) {
+	pkR, err := h.Suite.KEM.Unmarshal(pub.Data)
+	if err != nil {
+		return HPKECiphertext{}, err
+	}
+
+	enc, ctx, err := hpke.SetupBaseI(h.Suite, rand.Reader, pkR, nil)
+	if err != nil {
+		return HPKECiphertext{}, err
+	}
+
+	ct := ctx.Seal(aad, pt)
+	return HPKECiphertext{enc, ct}, nil
+}
+
+func (h hpkeInstance) Decrypt(priv HPKEPrivateKey, aad []byte, ct HPKECiphertext) ([]byte, error) {
+	skR, err := h.Suite.KEM.UnmarshalPrivate(priv.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, err := hpke.SetupBaseR(h.Suite, skR, ct.KEMOutput, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return ctx.Open(aad, ct.Ciphertext)
+}
+
+///
+/// Signing
+///
+
 type SignaturePrivateKey struct {
-	priv      ed25519.PrivateKey
+	Data      []byte `tls:"head=2"`
 	PublicKey SignaturePublicKey
 }
 
-// opaque SignaturePublicKey<1..2^16-1>;
 type SignaturePublicKey struct {
-	pub ed25519.PublicKey `tls:"head=2"`
+	Data []byte `tls:"head=2"`
 }
 
-func NewSignaturePrivateKey() SignaturePrivateKey {
-	// XXX: Ignoring error
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return SignaturePrivateKey{
-		priv:      priv,
-		PublicKey: SignaturePublicKey{pub: pub},
+type SignatureScheme uint16
+
+const (
+	ECDSA_SECP256R1_SHA256 SignatureScheme = 0x0403
+	Ed25519                SignatureScheme = 0x0807
+)
+
+func (ss SignatureScheme) supported() bool {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256, Ed25519:
+		return true
 	}
+
+	return false
+}
+
+func (ss SignatureScheme) String() string {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		return "ECDSA_SECP256R1_SHA256"
+	case Ed25519:
+		return "Ed25519"
+	}
+
+	return "UknownSignatureScheme"
+}
+
+func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return SignaturePrivateKey{}, err
+		}
+
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
+	}
+	panic("Unsupported algorithm")
+}
+
+func (ss SignatureScheme) Sign(priv SignaturePrivateKey, message []byte) []byte {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		priv25519 := ed25519.PrivateKey(priv.Data)
+		return ed25519.Sign(priv25519, message)
+	}
+	panic("Unsupported algorithm")
+}
+
+func (ss SignatureScheme) Verify(pub SignaturePublicKey, message, signature []byte) bool {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		pub25519 := ed25519.PublicKey(pub.Data)
+		return ed25519.Verify(pub25519, message, signature)
+	}
+	panic("Unsupported algorithm")
 }

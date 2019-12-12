@@ -6,13 +6,12 @@ import (
 )
 
 var (
-	sigPrivateKey = NewSignaturePrivateKey()
-	sigPublicKey  = sigPrivateKey.PublicKey
+	sigPublicKey = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 
 	basicCredential = &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
 		SignatureScheme:    0x0403,
-		SignaturePublicKey: sigPublicKey.pub,
+		SignaturePublicKey: sigPublicKey,
 	}
 
 	credentialBasic = Credential{
@@ -46,17 +45,13 @@ var (
 		Data: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
 
-	sign = Signature{
-		Data: []byte{0x00, 0x00, 0x00},
-	}
-
 	clientInitKey = &ClientInitKey{
 		SupportedVersion: 0xFF,
 		CipherSuite:      0x0001,
 		InitKey:          initKey,
 		Credential:       credentialBasic,
 		Extensions:       extListValidIn,
-		Signature:        sign,
+		Signature:        []byte{0x00, 0x00, 0x00},
 	}
 
 	addProposal = &Proposal{
