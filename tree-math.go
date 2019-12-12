@@ -20,8 +20,17 @@ package mls
 //
 //    01x = <00x, 10x>
 
+type leafIndex uint32
+type leafCount uint32
+type nodeIndex uint32
+type nodeCount uint32
+
+func toNodeIndex(leaf leafIndex) nodeIndex {
+	return nodeIndex(2 * leaf)
+}
+
 // Position of the most significant 1 bit
-func log2(x uint) uint {
+func log2(x nodeCount) uint {
 	if x == 0 {
 		return 0
 	}
@@ -34,7 +43,7 @@ func log2(x uint) uint {
 }
 
 // Position of the least significant 0 bit
-func level(x uint) uint {
+func level(x nodeIndex) uint {
 	if x&0x01 == 0 {
 		return 0
 	}
@@ -47,18 +56,18 @@ func level(x uint) uint {
 }
 
 // Number of nodes for a tree of size N
-func nodeWidth(n uint) uint {
-	return 2*(n-1) + 1
+func nodeWidth(n leafCount) nodeCount {
+	return nodeCount(2*(n-1) + 1)
 }
 
 // Index of the root of the tree with N leaves
-func root(n uint) uint {
+func root(n leafCount) nodeIndex {
 	w := nodeWidth(n)
-	return uint((1 << log2(w)) - 1)
+	return nodeIndex((1 << log2(w)) - 1)
 }
 
 // Left child of x
-func left(x uint) uint {
+func left(x nodeIndex) nodeIndex {
 	if level(x) == 0 {
 		return x
 	}
@@ -67,42 +76,44 @@ func left(x uint) uint {
 }
 
 // Right child of x
-func right(x uint, n uint) uint {
+func right(x nodeIndex, n leafCount) nodeIndex {
 	if level(x) == 0 {
 		return x
 	}
 
+	w := nodeIndex(nodeWidth(n))
 	r := x ^ (0x03 << (level(x) - 1))
-	for r > 2*(n-1) {
+	for r >= w {
 		r = left(r)
 	}
 	return r
 }
 
 // Immediate parent of x; may not exist in tree
-func parent_step(x uint) uint {
+func parent_step(x nodeIndex) nodeIndex {
 	// xy01 -> x011
 	k := level(x)
 	one := uint(1)
-	return (x | (one << k)) & ^(one << (k + 1))
+	return nodeIndex((uint(x) | (one << k)) & ^(one << (k + 1)))
 }
 
 // Parent of x
-func parent(x uint, n uint) uint {
+func parent(x nodeIndex, n leafCount) nodeIndex {
 	// root's parent is itself
 	if x == root(n) {
 		return x
 	}
 
+	w := nodeIndex(nodeWidth(n))
 	p := parent_step(x)
-	for p > 2*(n-1) {
+	for p >= w {
 		p = parent_step(p)
 	}
 	return p
 }
 
 // Sibling of x
-func sibling(x uint, n uint) uint {
+func sibling(x nodeIndex, n leafCount) nodeIndex {
 	p := parent(x, n)
 	if x < p {
 		return right(p, n)
@@ -115,67 +126,35 @@ func sibling(x uint, n uint) uint {
 }
 
 // Direct path for x
-// Ordered from root to leaf, excluding leaf and root
-func dirpath(x uint, n uint) []uint {
-	d := []uint{}
-	p := parent(x, n)
+// Ordered from leaf to root, including leaf and root
+func dirpath(x nodeIndex, n leafCount) []nodeIndex {
+	d := []nodeIndex{}
+	p := x
 	r := root(n)
 	for p != r {
-		d = append([]uint{p}, d...)
+		d = append(d, p)
 		p = parent(p, n)
 	}
+
+	d = append(d, p)
 	return d
 }
 
 // Copath for x
-// Ordered from root to leaf
-func copath(x uint, n uint) []uint {
+// Ordered from leaf to root
+func copath(x nodeIndex, n leafCount) []nodeIndex {
 	d := dirpath(x, n)
 
-	// Add leaf, which is missing from direct path
-	if x != sibling(x, n) {
-		d = append(d, x)
-	}
-
-	c := make([]uint, len(d))
+	r := root(n)
+	c := make([]nodeIndex, len(d)-1)
 	for i, x := range d {
+		// Don't include the root
+		if x == r {
+			continue
+		}
+
 		c[i] = sibling(x, n)
 	}
 
 	return c
-}
-
-// Number of leaves under a node
-func subtreeSize(x uint, n uint) uint {
-	w := nodeWidth(n)
-	lr := uint((1 << level(x)) - 1)
-	rr := uint(lr)
-	if x+rr >= w {
-		rr = w - x - 1
-	}
-
-	return (lr+rr)/2 + 1
-}
-
-// Array of frontier heads
-func frontier(n uint) []uint {
-	if n == 0 {
-		return []uint{}
-	}
-
-	r := root(n)
-	s := subtreeSize(r, n)
-	f := []uint{}
-	for s != (1 << log2(s)) {
-		l := left(r)
-		r = right(r, n)
-		s = subtreeSize(r, n)
-		f = append(f, l)
-	}
-	f = append(f, r)
-	return f
-}
-
-func resolve(tree []uint, x, n uint) []uint {
-	return []uint{}
 }
