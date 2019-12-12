@@ -102,11 +102,15 @@ func TestEncryptDecrypt(t *testing.T) {
 func TestHPKE(t *testing.T) {
 	aad := []byte("doo-bee-doo")
 	original := []byte("Attack at dawn!")
+	seed := []byte("All the flowers of tomorrow are in the seeds of today")
 
 	encryptDecrypt := func(suite CipherSuite) func(t *testing.T) {
 		return func(t *testing.T) {
 			priv, err := suite.hpke().Generate()
 			assertNotError(t, err, "Error generating HPKE key")
+
+			priv, err = suite.hpke().Derive(seed)
+			assertNotError(t, err, "Error deriving HPKE key")
 
 			encrypted, err := suite.hpke().Encrypt(priv.PublicKey, aad, original)
 			assertNotError(t, err, "Error in HPKE encryption")

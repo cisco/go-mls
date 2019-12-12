@@ -171,7 +171,7 @@ func (cs CipherSuite) hpke() hpkeInstance {
 		panic("Unable to construct HPKE ciphersuite")
 	}
 
-	return hpkeInstance{suite}
+	return hpkeInstance{cs, suite}
 }
 
 ///
@@ -193,7 +193,8 @@ type HPKECiphertext struct {
 }
 
 type hpkeInstance struct {
-	Suite hpke.CipherSuite
+	BaseSuite CipherSuite
+	Suite     hpke.CipherSuite
 }
 
 func (h hpkeInstance) Generate() (HPKEPrivateKey, error) {
@@ -209,9 +210,28 @@ func (h hpkeInstance) Generate() (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (h hpkeInstance) Derive(seed []byte) HPKEPrivateKey {
-	// TODO
-	return HPKEPrivateKey{}
+func (h hpkeInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
+	digest := h.BaseSuite.digest(seed)
+
+	var priv hpke.KEMPrivateKey
+	var err error
+	switch h.BaseSuite.constants().HPKEKEM {
+	case hpke.DHKEM_P256, hpke.DHKEM_P521, hpke.DHKEM_X25519:
+		priv, err = h.Suite.KEM.UnmarshalPrivate(digest)
+	case hpke.DHKEM_X448:
+		priv, err = h.Suite.KEM.UnmarshalPrivate(digest[:56])
+	}
+
+	if err != nil {
+		return HPKEPrivateKey{}, err
+	}
+
+	pub := priv.PublicKey()
+	key := HPKEPrivateKey{
+		Data:      h.Suite.KEM.MarshalPrivate(priv),
+		PublicKey: HPKEPublicKey{h.Suite.KEM.Marshal(pub)},
+	}
+	return key, nil
 }
 
 func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext, error) {
