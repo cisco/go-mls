@@ -62,46 +62,81 @@ func TestEncryptDecrypt(t *testing.T) {
 		"748a637985771d347f0545659f14e99def842d8eb335f4eecfdbf831824b4c49" +
 		"15956c96")
 
+	encryptDecrypt := func(suite CipherSuite) func(t *testing.T) {
+		return func(t *testing.T) {
+			var key, nonce, aad, pt, ct []byte
+			switch suite {
+			case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
+				key, nonce, aad, pt, ct = key128, nonce128, aad128, pt128, ct128
+			case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
+				key, nonce, aad, pt, ct = key256, nonce256, aad256, pt256, ct256
+			}
+
+			aead, err := suite.newAEAD(key)
+			if err != nil {
+				t.Fatalf("Error creating AEAD: %v", err)
+			}
+
+			// Test encryption
+			encrypted := aead.Seal(nil, nonce, pt, aad)
+			if !bytes.Equal(ct, encrypted) {
+				t.Fatalf("Incorrect encryption: %x != %x", ct, encrypted)
+			}
+
+			// Test decryption
+			decrypted, err := aead.Open(nil, nonce, ct, aad)
+			if err != nil {
+				t.Fatalf("Error in decryption: %v", err)
+			}
+			if !bytes.Equal(pt, decrypted) {
+				t.Fatalf("Incorrect decryption: %x != %x", pt, decrypted)
+			}
+		}
+	}
+
 	for _, suite := range supportedSuites {
-		var key, nonce, aad, pt, ct []byte
-		switch suite {
-		case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
-			key, nonce, aad, pt, ct = key128, nonce128, aad128, pt128, ct128
-		case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
-			key, nonce, aad, pt, ct = key256, nonce256, aad256, pt256, ct256
-		}
+		t.Run(suite.String(), encryptDecrypt(suite))
+	}
+}
 
-		aead, err := suite.newAEAD(key)
-		if err != nil {
-			t.Fatalf("Error creating AEAD: %v", err)
-		}
+func TestHPKE(t *testing.T) {
+	aad := []byte("doo-bee-doo")
+	original := []byte("Attack at dawn!")
 
-		// Test encryption
-		encrypted := aead.Seal(nil, nonce, pt, aad)
-		if !bytes.Equal(ct, encrypted) {
-			t.Fatalf("Incorrect encryption: %x != %x", ct, encrypted)
-		}
+	encryptDecrypt := func(suite CipherSuite) func(t *testing.T) {
+		return func(t *testing.T) {
+			priv, err := suite.hpke().Generate()
+			assertNotError(t, err, "Error generating HPKE key")
 
-		// Test decryption
-		decrypted, err := aead.Open(nil, nonce, ct, aad)
-		if err != nil {
-			t.Fatalf("Error in decryption: %v", err)
+			encrypted, err := suite.hpke().Encrypt(priv.PublicKey, aad, original)
+			assertNotError(t, err, "Error in HPKE encryption")
+
+			decrypted, err := suite.hpke().Decrypt(priv, aad, encrypted)
+			assertNotError(t, err, "Error in HPKE decryption")
+			assertByteEquals(t, original, decrypted)
 		}
-		if !bytes.Equal(pt, decrypted) {
-			t.Fatalf("Incorrect decryption: %x != %x", pt, decrypted)
-		}
+	}
+
+	for _, suite := range supportedSuites {
+		t.Run(suite.String(), encryptDecrypt(suite))
 	}
 }
 
 func TestSignVerify(t *testing.T) {
 	message := []byte("I promise Suhas five dollars")
 
-	for _, scheme := range supportedSchemes {
-		priv, err := scheme.Generate()
-		assertNotError(t, err, "Error generating signing key")
+	signVerify := func(scheme SignatureScheme) func(t *testing.T) {
+		return func(t *testing.T) {
+			priv, err := scheme.Generate()
+			assertNotError(t, err, "Error generating signing key")
 
-		signature := scheme.Sign(priv, message)
-		verified := scheme.Verify(priv.PublicKey, message, signature)
-		assertTrue(t, verified, "Signature failed to verify")
+			signature := scheme.Sign(priv, message)
+			verified := scheme.Verify(priv.PublicKey, message, signature)
+			assertTrue(t, verified, "Signature failed to verify")
+		}
+	}
+
+	for _, scheme := range supportedSchemes {
+		t.Run(scheme.String(), signVerify(scheme))
 	}
 }

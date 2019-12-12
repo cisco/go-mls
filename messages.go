@@ -18,21 +18,13 @@ type ExtensionList struct {
 	Extensions []Extension `tls:"head=2"`
 }
 
-type HPKEPublicKey struct {
-	Data []byte `tls:"head=2"`
-}
-
-type Signature struct {
-	Data []byte `tls:"head=2"`
-}
-
 type ClientInitKey struct {
 	SupportedVersion uint8
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
 	Extensions       ExtensionList
-	Signature        Signature
+	Signature        []byte `tls:"head=2"`
 }
 
 ///
