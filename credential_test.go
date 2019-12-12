@@ -29,28 +29,14 @@ yE+vPxsiUkvQHdO2fojCkY8jg70jxM+gu59tPDNbw3Uh/2Ij310FgTHsnGQMyA==
 -----END CERTIFICATE-----`
 
 func TestCredentialMarshalUnMarshal(t *testing.T) {
-	aSigPrivateKey := NewSignaturePrivateKey()
-	aSigPublicKey := aSigPrivateKey.PublicKey
-
-	basicCredential := &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    0x0403,
-		SignaturePublicKey: aSigPublicKey.pub,
-	}
-
-	var credentialBasic = &Credential{
-		CredentialType: CredentialTypeBasic,
-		Basic:          basicCredential,
-	}
 	// Todo: snk: support x509 key generation
-	var credentialX509 = &Credential{
-		CredentialType: CredentialTypeX509,
+	var credentialX509 = Credential{
 		X509: &X509Credential{
 			CertData: []byte(certPEM),
 		},
 	}
 
-	t.Run("BasicCredential", roundTrip(credentialBasic, new(Credential)))
-	t.Run("X509Credential", roundTrip(credentialX509, new(Credential)))
+	t.Run("BasicCredential", roundTrip(&credentialBasic, new(Credential)))
+	t.Run("X509Credential", roundTrip(&credentialX509, new(Credential)))
 
 }

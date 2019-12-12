@@ -43,18 +43,29 @@ type X509Credential struct {
 //		};
 //} Credential;
 type Credential struct {
-	CredentialType CredentialType
-	Basic          *BasicCredential
-	X509           *X509Credential
+	Basic *BasicCredential
+	X509  *X509Credential
+}
+
+func (c Credential) Type() CredentialType {
+	switch {
+	case c.Basic != nil:
+		return CredentialTypeBasic
+	case c.X509 != nil:
+		return CredentialTypeX509
+	default:
+		panic("Malformed credential")
+	}
 }
 
 func (c Credential) MarshalTLS() ([]byte, error) {
 	s := NewWriteStream()
-	err := s.Write(c.CredentialType)
+	credentialType := c.Type()
+	err := s.Write(credentialType)
 	if err != nil {
 		return nil, fmt.Errorf("mls.credential: Marshal failed for CredentialType")
 	}
-	switch c.CredentialType {
+	switch credentialType {
 	case CredentialTypeBasic:
 		err = s.Write(c.Basic)
 	case CredentialTypeX509:
@@ -72,12 +83,13 @@ func (c Credential) MarshalTLS() ([]byte, error) {
 
 func (c *Credential) UnmarshalTLS(data []byte) (int, error) {
 	s := NewReadStream(data)
-	_, err := s.Read(&c.CredentialType)
+	var credentialType CredentialType
+	_, err := s.Read(&credentialType)
 	if err != nil {
 		return 0, fmt.Errorf("mls.credential: CredentialType Unmarshal failed %v", err)
 	}
 
-	switch c.CredentialType {
+	switch credentialType {
 	case CredentialTypeBasic:
 		c.Basic = new(BasicCredential)
 		_, err = s.Read(c.Basic)

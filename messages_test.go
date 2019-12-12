@@ -2,7 +2,6 @@ package mls
 
 import (
 	"github.com/bifurcation/mint/syntax"
-	"reflect"
 	"testing"
 )
 
@@ -17,8 +16,7 @@ var (
 	}
 
 	credentialBasic = Credential{
-		CredentialType: CredentialTypeBasic,
-		Basic:          basicCredential,
+		Basic: basicCredential,
 	}
 
 	extIn = Extension{
@@ -62,23 +60,20 @@ var (
 	}
 
 	addProposal = &Proposal{
-		Type: ProposalTypeAdd,
 		Add: &AddProposal{
 			ClientInitKey: *clientInitKey,
 		},
 	}
 
 	removeProposal = &Proposal{
-		Type: ProposalTypeRemove,
 		Remove: &RemoveProposal{
 			Removed: 12,
 		},
 	}
 
 	updateProposal = &Proposal{
-		Type: ProposalTypeUpdate,
 		Update: &UpdateProposal{
-			LeafKey: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
+			LeafKey: HPKEPublicKey{[]byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16}},
 		},
 	}
 
@@ -93,13 +88,13 @@ var (
 	}
 
 	commits = &Commit{
-		Updates: []ProposalId{
+		Updates: []ProposalID{
 			{
 				Sender: 4,
 				Hash:   []byte{0x01, 0x03},
 			},
 		},
-		Adds: ProposalId{
+		Adds: ProposalID{
 			Sender: 8,
 			Hash:   []byte{0x07, 0x09},
 		},
@@ -109,19 +104,20 @@ var (
 	}
 
 	mlsPlainTextIn = &MLSPlainText{
-		GroupId:           []byte{0x01, 0x02, 0x03, 0x04},
+		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
 		Sender:            4,
-		ContentType:       ContentTypeApplication,
 		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
-		Application: &ApplicationData{
-			Data: []byte{0x0A, 0x0B, 0x0C, 0x0D},
+		Content: MLSPlaintextContent{
+			Application: &ApplicationData{
+				Data: []byte{0x0A, 0x0B, 0x0C, 0x0D},
+			},
 		},
 		Signature: []byte{0x00, 0x01, 0x02, 0x03},
 	}
 
 	mlsCiphertextIn = &MLSCipherText{
-		GroupId:             []byte{0x01, 0x02, 0x03, 0x04},
+		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
 		ContentType:         1,
 		SenderDataNonce:     []byte{0x01, 0x02},
@@ -137,14 +133,7 @@ func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
 
 		_, err = syntax.Unmarshal(encoded, decoded)
 		assertNotError(t, err, "Fail to Unmarshal")
-
-		if err != nil {
-			t.Fatalf("Fail to unmarshal: %v", err)
-		}
-
-		if !reflect.DeepEqual(decoded, original) {
-			t.Fatalf("Mismatch input vs output: %+v != %+v", decoded, original)
-		}
+		assertDeepEquals(t, decoded, original)
 	}
 }
 
