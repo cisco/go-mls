@@ -76,7 +76,7 @@ var (
 		Data: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
 
-	nodes = []RatchetTreeNode{
+	nodes = []RatchetNode{
 		{
 			PublicKey: nodePublicKey,
 		},
