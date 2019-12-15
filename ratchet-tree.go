@@ -123,7 +123,7 @@ func newRatchetTreeNode(cs CipherSuite, secret []byte) *RatchetTreeNode {
 
 func (n *RatchetTreeNode) Merge(o *RatchetTreeNode) {
 
-	if o.PublicKey != nil && o.PublicKey.equals(n.PublicKey) {
+	if o.PublicKey != nil && !o.PublicKey.equals(n.PublicKey) {
 		n.PublicKey = o.PublicKey
 	}
 
@@ -169,7 +169,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 
 	pathSecret := leafSecret
 	cp := copath(leafNode, t.size())
-	fmt.Printf("copath for [%v]: [%v]", leafNode, cp)
+	fmt.Printf("copath for [%v]: [%v]\n", leafNode, cp)
 	for _, v := range cp {
 		pathSecret = t.pathStep(pathSecret)
 		parent := parent(v, t.size())

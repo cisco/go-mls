@@ -55,14 +55,17 @@ var (
 	secretC = unhex("08090a0b")
 	secretD = unhex("0c0d0e0f")
 
+	secretAB = unhex(
+	"e8de418a07b497953174c71f5ad83d63d90bc68582a9a340c6023fba536455f4")
 
-	credA = genCredential([]byte{'A'}, Ed25519)
+    credA = genCredential([]byte{'A'}, Ed25519)
 	credB = genCredential([]byte{'B'}, Ed25519)
 	credC = genCredential([]byte{'C'}, Ed25519)
 	credD = genCredential([]byte{'D'}, Ed25519)
 
 	// Manually computed via a Python script
-	hashA = unhex("30a1ceecab0b150dd15d1a851d7ed36923e872d7344aea6197a8a82f943266f6");
+	hashA = unhex("30a1ceecab0b150dd15d1a851d7ed36923e872d7344aea6197a8a82f943266f6")
+    hashAB = unhex("bff3b7b65c000086a1f6acf98dc33ae26e82544866b5509f6bfd82f5f188fb09")
 
 )
 
@@ -114,10 +117,12 @@ func TestRatchetTreeByExtension(t *testing.T) {
 		t.Errorf("error deriving private key %v",err)
 	}
 	tree.AddLeaf(leafIndex(1), &privB.PublicKey, &credB)
-	_, rootB := tree.Encap(leafIndex(1), []byte{}, secretB)
-
-	assertByteEquals(t, rootB, secretB)
-	//assertByteEquals(t, tree.RootHash(), hashA)
+	//_, rootB := tree.Encap(leafIndex(1), []byte{}, secretB)
+	tree.Encap(leafIndex(1), []byte{}, secretB)
 	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
+
+	//assertByteEquals(t, tree.RootHash(), hashAB)
+	//assertByteEquals(t, rootB, secretAB)
+
 
 }
