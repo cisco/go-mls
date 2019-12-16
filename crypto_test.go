@@ -128,10 +128,14 @@ func TestHPKE(t *testing.T) {
 
 func TestSignVerify(t *testing.T) {
 	message := []byte("I promise Suhas five dollars")
+	seed := []byte("All the flowers of tomorrow are in the seeds of today")
 
 	signVerify := func(scheme SignatureScheme) func(t *testing.T) {
 		return func(t *testing.T) {
 			priv, err := scheme.Generate()
+			assertNotError(t, err, "Error generating signing key")
+
+			priv, err = scheme.Derive(seed)
 			assertNotError(t, err, "Error generating signing key")
 
 			signature := scheme.Sign(priv, message)

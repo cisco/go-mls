@@ -137,12 +137,13 @@ type hkdfLabel struct {
 }
 
 func (cs CipherSuite) hkdfExpandLabel(secret []byte, label string, context []byte, length int) []byte {
-	label_data, err := syntax.Marshal(hkdfLabel{uint16(length), []byte(label), context})
+	mlsLabel := []byte("mls10 " + label)
+	labelData, err := syntax.Marshal(hkdfLabel{uint16(length), mlsLabel, context})
 	if err != nil {
 		panic(fmt.Errorf("Error marshaling HKDF label: %v", err))
 	}
 
-	return cs.hkdfExpand(secret, label_data, length)
+	return cs.hkdfExpand(secret, labelData, length)
 }
 
 func (cs CipherSuite) deriveSecret(secret []byte, label string, context []byte) []byte {
@@ -307,6 +308,26 @@ func (ss SignatureScheme) String() string {
 	}
 
 	return "UnknownSignatureScheme"
+}
+
+func (ss SignatureScheme) Derive(preSeed []byte) (SignaturePrivateKey, error) {
+	switch ss {
+	case ECDSA_SECP256R1_SHA256:
+		// TODO
+
+	case Ed25519:
+		h := sha256.New()
+		h.Write(preSeed)
+		seed := h.Sum(nil)
+		priv := ed25519.NewKeyFromSeed(seed)
+		pub := priv.Public().(ed25519.PublicKey)
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
+	}
+	panic("Unsupported algorithm")
 }
 
 func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
