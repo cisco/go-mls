@@ -1,6 +1,9 @@
 package mls
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // Add some tests for message structures for leaf and parent hash inputs
 
@@ -76,6 +79,7 @@ func TestRatchetTreeOneMember(t *testing.T) {
 	tree := newTestRatchetTree(t, supportedSuites[0], []memberSecret{ms}, []Credential{credA})
 	assertTrue(t, tree.Tree.size() ==1, "size mismatch")
 	assertEquals(t, *tree.Tree.GetCredential(leafIndex(0)), credA)
+	fmt.Printf("TestRatchetTreeOneMember: hash : %v", tree.Tree.RootHash())
 }
 
 func TestRatchetTreeMultipleMembers(t *testing.T) {
@@ -106,10 +110,10 @@ func TestRatchetTreeByExtension(t *testing.T) {
 
 	tree.AddLeaf(leafIndex(0), &privA.PublicKey, &credA)
 	_, rootA := tree.Encap(leafIndex(0), []byte{}, secretA)
-
+	fmt.Printf("Extension %v", tree.RootHash())
 	assertByteEquals(t, rootA, secretA)
-	//assertByteEquals(t, tree.RootHash(), hashA)
-	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
+	assertByteEquals(t, tree.RootHash(), hashA)
+	//assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
 
 	// Add B
 	privB, err := cs.hpke().Derive(secretB)
