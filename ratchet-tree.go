@@ -1,25 +1,22 @@
 package mls
 
 import (
-	"encoding/hex"
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
 )
 
-
 //// Tree Hashes
 type ParentNodeInfo struct {
 	PublicKey      *HPKEPublicKey
-	UnmergedLeaves []leafIndex     `tls:"head=4"`
+	UnmergedLeaves []leafIndex `tls:"head=4"`
 }
 
 type ParentNodeHashInput struct {
 	HashType  uint8
-	Info      *ParentNodeInfo  `tls:"optional"`
-	LeftHash  []byte           `tls:"head=1"`
-	RightHash []byte           `tls:"head=1"`
+	Info      *ParentNodeInfo `tls:"optional"`
+	LeftHash  []byte          `tls:"head=1"`
+	RightHash []byte          `tls:"head=1"`
 }
-
 
 type LeafNodeInfo struct {
 	PublicKey  HPKEPublicKey
@@ -27,20 +24,21 @@ type LeafNodeInfo struct {
 }
 
 type LeafNodeHashInput struct {
-	HashType  uint8
-	Info      *LeafNodeInfo  `tls:"optional"`
+	HashType uint8
+	Info     *LeafNodeInfo `tls:"optional"`
 }
 
+//// ratchet tree node and helpers
 type OptionalRatchetNode struct {
-	node *RatchetTreeNode
-	hash []byte
+	Node *RatchetTreeNode
+	Hash []byte `tls:"head=2"`
 }
 
 func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 	lhi := LeafNodeHashInput{HashType: 0}
-	if n.node != nil {
-		p := n.node.PublicKey
-		c := n.node.Cred
+	if n.Node != nil {
+		p := n.Node.PublicKey
+		c := n.Node.Cred
 		if c == nil {
 			panic(fmt.Errorf("mls.rtn: Leaf node not provisioned with a credentialp"))
 		}
@@ -54,43 +52,34 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: Marshal error %v", err))
 	}
-	fmt.Printf("lhi-input : %v\n", hex.EncodeToString(h))
-	n.hash = cs.digest(h)
-	fmt.Printf("lhi-digest-out : %v\n", hex.EncodeToString(n.hash))
+	n.Hash = cs.digest(h)
 
 }
 
 func (n *OptionalRatchetNode) merge(o *RatchetTreeNode) {
-	if n.node == nil{
-		n.node = o
+	if n.Node == nil {
+		n.Node = o
 	} else {
-		n.node.Merge(o)
+		n.Node.Merge(o)
 	}
 }
 
-func(n *OptionalRatchetNode) setHash(cs CipherSuite, l OptionalRatchetNode, r OptionalRatchetNode) {
-	phi := ParentNodeHashInput{ HashType: 1}
-	if n.node != nil {
-		phi.Info = &ParentNodeInfo{PublicKey: n.node.PublicKey, UnmergedLeaves: n.node.UnmergedLeaves}
+func (n *OptionalRatchetNode) setHash(cs CipherSuite, l OptionalRatchetNode, r OptionalRatchetNode) {
+	phi := ParentNodeHashInput{HashType: 1}
+	if n.Node != nil {
+		phi.Info = &ParentNodeInfo{PublicKey: n.Node.PublicKey, UnmergedLeaves: n.Node.UnmergedLeaves}
 	}
-	phi.LeftHash = l.hash
-	phi.RightHash = r.hash
-	//fmt.Printf("phi:l-Hash %v\n", hex.EncodeToString(phi.LeftHash))
-	//fmt.Printf("phi:r-Hash %v\n", hex.EncodeToString(phi.RightHash))
-
+	phi.LeftHash = l.Hash
+	phi.RightHash = r.Hash
 	data, err := syntax.Marshal(phi)
-	//fmt.Printf("phi: Marhsal (Digest-in) %v\n", hex.EncodeToString(data))
-
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: set hash error %v", err))
 	}
-	n.hash = cs.digest(data)
-	//fmt.Printf("phi: Digest Output %v\n", hex.EncodeToString(n.hash))
-
+	n.Hash = cs.digest(data)
 }
 
 func (n *OptionalRatchetNode) hasPrivate() bool {
-	if n.node != nil && n.node.PrivateKey != nil {
+	if n.Node != nil && n.Node.PrivateKey != nil {
 		return true
 	}
 	return false
@@ -98,12 +87,11 @@ func (n *OptionalRatchetNode) hasPrivate() bool {
 
 //// RatchetTree Node
 type RatchetTreeNode struct {
-	Cred            *Credential     // populated iff this node is a leaf
-	PublicKey       *HPKEPublicKey
-	PrivateKey      *HPKEPrivateKey
-	UnmergedLeaves  []leafIndex
-	CipherSuite     CipherSuite
-
+	Cred           *Credential `tls:"optional"`
+	PublicKey      *HPKEPublicKey
+	PrivateKey     *HPKEPrivateKey
+	UnmergedLeaves []leafIndex `tls:"head=2"`
+	CipherSuite    CipherSuite
 }
 
 func newRatchetTreeNode(cs CipherSuite, secret []byte) *RatchetTreeNode {
@@ -113,37 +101,29 @@ func newRatchetTreeNode(cs CipherSuite, secret []byte) *RatchetTreeNode {
 			panic(fmt.Errorf("hpke private key generation failed: %v", err))
 		}
 
-		return &RatchetTreeNode {
-			Cred: nil,
-			PrivateKey: &priv,
-			PublicKey: &priv.PublicKey,
+		return &RatchetTreeNode{
+			Cred:           nil,
+			PrivateKey:     &priv,
+			PublicKey:      &priv.PublicKey,
 			UnmergedLeaves: []leafIndex{},
-			CipherSuite: cs,
+			CipherSuite:    cs,
 		}
 	}
 
-
 	return &RatchetTreeNode{
-		Cred: nil,
-		PrivateKey: nil,
-		PublicKey: nil,
+		Cred:           nil,
+		PrivateKey:     nil,
+		PublicKey:      nil,
 		UnmergedLeaves: []leafIndex{},
-		CipherSuite: cs,
+		CipherSuite:    cs,
 	}
 }
 
 func (n *RatchetTreeNode) Merge(o *RatchetTreeNode) {
-	fmt.Printf("other pk %v\n", hex.EncodeToString(o.PublicKey.Data))
-	fmt.Printf("mine pk %v\n", hex.EncodeToString(n.PublicKey.Data))
-
 	if o.PublicKey != nil && !o.PublicKey.equals(n.PublicKey) {
 		n.PublicKey = o.PublicKey
 		n.PrivateKey = nil
 	}
-
-	fmt.Printf("other pk %v\n", hex.EncodeToString(o.PublicKey.Data))
-	fmt.Printf("mine pk %v\n", hex.EncodeToString(n.PublicKey.Data))
-
 
 	if o.PrivateKey != nil {
 		n.PrivateKey = o.PrivateKey
@@ -157,19 +137,17 @@ func (n *RatchetTreeNode) AddUnmerged(l leafIndex) {
 	n.UnmergedLeaves = append(n.UnmergedLeaves, l)
 }
 
-
-
 //// Ratchet Tree
 type RatchetTree struct {
-	nodes     []OptionalRatchetNode
-	cs        CipherSuite
-	numLeaves leafCount
+	Nodes       []OptionalRatchetNode `tls:"head=2"`
+	CipherSuite CipherSuite
+	NumLeaves   leafCount
 }
 
 func newRatchetTree(cs CipherSuite) *RatchetTree {
 	return &RatchetTree{
-		nodes: []OptionalRatchetNode{},
-		cs: cs,
+		Nodes:       []OptionalRatchetNode{},
+		CipherSuite: cs,
 	}
 }
 
@@ -177,35 +155,31 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	dp := &DirectPath{}
 	leafNode := toNodeIndex(from)
 	n := t.newNode(leafSecret)
-	fmt.Printf("encap-1.1: leaf public key %v\n", hex.EncodeToString(n.PublicKey.Data))
-	if t.nodes[leafNode].node != nil {
-		t.nodes[leafNode].node.Merge(n)
-		fmt.Printf("encap-1.2: leaf public key %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
-		dp.addNode(RatchetNode{*t.nodes[leafNode].node.PublicKey, []HPKECiphertext{}})
+	if t.Nodes[leafNode].Node != nil {
+		t.Nodes[leafNode].Node.Merge(n)
+		dp.addNode(RatchetNode{*t.Nodes[leafNode].Node.PublicKey, []HPKECiphertext{}})
 	} else {
 		// replace blank node
-		t.nodes[leafNode].node = n
+		t.Nodes[leafNode].Node = n
 	}
 
 	pathSecret := leafSecret
 	cp := copath(leafNode, t.size())
-	fmt.Printf("copath for [%v]: [%v]\n", leafNode, cp)
 	for _, v := range cp {
 		pathSecret = t.pathStep(pathSecret)
 		parent := parent(v, t.size())
 		if parent == leafNode {
-			fmt.Println("PARENT SAME AS LEAF")
 			continue
 		}
 		n = t.newNode(pathSecret)
-		t.nodes[parent].node = n
+		t.Nodes[parent].Node = n
 		//update nodes on the direct path to share it with others
-		pathNode := RatchetNode{PublicKey: *t.nodes[parent].node.PublicKey}
+		pathNode := RatchetNode{PublicKey: *t.Nodes[parent].Node.PublicKey}
 
 		// encrypt the secret to resolution maintained
 		for _, rnode := range t.resolve(v) {
-			pk := t.nodes[rnode].node.PublicKey
-			ct, err := t.cs.hpke().Encrypt(*pk, []byte{}, pathSecret)
+			pk := t.Nodes[rnode].Node.PublicKey
+			ct, err := t.CipherSuite.hpke().Encrypt(*pk, []byte{}, pathSecret)
 			if err != nil {
 				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
 			}
@@ -215,18 +189,14 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		dp.Nodes = append(dp.Nodes, pathNode)
 	}
 
-	fmt.Printf("encap-2: leaf public keyy %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
-
 	t.setHashPath(from)
-	fmt.Printf("encap-3: leaf public keyy %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
 
 	return dp, pathSecret
 }
 
-
-func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []byte{
+func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []byte {
 	cp := copath(toNodeIndex(from), t.size())
-	if len(path.Nodes) != len(cp) +1 {
+	if len(path.Nodes) != len(cp)+1 {
 		panic(fmt.Errorf("mls.rtn:Decap Malforemd Directpath"))
 	}
 
@@ -238,7 +208,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []b
 		panic(fmt.Errorf("mls.rtn:Decap Malformed leaf node"))
 	}
 
-	t.nodes[from].merge(&RatchetTreeNode{PublicKey: &path.Nodes[0].PublicKey})
+	t.Nodes[from].merge(&RatchetTreeNode{PublicKey: &path.Nodes[0].PublicKey})
 
 	var pathSecret []byte
 	var err error
@@ -252,12 +222,12 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []b
 				panic(fmt.Errorf("mls.rtn: Malformed Ratchet Node"))
 			}
 			for _, v := range res {
-				if !t.nodes[v].hasPrivate() {
+				if !t.Nodes[v].hasPrivate() {
 					continue
 				}
 				encryptedSecret := pathNode.EncryptedPathSecret[v]
-				priv := t.nodes[v].node.PrivateKey
-				pathSecret, err = t.cs.hpke().Decrypt(*priv, []byte{}, encryptedSecret)
+				priv := t.Nodes[v].Node.PrivateKey
+				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, []byte{}, encryptedSecret)
 				if err != nil {
 					panic(fmt.Errorf("mls:rtn: Ratchet node %v Decryption failure %v", v, err))
 				}
@@ -268,13 +238,13 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []b
 		}
 
 		if haveSecret {
-			temp := newRatchetTreeNode(t.cs, pathSecret)
+			temp := newRatchetTreeNode(t.CipherSuite, pathSecret)
 			if !temp.PublicKey.equals(&pathNode.PublicKey) {
 				panic(fmt.Errorf("mls:rtn: incorrect public key"))
 			}
-			t.nodes[dp[i+1]].merge(temp)
+			t.Nodes[dp[i+1]].merge(temp)
 		} else {
-			t.nodes[dp[i+1]].merge(&RatchetTreeNode{PublicKey: &pathNode.PublicKey})
+			t.Nodes[dp[i+1]].merge(&RatchetTreeNode{PublicKey: &pathNode.PublicKey})
 		}
 
 	}
@@ -287,58 +257,58 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 	n := toNodeIndex(index)
 	sz := uint32(t.size())
 	if uint32(index) == sz {
-		if len(t.nodes) == 0 {
-			t.nodes = append(t.nodes, OptionalRatchetNode{})
+		if len(t.Nodes) == 0 {
+			t.Nodes = append(t.Nodes, OptionalRatchetNode{})
 		} else {
-			nw := int(n+1)
-			for i := len(t.nodes); i < nw; i++ {
-				t.nodes = append(t.nodes, OptionalRatchetNode{})
+			nw := int(n + 1)
+			for i := len(t.Nodes); i < nw; i++ {
+				t.Nodes = append(t.Nodes, OptionalRatchetNode{})
 			}
 		}
 	}
 
-	if t.nodes[n].node != nil {
+	if t.Nodes[n].Node != nil {
 		panic(fmt.Errorf("mls.rtn:addLeaf: aff target already occupied"))
 	}
 
 	node := RatchetTreeNode{
 		PublicKey: key,
-		Cred: credential,
+		Cred:      credential,
 	}
-	t.nodes[n].node = &node
-	t.numLeaves += 1
 
-	sz = uint32(t.size())
+	t.Nodes[n].Node = &node
+	t.NumLeaves += 1
+
 	// update unmerged list
-	dp := dirpath(n, t.numLeaves)
+	dp := dirpath(n, t.NumLeaves)
 	for _, v := range dp {
-		if leafIndex(v) == index || t.nodes[v].node == nil {
+		if leafIndex(v) == index || t.Nodes[v].Node == nil {
 			continue
 		}
-		t.nodes[v].node.AddUnmerged(index)
+		t.Nodes[v].Node.AddUnmerged(index)
 	}
 	t.setHashPath(index)
- }
+}
 
 func (t *RatchetTree) Merge(index leafIndex, key interface{}) {
 	curr := toNodeIndex(index)
-	if t.nodes[curr].node == nil {
+	if t.Nodes[curr].Node == nil {
 		panic(fmt.Errorf("mls.rtn.Merge: Cannot update a blank leaf"))
 	}
 	switch v := key.(type) {
 	case HPKEPublicKey:
-		t.nodes[curr].node.Merge(&RatchetTreeNode{PublicKey: &v})
+		t.Nodes[curr].Node.Merge(&RatchetTreeNode{PublicKey: &v})
 	case HPKEPrivateKey:
-		t.nodes[curr].node.Merge(&RatchetTreeNode{PrivateKey: &v})
+		t.Nodes[curr].Node.Merge(&RatchetTreeNode{PrivateKey: &v})
 	case []byte:
-		t.nodes[curr].node.Merge(newRatchetTreeNode(t.cs, v))
+		t.Nodes[curr].Node.Merge(newRatchetTreeNode(t.CipherSuite, v))
 	default:
 		panic(fmt.Errorf("mls.rtn: Merge unsupported type %T", v))
 	}
 }
 
 func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
-	if len(t.nodes) == 0 {
+	if len(t.Nodes) == 0 {
 		return
 	}
 
@@ -352,21 +322,21 @@ func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
 		}
 		skip := first && !includeLeaf
 		if !skip {
-			t.nodes[curr].node = nil
+			t.Nodes[curr].Node = nil
 		}
 		curr = parent(curr, leafCount(nc))
 	}
 
-	t.nodes[r].node = nil
+	t.Nodes[r].Node = nil
 	t.setHashPath(index)
 }
 
 func (t *RatchetTree) GetCredential(index leafIndex) *Credential {
 	ni := toNodeIndex(index)
-	if t.nodes[ni].node == nil {
+	if t.Nodes[ni].Node == nil {
 		panic(fmt.Errorf("mls:rtn: requested credential for a blank leaf"))
 	}
-	c := t.nodes[ni].node.Cred
+	c := t.Nodes[ni].Node.Cred
 	if c == nil {
 		panic(fmt.Errorf("mls:rtn: Leaf node was not populated with a credential"))
 	}
@@ -375,7 +345,7 @@ func (t *RatchetTree) GetCredential(index leafIndex) *Credential {
 
 func (t *RatchetTree) RootHash() []byte {
 	r := root(t.size())
-	return t.nodes[r].hash
+	return t.Nodes[r].Hash
 }
 
 func (t *RatchetTree) leftMostFree() leafIndex {
@@ -384,25 +354,26 @@ func (t *RatchetTree) leftMostFree() leafIndex {
 		if t.occupied(curr) && curr < leafIndex(t.size()) {
 			curr++
 		} else {
-				break
+			break
 		}
 	}
 	return curr
 }
 
 func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
-	for i := leafIndex(0) ; leafCount(i) < t.size(); i++ {
-		n := t.nodes[toNodeIndex(i)]
-		if n.node != nil || n.node.Cred == nil {
+	for i := leafIndex(0); leafCount(i) < t.size(); i++ {
+		n := t.Nodes[toNodeIndex(i)]
+		if n.Node != nil || n.Node.Cred == nil {
 			continue
 		}
-		hpkeMatch := cik.InitKey.equals(n.node.PublicKey)
-		credMatch := cik.Credential == *n.node.Cred
+		hpkeMatch := cik.InitKey.equals(n.Node.PublicKey)
+		credMatch := cik.Credential == *n.Node.Cred
 		if hpkeMatch && credMatch {
 			return i, true
 		}
 	}
 	// 0 is a bad idea , use some Max value here ?
+	// ask rlb
 	return 0, false
 }
 
@@ -410,7 +381,7 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 
 // number of leaves in the ratchet tree
 func (t *RatchetTree) size() leafCount {
-	return t.numLeaves
+	return t.NumLeaves
 }
 
 func (t *RatchetTree) occupied(l leafIndex) bool {
@@ -425,32 +396,31 @@ func (t *RatchetTree) rootIndex() nodeIndex {
 	return root(t.size())
 
 }
-func (t *RatchetTree) nodeStep(pathSecret []byte) []byte{
-	return t.cs.hkdfExpandLabel(pathSecret, "node", []byte{}, t.cs.constants().SecretSize)
+func (t *RatchetTree) nodeStep(pathSecret []byte) []byte {
+	return t.CipherSuite.hkdfExpandLabel(pathSecret, "node", []byte{}, t.CipherSuite.constants().SecretSize)
 }
 
-func (t *RatchetTree) pathStep(pathSecret []byte) []byte{
-	ps := t.cs.hkdfExpandLabel(pathSecret, "path", []byte{}, t.cs.constants().SecretSize)
-	fmt.Printf("ps: %v\n", hex.EncodeToString(ps))
+func (t *RatchetTree) pathStep(pathSecret []byte) []byte {
+	ps := t.CipherSuite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.CipherSuite.constants().SecretSize)
 	return ps
 }
 
 func (t *RatchetTree) newNode(pathSecret []byte) *RatchetTreeNode {
 	ns := t.nodeStep(pathSecret)
-	return newRatchetTreeNode(t.cs, ns)
+	return newRatchetTreeNode(t.CipherSuite, ns)
 }
 
 func (t *RatchetTree) nodeSize() nodeCount {
-	if t.numLeaves == 0 {
+	if t.NumLeaves == 0 {
 		return 0
 	}
-	return nodeWidth(t.numLeaves)
+	return nodeWidth(t.NumLeaves)
 }
 
-func (t *RatchetTree) resolve (index nodeIndex) []nodeIndex {
+func (t *RatchetTree) resolve(index nodeIndex) []nodeIndex {
 	res := []nodeIndex{index}
-	if t.nodes[index].node != nil {
-		for _, v := range t.nodes[index].node.UnmergedLeaves {
+	if t.Nodes[index].Node != nil {
+		for _, v := range t.Nodes[index].Node.UnmergedLeaves {
 			res = append(res, nodeIndex(v))
 		}
 		return res
@@ -469,12 +439,12 @@ func (t *RatchetTree) resolve (index nodeIndex) []nodeIndex {
 
 func (t *RatchetTree) setHash(index nodeIndex) {
 	if level(index) == 0 {
-		t.nodes[index].setLeafHash(t.cs)
+		t.Nodes[index].setLeafHash(t.CipherSuite)
 		return
 	}
 	l := left(index)
 	r := right(index, t.size())
-	t.nodes[index].setHash(t.cs, t.nodes[l], t.nodes[r] )
+	t.Nodes[index].setHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
 }
 
 func (t *RatchetTree) setHashPath(index leafIndex) {
@@ -488,5 +458,4 @@ func (t *RatchetTree) setHashPath(index leafIndex) {
 		curr = parent(curr, t.size())
 		t.setHash(curr)
 	}
-
 }
