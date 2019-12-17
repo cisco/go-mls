@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
 )
@@ -53,7 +54,10 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: Marshal error %v", err))
 	}
+	fmt.Printf("lhi-input : %v\n", hex.EncodeToString(h))
 	n.hash = cs.digest(h)
+	fmt.Printf("lhi-digest-out : %v\n", hex.EncodeToString(n.hash))
+
 }
 
 func (n *OptionalRatchetNode) merge(o *RatchetTreeNode) {
@@ -71,11 +75,18 @@ func(n *OptionalRatchetNode) setHash(cs CipherSuite, l OptionalRatchetNode, r Op
 	}
 	phi.LeftHash = l.hash
 	phi.RightHash = r.hash
+	//fmt.Printf("phi:l-Hash %v\n", hex.EncodeToString(phi.LeftHash))
+	//fmt.Printf("phi:r-Hash %v\n", hex.EncodeToString(phi.RightHash))
+
 	data, err := syntax.Marshal(phi)
+	//fmt.Printf("phi: Marhsal (Digest-in) %v\n", hex.EncodeToString(data))
+
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: set hash error %v", err))
 	}
 	n.hash = cs.digest(data)
+	//fmt.Printf("phi: Digest Output %v\n", hex.EncodeToString(n.hash))
+
 }
 
 func (n *OptionalRatchetNode) hasPrivate() bool {
@@ -122,10 +133,17 @@ func newRatchetTreeNode(cs CipherSuite, secret []byte) *RatchetTreeNode {
 }
 
 func (n *RatchetTreeNode) Merge(o *RatchetTreeNode) {
+	fmt.Printf("other pk %v\n", hex.EncodeToString(o.PublicKey.Data))
+	fmt.Printf("mine pk %v\n", hex.EncodeToString(n.PublicKey.Data))
 
 	if o.PublicKey != nil && !o.PublicKey.equals(n.PublicKey) {
 		n.PublicKey = o.PublicKey
+		n.PrivateKey = nil
 	}
+
+	fmt.Printf("other pk %v\n", hex.EncodeToString(o.PublicKey.Data))
+	fmt.Printf("mine pk %v\n", hex.EncodeToString(n.PublicKey.Data))
+
 
 	if o.PrivateKey != nil {
 		n.PrivateKey = o.PrivateKey
@@ -159,8 +177,10 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	dp := &DirectPath{}
 	leafNode := toNodeIndex(from)
 	n := t.newNode(leafSecret)
+	fmt.Printf("encap-1.1: leaf public key %v\n", hex.EncodeToString(n.PublicKey.Data))
 	if t.nodes[leafNode].node != nil {
 		t.nodes[leafNode].node.Merge(n)
+		fmt.Printf("encap-1.2: leaf public key %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
 		dp.addNode(RatchetNode{*t.nodes[leafNode].node.PublicKey, []HPKECiphertext{}})
 	} else {
 		// replace blank node
@@ -173,14 +193,18 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	for _, v := range cp {
 		pathSecret = t.pathStep(pathSecret)
 		parent := parent(v, t.size())
+		if parent == leafNode {
+			fmt.Println("PARENT SAME AS LEAF")
+			continue
+		}
 		n = t.newNode(pathSecret)
 		t.nodes[parent].node = n
 		//update nodes on the direct path to share it with others
 		pathNode := RatchetNode{PublicKey: *t.nodes[parent].node.PublicKey}
 
 		// encrypt the secret to resolution maintained
-		for _, n := range t.resolve(v) {
-			pk := t.nodes[n].node.PublicKey
+		for _, rnode := range t.resolve(v) {
+			pk := t.nodes[rnode].node.PublicKey
 			ct, err := t.cs.hpke().Encrypt(*pk, []byte{}, pathSecret)
 			if err != nil {
 				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
@@ -188,10 +212,14 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 			pathNode.EncryptedPathSecret = append(pathNode.EncryptedPathSecret, ct)
 		}
 
-		dp.Nodes =append(dp.Nodes, pathNode)
+		dp.Nodes = append(dp.Nodes, pathNode)
 	}
 
+	fmt.Printf("encap-2: leaf public keyy %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
+
 	t.setHashPath(from)
+	fmt.Printf("encap-3: leaf public keyy %v\n", hex.EncodeToString(t.nodes[leafNode].node.PublicKey.Data))
+
 	return dp, pathSecret
 }
 
@@ -402,7 +430,9 @@ func (t *RatchetTree) nodeStep(pathSecret []byte) []byte{
 }
 
 func (t *RatchetTree) pathStep(pathSecret []byte) []byte{
-	return t.cs.hkdfExpandLabel(pathSecret, "path", []byte{}, t.cs.constants().SecretSize)
+	ps := t.cs.hkdfExpandLabel(pathSecret, "path", []byte{}, t.cs.constants().SecretSize)
+	fmt.Printf("ps: %v\n", hex.EncodeToString(ps))
+	return ps
 }
 
 func (t *RatchetTree) newNode(pathSecret []byte) *RatchetTreeNode {
