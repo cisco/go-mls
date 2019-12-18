@@ -2,6 +2,7 @@ package mls
 
 import (
 	"crypto/rand"
+	"fmt"
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
@@ -44,6 +45,10 @@ func (t *testRatchetTree) checkCredentials() bool {
 }
 
 func (t *testRatchetTree) checkInvariant(from leafIndex) bool {
+	// run the checks for just the member nodes
+	if from&1 == 0 {
+		return true
+	}
 	inDirPath := map[int]bool{}
 	// everyone on the direct path has access to the private key
 	dp := dirpath(nodeIndex(from), t.Tree.size())
@@ -51,6 +56,7 @@ func (t *testRatchetTree) checkInvariant(from leafIndex) bool {
 	for _, nidx := range dp {
 		inDirPath[int(nidx)] = true
 		if t.Tree.Nodes[nidx].Node != nil && !t.Tree.Nodes[nidx].hasPrivate() {
+			fmt.Printf("checkInvariant: dirPath missing privateKey: %v\n", nidx)
 			return false
 		}
 	}
@@ -60,6 +66,7 @@ func (t *testRatchetTree) checkInvariant(from leafIndex) bool {
 			continue
 		}
 		if t.Tree.Nodes[i].hasPrivate() {
+			fmt.Printf("checkInvariant: non dirPath node has the privateKey: %v\n", i)
 			return false
 		}
 	}
@@ -287,11 +294,11 @@ func TestRatchetTreeBySerialization(t *testing.T) {
 }
 
 func TestRatchetTreeEncryptDecrypt(t *testing.T) {
-	size := 5
+	const size = 5
 	cs := supportedSuites[0]
 	scheme := Ed25519
 
-	trees := [5]testRatchetTree{
+	trees := [size]testRatchetTree{
 		{Tree: newRatchetTree(cs)},
 		{Tree: newRatchetTree(cs)},
 		{Tree: newRatchetTree(cs)},
@@ -321,8 +328,20 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 	}
 
 	for i := 0; i < size; i++ {
-		//assertDeepEquals(t, *trees[i].Tree, trees[0].Tree)
+		assertTrue(t, trees[i].Tree.Equals(trees[0].Tree), "tree match failed")
 		assertEquals(t, int(trees[i].Tree.size()), size)
 		assertTrue(t, trees[i].checkCredentials(), "credential check failed")
+		assertTrue(t, trees[i].checkInvariant(leafIndex(i*2)), "check invariant failed")
+	}
+
+	// verify encrypt/decrypt
+	secret, _ := getRandomBytes(32)
+	dp, rootSecret := trees[0].Tree.Encap(0, []byte{}, secret)
+	for j := 0; j < size; j++ {
+		if j == 0 {
+			continue
+		}
+		decryptedSecret := trees[j].Tree.Decap(leafIndex(0), []byte{}, dp)
+		assertByteEquals(t, rootSecret, decryptedSecret)
 	}
 }

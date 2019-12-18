@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
 )
@@ -194,38 +195,38 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	return dp, pathSecret
 }
 
-func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) []byte {
+func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []byte {
 	cp := copath(toNodeIndex(from), t.size())
 	if len(path.Nodes) != len(cp)+1 {
-		panic(fmt.Errorf("mls.rtn:Decap Malforemd Directpath"))
+		panic(fmt.Errorf("mls.rtn:Decap Malformed Directpath"))
 	}
 
 	dp := dirpath(toNodeIndex(from), t.size())
-	dp = append(dp, t.rootIndex())
 
 	// leaf
 	if len(path.Nodes[0].EncryptedPathSecret) != 0 {
 		panic(fmt.Errorf("mls.rtn:Decap Malformed leaf node"))
 	}
-
 	t.Nodes[from].merge(&RatchetTreeNode{PublicKey: &path.Nodes[0].PublicKey})
 
+	// handle rest of the path now
 	var pathSecret []byte
 	var err error
 	haveSecret := false
 	for i := 0; i < len(cp); i++ {
 		curr := cp[i]
+		parent := parent(curr, t.size())
 		pathNode := path.Nodes[i+1]
 		if !haveSecret {
-			res := t.resolve(curr)
-			if len(pathNode.EncryptedPathSecret) != len(res) {
-				panic(fmt.Errorf("mls.rtn: Malformed Ratchet Node"))
-			}
-			for _, v := range res {
+			res := t.resolve(parent)
+			//if len(pathNode.EncryptedPathSecret) != len(res) {
+			//	panic(fmt.Errorf("mls.rtn: Malformed Ratchet Node"))
+			//}
+			for idx, v := range res {
 				if !t.Nodes[v].hasPrivate() {
 					continue
 				}
-				encryptedSecret := pathNode.EncryptedPathSecret[v]
+				encryptedSecret := pathNode.EncryptedPathSecret[idx]
 				priv := t.Nodes[v].Node.PrivateKey
 				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, []byte{}, encryptedSecret)
 				if err != nil {
@@ -348,7 +349,22 @@ func (t *RatchetTree) RootHash() []byte {
 	return t.Nodes[r].Hash
 }
 
-func (t *RatchetTree) leftMostFree() leafIndex {
+func (t *RatchetTree) Equals(o *RatchetTree) bool {
+	if t.size() != o.size() {
+		return false
+	}
+
+	for i := 0; i < int(t.size()); i++ {
+		// hash should match
+		if !bytes.Equal(t.Nodes[i].Hash, o.Nodes[i].Hash) {
+			return false
+		}
+
+	}
+	return true
+}
+
+func (t *RatchetTree) LeftMostFree() leafIndex {
 	curr := leafIndex(0)
 	for {
 		if t.occupied(curr) && curr < leafIndex(t.size()) {
@@ -373,11 +389,13 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 		}
 	}
 	// 0 is a bad idea , use some Max value here ?
-	// ask rlb
+	// calling code must check for bool before using the index,
+	// so it might be ok
+	// ask richard...
 	return 0, false
 }
 
-//// Ratchet Tree helpers
+//// Ratchet Tree helpers functions
 
 // number of leaves in the ratchet tree
 func (t *RatchetTree) size() leafCount {
