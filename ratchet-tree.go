@@ -31,8 +31,8 @@ type LeafNodeHashInput struct {
 
 //// ratchet tree node and helpers
 type OptionalRatchetNode struct {
-	Node *RatchetTreeNode
-	Hash []byte `tls:"head=2"`
+	Node *RatchetTreeNode `tls:"optional"`
+	hash []byte           `tls:"omit"`
 }
 
 func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
@@ -53,7 +53,7 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: Marshal error %v", err))
 	}
-	n.Hash = cs.digest(h)
+	n.hash = cs.digest(h)
 
 }
 
@@ -65,18 +65,18 @@ func (n *OptionalRatchetNode) merge(o *RatchetTreeNode) {
 	}
 }
 
-func (n *OptionalRatchetNode) setHash(cs CipherSuite, l OptionalRatchetNode, r OptionalRatchetNode) {
+func (n *OptionalRatchetNode) setHash(cs CipherSuite, l, r OptionalRatchetNode) {
 	phi := ParentNodeHashInput{HashType: 1}
 	if n.Node != nil {
 		phi.Info = &ParentNodeInfo{PublicKey: n.Node.PublicKey, UnmergedLeaves: n.Node.UnmergedLeaves}
 	}
-	phi.LeftHash = l.Hash
-	phi.RightHash = r.Hash
+	phi.LeftHash = l.hash
+	phi.RightHash = r.hash
 	data, err := syntax.Marshal(phi)
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: set hash error %v", err))
 	}
-	n.Hash = cs.digest(data)
+	n.hash = cs.digest(data)
 }
 
 func (n *OptionalRatchetNode) hasPrivate() bool {
@@ -158,7 +158,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	n := t.newNode(leafSecret)
 	if t.Nodes[leafNode].Node != nil {
 		t.Nodes[leafNode].Node.Merge(n)
-		dp.addNode(RatchetNode{*t.Nodes[leafNode].Node.PublicKey, []HPKECiphertext{}})
+		dp.addNode(DirectPathNode{*t.Nodes[leafNode].Node.PublicKey, []HPKECiphertext{}})
 	} else {
 		// replace blank node
 		t.Nodes[leafNode].Node = n
@@ -175,7 +175,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		n = t.newNode(pathSecret)
 		t.Nodes[parent].Node = n
 		//update nodes on the direct path to share it with others
-		pathNode := RatchetNode{PublicKey: *t.Nodes[parent].Node.PublicKey}
+		pathNode := DirectPathNode{PublicKey: *t.Nodes[parent].Node.PublicKey}
 
 		// encrypt the secret to resolution maintained
 		for _, rnode := range t.resolve(v) {
@@ -184,7 +184,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 			if err != nil {
 				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
 			}
-			pathNode.EncryptedPathSecret = append(pathNode.EncryptedPathSecret, ct)
+			pathNode.EncryptedPathSecrets = append(pathNode.EncryptedPathSecrets, ct)
 		}
 
 		dp.Nodes = append(dp.Nodes, pathNode)
@@ -204,7 +204,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []
 	dp := dirpath(toNodeIndex(from), t.size())
 
 	// leaf
-	if len(path.Nodes[0].EncryptedPathSecret) != 0 {
+	if len(path.Nodes[0].EncryptedPathSecrets) != 0 {
 		panic(fmt.Errorf("mls.rtn:Decap Malformed leaf node"))
 	}
 	t.Nodes[from].merge(&RatchetTreeNode{PublicKey: &path.Nodes[0].PublicKey})
@@ -226,7 +226,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []
 				if !t.Nodes[v].hasPrivate() {
 					continue
 				}
-				encryptedSecret := pathNode.EncryptedPathSecret[idx]
+				encryptedSecret := pathNode.EncryptedPathSecrets[idx]
 				priv := t.Nodes[v].Node.PrivateKey
 				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, []byte{}, encryptedSecret)
 				if err != nil {
@@ -346,7 +346,7 @@ func (t *RatchetTree) GetCredential(index leafIndex) *Credential {
 
 func (t *RatchetTree) RootHash() []byte {
 	r := root(t.size())
-	return t.Nodes[r].Hash
+	return t.Nodes[r].hash
 }
 
 func (t *RatchetTree) Equals(o *RatchetTree) bool {
@@ -355,8 +355,17 @@ func (t *RatchetTree) Equals(o *RatchetTree) bool {
 	}
 
 	for i := 0; i < int(t.size()); i++ {
-		// hash should match
-		if !bytes.Equal(t.Nodes[i].Hash, o.Nodes[i].Hash) {
+
+		if t.Nodes[i].Node != nil && o.Nodes[i].Node == nil {
+			return false
+		}
+
+		tEnc, _ := syntax.Marshal(t.Nodes[i].Node)
+
+		oEnc, _ := syntax.Marshal(o.Nodes[i].Node)
+
+		if !bytes.Equal(tEnc, oEnc) {
+			fmt.Printf("%v mismtach %v != %v", i, t.Nodes[i].Node, o.Nodes[i].Node)
 			return false
 		}
 

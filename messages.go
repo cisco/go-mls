@@ -134,16 +134,16 @@ type ProposalID struct {
 	Hash   []byte `tls:"head=1"`
 }
 
-type RatchetNode struct {
-	PublicKey           HPKEPublicKey
-	EncryptedPathSecret []HPKECiphertext `tls:"head=2"`
+type DirectPathNode struct {
+	PublicKey            HPKEPublicKey
+	EncryptedPathSecrets []HPKECiphertext `tls:"head=2"`
 }
 
 type DirectPath struct {
-	Nodes []RatchetNode `tls:"head=2"`
+	Nodes []DirectPathNode `tls:"head=2"`
 }
 
-func (p *DirectPath) addNode(n RatchetNode) {
+func (p *DirectPath) addNode(n DirectPathNode) {
 	p.Nodes = append(p.Nodes, n)
 }
 

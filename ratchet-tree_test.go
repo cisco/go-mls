@@ -126,68 +126,6 @@ var (
 
 /////// TESTS
 
-func TestMarshalHashInputForLeafAndParentNodes(t *testing.T) {
-	nilInfo := LeafNodeHashInput{
-		HashType: 0,
-		Info:     nil,
-	}
-
-	_, err := syntax.Marshal(nilInfo)
-	if err != nil {
-		t.Fatalf("LeafNodeHashInput: Marshal error with blank info: %v", err)
-	}
-
-	priv, err := supportedSuites[0].hpke().Derive(secretA)
-	nonNilInfo := LeafNodeHashInput{
-		HashType: 0,
-		Info: &LeafNodeInfo{
-			Credential: credA,
-			PublicKey:  priv.PublicKey,
-		},
-	}
-
-	_, err = syntax.Marshal(nonNilInfo)
-	if err != nil {
-		t.Fatalf("LeafNodeHashInput: Marshal error: %v", err)
-	}
-}
-
-func TestMarshalRatchetTreeMembers(t *testing.T) {
-	priv, _ := supportedSuites[0].hpke().Derive(secretA)
-	rtn := RatchetTreeNode{
-		Cred:           nil,
-		PublicKey:      &priv.PublicKey,
-		PrivateKey:     &priv,
-		UnmergedLeaves: []leafIndex{leafIndex(1)},
-		CipherSuite:    supportedSuites[0],
-	}
-
-	_, err := syntax.Marshal(rtn)
-	if err != nil {
-		t.Fatalf("RatchetTreeNode Marshal error: %v", err)
-	}
-
-	ortn := OptionalRatchetNode{
-		Node: &rtn,
-		Hash: []byte{0x01, 0x02, 0x03, 0x04},
-	}
-
-	_, err = syntax.Marshal(ortn)
-	if err != nil {
-		t.Fatalf("OptionalRatchetTreeNode Marshal error: %v", err)
-	}
-
-	rt := RatchetTree{
-		Nodes:       []OptionalRatchetNode{ortn},
-		CipherSuite: supportedSuites[0],
-		NumLeaves:   1,
-	}
-	_, err = syntax.Marshal(rt)
-	if err != nil {
-		t.Fatalf("RatchetTree Marshal error: %v", err)
-	}
-}
-
 func TestRatchetTreeOneMember(t *testing.T) {
 	ms := memberSecret{
 		secret: secretA,
@@ -290,7 +228,7 @@ func TestRatchetTreeBySerialization(t *testing.T) {
 		t.Fatalf("Tree marshall error %v", err)
 	}
 	_, err = syntax.Unmarshal(enc, after)
-	assertDeepEquals(t, before.Tree, after)
+	assertTrue(t, before.Tree.Equals(after), "Tree mismatch")
 }
 
 func TestRatchetTreeEncryptDecrypt(t *testing.T) {
@@ -328,7 +266,6 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 	}
 
 	for i := 0; i < size; i++ {
-		assertTrue(t, trees[i].Tree.Equals(trees[0].Tree), "tree match failed")
 		assertEquals(t, int(trees[i].Tree.size()), size)
 		assertTrue(t, trees[i].checkCredentials(), "credential check failed")
 		assertTrue(t, trees[i].checkInvariant(leafIndex(i*2)), "check invariant failed")
