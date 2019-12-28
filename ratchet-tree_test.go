@@ -7,33 +7,25 @@ import (
 	"testing"
 )
 
-type testRatchetTree struct {
-	RatchetTree
-}
-
-type memberSecret struct {
-	secret []byte
-}
-
-func newTestRatchetTree(t *testing.T, cs CipherSuite, secrets []memberSecret, creds []Credential) *testRatchetTree {
-	ttree := testRatchetTree{*newRatchetTree(cs)}
+func newTestRatchetTree(t *testing.T, cs CipherSuite, secrets [][]byte, creds []Credential) *RatchetTree {
+	tree := newRatchetTree(cs)
 	if len(secrets) != len(creds) {
-		t.Error("secrets and creds size mismatch ")
+		t.Error("secrets and creds size mismatch")
 	}
 	for i := 0; i < len(secrets); i++ {
 		ix := leafIndex(i)
-		priv, err := cs.hpke().Derive(secrets[i].secret)
+		priv, err := cs.hpke().Derive(secrets[i])
 		if err != nil {
 			t.Errorf("private keyy gen failed %v", err)
 		}
-		ttree.AddLeaf(ix, &priv.PublicKey, &creds[i])
-		ttree.Merge(ix, priv)
-		ttree.Encap(ix, []byte{}, secrets[i].secret)
+		tree.AddLeaf(ix, &priv.PublicKey, &creds[i])
+		tree.Merge(ix, priv)
+		tree.Encap(ix, []byte{}, secrets[i])
 	}
-	return &ttree
+	return tree
 }
 
-func (t *testRatchetTree) checkCredentials() bool {
+func (t *RatchetTree) checkCredentials() bool {
 	for i := 0; i < int(t.size()); i++ {
 		node := t.Nodes[toNodeIndex(leafIndex(i))]
 		if node.Node != nil && node.Node.Cred == nil {
@@ -43,7 +35,7 @@ func (t *testRatchetTree) checkCredentials() bool {
 	return true
 }
 
-func (t *testRatchetTree) checkInvariant(from leafIndex) bool {
+func (t *RatchetTree) checkInvariant(from leafIndex) bool {
 	// run the checks for just the member nodes
 	if from&1 == 0 {
 		return true
@@ -114,35 +106,20 @@ var (
 	hashABC  = unhex("3f914f333f929c5fe93d33cdf1273b9b23569d16dd21b37b57e4f6f852571d76")
 	hashABCD = unhex("67035df4b00b923caa2a2d566a825d7af436afc5d21ff3a9ea97bfde448bcc13")
 
-	msA = memberSecret{secret: secretA}
-	msB = memberSecret{secretB}
-	msC = memberSecret{secret: secretC}
-	msD = memberSecret{secretD}
-
-	allSecrets = []memberSecret{msA, msB, msC, msD}
+	allSecrets = [][]byte{secretA, secretB, secretC, secretD}
 	allCreds   = []Credential{credA, credB, credC, credD}
 )
 
 /////// TESTS
 
 func TestRatchetTreeOneMember(t *testing.T) {
-	ms := memberSecret{
-		secret: secretA,
-	}
-	tree := newTestRatchetTree(t, supportedSuites[0], []memberSecret{ms}, []Credential{credA})
+	tree := newTestRatchetTree(t, supportedSuites[0], [][]byte{secretA}, []Credential{credA})
 	assertTrue(t, tree.size() == 1, "size mismatch")
 	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
 }
 
 func TestRatchetTreeMultipleMembers(t *testing.T) {
-	secrets := []memberSecret{
-		{secret: secretA},
-		{secret: secretB},
-		{secret: secretC},
-		{secret: secretD},
-	}
-
-	tree := newTestRatchetTree(t, supportedSuites[0], secrets, []Credential{credA, credB, credC, credD})
+	tree := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
 	assertTrue(t, tree.size() == 4, "size mismatch")
 	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
 	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
@@ -177,9 +154,7 @@ func TestRatchetTreeByExtension(t *testing.T) {
 	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
 
 	// direct check
-	secrets := []memberSecret{msA, msB}
-	creds := []Credential{credA, credB}
-	directAB := newTestRatchetTree(t, supportedSuites[0], secrets, creds)
+	directAB := newTestRatchetTree(t, supportedSuites[0], allSecrets[:2], allCreds[:2])
 	assertTrue(t, directAB.Equals(tree), "TreeAB mismatch")
 
 	// Add C
@@ -194,9 +169,7 @@ func TestRatchetTreeByExtension(t *testing.T) {
 	assertByteEquals(t, tree.RootHash(), hashABC)
 
 	// direct check
-	secrets = []memberSecret{msA, msB, msC}
-	creds = []Credential{credA, credB, credC}
-	directABC := newTestRatchetTree(t, supportedSuites[0], secrets, creds)
+	directABC := newTestRatchetTree(t, supportedSuites[0], allSecrets[:3], allCreds[:3])
 	assertTrue(t, directABC.Equals(tree), "TreeABC mismatch")
 
 	// Add D
@@ -236,11 +209,9 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 
 	// TODO use make()
 	// TODO elminate the testRatchetTree type
-	trees := []*testRatchetTree{
-		{*newRatchetTree(cs)},
-		{*newRatchetTree(cs)},
-		{*newRatchetTree(cs)},
-		{*newRatchetTree(cs)},
+	trees := make([]*RatchetTree, size)
+	for i := range trees {
+		trees[i] = newRatchetTree(cs)
 	}
 
 	for i := 0; i < size; i++ {
@@ -266,7 +237,7 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 
 	// Verify that all trees are equal and the invariants are satisfied
 	for i, tree := range trees {
-		assertTrue(t, tree.Equals(&trees[0].RatchetTree), fmt.Sprintf("Tree %d differs", i))
+		assertTrue(t, tree.Equals(trees[0]), fmt.Sprintf("Tree %d differs", i))
 		assertEquals(t, int(tree.size()), size)
 		assertTrue(t, tree.checkCredentials(), "credential check failed")
 		assertTrue(t, tree.checkInvariant(leafIndex(i*2)), "check invariant failed")
@@ -282,7 +253,7 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 			}
 			decryptedSecret := dstTree.Decap(leafIndex(i), []byte{}, path)
 			assertByteEquals(t, rootSecret, decryptedSecret)
-			assertTrue(t, srcTree.Equals(&dstTree.RatchetTree), "Failed update on decap()")
+			assertTrue(t, srcTree.Equals(dstTree), "Failed update on decap()")
 		}
 	}
 }
