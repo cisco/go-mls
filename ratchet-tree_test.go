@@ -3,9 +3,8 @@ package mls
 import (
 	"crypto/rand"
 	"fmt"
-	"testing"
-
 	"github.com/bifurcation/mint/syntax"
+	"testing"
 )
 
 type testRatchetTree struct {
@@ -231,13 +230,13 @@ func TestRatchetTreeBySerialization(t *testing.T) {
 	assertTrue(t, before.Tree.Equals(after), "Tree mismatch")
 }
 
+
 func TestRatchetTreeEncryptDecrypt(t *testing.T) {
-	const size = 5
+	const size = 4
 	cs := supportedSuites[0]
 	scheme := Ed25519
 
 	trees := [size]testRatchetTree{
-		{Tree: newRatchetTree(cs)},
 		{Tree: newRatchetTree(cs)},
 		{Tree: newRatchetTree(cs)},
 		{Tree: newRatchetTree(cs)},
@@ -272,13 +271,16 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 	}
 
 	// verify encrypt/decrypt
-	secret, _ := getRandomBytes(32)
-	dp, rootSecret := trees[0].Tree.Encap(0, []byte{}, secret)
-	for j := 0; j < size; j++ {
-		if j == 0 {
-			continue
+	for i := 0; i < size; i++ {
+		secret, _ := getRandomBytes(32)
+		dp, rootSecret := trees[i].Tree.Encap(leafIndex(i), []byte{}, secret)
+		for j := 0; j < size; j++ {
+			if i == j {
+				continue
+			}
+			decryptedSecret := trees[j].Tree.Decap(leafIndex(i), []byte{}, dp)
+			assertByteEquals(t, rootSecret, decryptedSecret)
 		}
-		decryptedSecret := trees[j].Tree.Decap(leafIndex(0), []byte{}, dp)
-		assertByteEquals(t, rootSecret, decryptedSecret)
 	}
+
 }
