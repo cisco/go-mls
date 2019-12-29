@@ -122,19 +122,17 @@ var (
 
 	priv, _          = supportedSuites[0].hpke().Derive(secretA)
 	rtnNilCredential = &RatchetTreeNode{
-		Cred:           nil,
+		Credential:     nil,
 		PublicKey:      &priv.PublicKey,
 		PrivateKey:     &priv,
 		UnmergedLeaves: []leafIndex{leafIndex(1)},
-		CipherSuite:    supportedSuites[0],
 	}
 
 	rtnWithCredential = &RatchetTreeNode{
-		Cred:           &credentialBasic,
+		Credential:     &credentialBasic,
 		PublicKey:      &priv.PublicKey,
 		PrivateKey:     &priv,
 		UnmergedLeaves: []leafIndex{leafIndex(1)},
-		CipherSuite:    supportedSuites[0],
 	}
 
 	ortnRtnNilCred = &OptionalRatchetNode{

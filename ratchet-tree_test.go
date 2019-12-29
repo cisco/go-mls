@@ -19,7 +19,7 @@ func newTestRatchetTree(t *testing.T, cs CipherSuite, secrets [][]byte, creds []
 			t.Errorf("private keyy gen failed %v", err)
 		}
 		tree.AddLeaf(ix, &priv.PublicKey, &creds[i])
-		tree.Merge(ix, priv)
+		tree.Merge(ix, secrets[i])
 		tree.Encap(ix, []byte{}, secrets[i])
 	}
 	return tree
@@ -28,7 +28,7 @@ func newTestRatchetTree(t *testing.T, cs CipherSuite, secrets [][]byte, creds []
 func (t *RatchetTree) checkCredentials() bool {
 	for i := 0; i < int(t.size()); i++ {
 		node := t.Nodes[toNodeIndex(leafIndex(i))]
-		if node.Node != nil && node.Node.Cred == nil {
+		if node.Node != nil && node.Node.Credential == nil {
 			return false
 		}
 	}
