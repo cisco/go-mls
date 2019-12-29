@@ -109,17 +109,18 @@ func (n *OptionalRatchetNode) ensureInit() {
 
 // Compare node values, not hashes
 func (n OptionalRatchetNode) Equals(o OptionalRatchetNode) bool {
-	lhsBlank := n.Node == nil
-	rhsBlank := o.Node == nil
-	if lhsBlank != rhsBlank {
+	switch {
+	case n.blank() != o.blank():
 		return false
+
+	case n.blank():
+		return true
+
+	case !n.blank():
+		return n.Node.Equals(*o.Node)
 	}
 
-	if !lhsBlank && !n.Node.Equals(*o.Node) {
-		return false
-	}
-
-	return true
+	return false
 }
 
 func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
