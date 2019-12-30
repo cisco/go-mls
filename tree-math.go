@@ -1,7 +1,5 @@
 package mls
 
-import "fmt"
-
 // The below functions provide the index calculus for the tree structures used in MLS.
 // They are premised on a "flat" representation of a balanced binary tree.  Leaf nodes
 // are even-numbered nodes, with the n-th leaf at 2*n.  Intermediate nodes are held in
@@ -59,7 +57,12 @@ func level(x nodeIndex) uint {
 
 // Number of nodes for a tree of size N
 func nodeWidth(n leafCount) nodeCount {
-	return nodeCount(2*(n-1) + 1)
+	return nodeCount(2*n - 1)
+}
+
+// Number of leaves for a tree with N nodes
+func leafWidth(n nodeCount) leafCount {
+	return leafCount((n + 1) >> 1)
 }
 
 // Index of the root of the tree with N leaves
@@ -159,15 +162,4 @@ func copath(x nodeIndex, n leafCount) []nodeIndex {
 	}
 
 	return c
-}
-
-func numLeaves(c nodeCount) leafCount {
-	if c == 0 {
-		return 0
-	}
-
-	if c&1 == 0 {
-		panic(fmt.Errorf("only odd node counts describe trees"))
-	}
-	return leafCount((c >> 1) + 1)
 }

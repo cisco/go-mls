@@ -124,14 +124,12 @@ var (
 	rtnNilCredential = &RatchetTreeNode{
 		Credential:     nil,
 		PublicKey:      &priv.PublicKey,
-		PrivateKey:     &priv,
 		UnmergedLeaves: []leafIndex{leafIndex(1)},
 	}
 
 	rtnWithCredential = &RatchetTreeNode{
 		Credential:     &credentialBasic,
 		PublicKey:      &priv.PublicKey,
-		PrivateKey:     &priv,
 		UnmergedLeaves: []leafIndex{leafIndex(1)},
 	}
 
@@ -143,7 +141,6 @@ var (
 	rachetTree = &RatchetTree{
 		Nodes:       []OptionalRatchetNode{*ortnRtnNilCred},
 		CipherSuite: supportedSuites[0],
-		NumLeaves:   1,
 	}
 
 	leafNodeWithNilInfo = &LeafNodeHashInput{
