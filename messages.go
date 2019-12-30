@@ -130,8 +130,11 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 /// Commit
 ///
 type ProposalID struct {
-	Sender uint32
-	Hash   []byte `tls:"head=1"`
+	Hash []byte `tls:"head=1"`
+}
+
+func (pid ProposalID) String() string {
+	return fmt.Sprintf("%x", pid.Hash)
 }
 
 type DirectPathNode struct {
@@ -148,11 +151,11 @@ func (p *DirectPath) addNode(n DirectPathNode) {
 }
 
 type Commit struct {
-	Updates []ProposalID
-	Removes ProposalID
-	Adds    ProposalID
-	Ignored ProposalID
-	Path    *DirectPath
+	Updates []ProposalID `tls:"head=2"`
+	Removes []ProposalID `tls:"head=2"`
+	Adds    []ProposalID `tls:"head=2"`
+	Ignored []ProposalID `tls:"head=2"`
+	Path    DirectPath
 }
 
 ///
@@ -252,7 +255,7 @@ func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
 	return s.Position(), nil
 }
 
-type MLSPlainText struct {
+type MLSPlaintext struct {
 	GroupID           []byte `tls:"head=1"`
 	Epoch             Epoch
 	Sender            uint32
@@ -261,11 +264,11 @@ type MLSPlainText struct {
 	Signature         []byte `tls:"head=2"`
 }
 
-type MLSCipherText struct {
+type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
 	ContentType         uint8
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
-	CipherText          []byte `tls:"head=4"`
+	Ciphertext          []byte `tls:"head=4"`
 }
