@@ -78,27 +78,20 @@ var (
 
 	nodes = []DirectPathNode{
 		{
-			PublicKey: nodePublicKey,
+			PublicKey:            nodePublicKey,
+			EncryptedPathSecrets: []HPKECiphertext{},
 		},
 	}
 
-	commits = &Commit{
-		Updates: []ProposalID{
-			{
-				Sender: 4,
-				Hash:   []byte{0x01, 0x03},
-			},
-		},
-		Adds: ProposalID{
-			Sender: 8,
-			Hash:   []byte{0x07, 0x09},
-		},
-		Path: &DirectPath{
-			Nodes: nodes,
-		},
+	commit = &Commit{
+		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
+		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
+		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
+		Ignored: []ProposalID{{Hash: []byte{0x06, 0x07}}},
+		Path:    DirectPath{Nodes: nodes},
 	}
 
-	mlsPlainTextIn = &MLSPlainText{
+	mlsPlaintextIn = &MLSPlaintext{
 		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
 		Sender:            4,
@@ -111,13 +104,13 @@ var (
 		Signature: []byte{0x00, 0x01, 0x02, 0x03},
 	}
 
-	mlsCiphertextIn = &MLSCipherText{
+	mlsCiphertextIn = &MLSCiphertext{
 		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
 		ContentType:         1,
 		SenderDataNonce:     []byte{0x01, 0x02},
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
-		CipherText:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
+		Ciphertext:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
 
 	priv, _          = supportedSuites[0].hpke().Derive(secretA)
@@ -173,8 +166,9 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("AddProposal", roundTrip(addProposal, new(Proposal)))
 	t.Run("RemoveProposal", roundTrip(removeProposal, new(Proposal)))
 	t.Run("UpdateProposal", roundTrip(updateProposal, new(Proposal)))
-	t.Run("MLSPlainTextContentApplication", roundTrip(mlsPlainTextIn, new(MLSPlainText)))
-	t.Run("MLSCipherText", roundTrip(mlsCiphertextIn, new(MLSCipherText)))
+	t.Run("Commit", roundTrip(commit, new(Commit)))
+	t.Run("MLSPlaintextContentApplication", roundTrip(mlsPlaintextIn, new(MLSPlaintext)))
+	t.Run("MLSCiphertext", roundTrip(mlsCiphertextIn, new(MLSCiphertext)))
 	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
 	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
 	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
