@@ -17,9 +17,10 @@ const (
 //     SignaturePublicKey public_key;
 // } BasicCredential;
 type BasicCredential struct {
-	Identity           []byte `tls:"head=2"`
-	SignatureScheme    SignatureScheme
-	SignaturePublicKey SignaturePublicKey
+	Identity            []byte `tls:"head=2"`
+	SignatureScheme     SignatureScheme
+	SignaturePublicKey  SignaturePublicKey
+	signaturePrivateKey SignaturePrivateKey `tls:"omit"`
 }
 
 type X509Credential struct {
@@ -48,6 +49,33 @@ func (c Credential) Type() CredentialType {
 		return CredentialTypeX509
 	default:
 		panic("Malformed credential")
+	}
+}
+
+func (c Credential) PublicKey() SignaturePublicKey {
+	switch {
+	case c.Basic != nil:
+		return c.Basic.SignaturePublicKey
+	default:
+		panic("mls.credential: Can't retrieve PublicKey")
+	}
+}
+
+func (c Credential) PrivateKey() SignaturePrivateKey {
+	switch {
+	case c.Basic != nil:
+		return c.Basic.signaturePrivateKey
+	default:
+		panic("mls.credential: Can't retrieve PrivateKey")
+	}
+}
+
+func (c Credential) Scheme() SignatureScheme {
+	switch {
+	case c.Basic != nil:
+		return c.Basic.SignatureScheme
+	default:
+		panic("mls.credential: Can't retrieve SignatureScheme")
 	}
 }
 

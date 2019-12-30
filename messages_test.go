@@ -6,12 +6,12 @@ import (
 )
 
 var (
-	sigPublicKey = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
-
+	sigPublicKey    = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 	basicCredential = &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    0x0403,
-		SignaturePublicKey: sigPublicKey,
+		Identity:            []byte{0x01, 0x02, 0x03, 0x04},
+		SignatureScheme:     0x0403,
+		SignaturePublicKey:  sigPublicKey,
+		signaturePrivateKey: SignaturePrivateKey{[]byte{0xAA, 0xBB}, sigPublicKey},
 	}
 
 	credentialBasic = Credential{
@@ -41,14 +41,12 @@ var (
 
 	extListValidIn = ExtensionList{[]Extension{extValidIn, extEmptyIn}}
 
-	initKey = HPKEPublicKey{
-		Data: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
-	}
+	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
 	clientInitKey = &ClientInitKey{
 		SupportedVersion: 0xFF,
 		CipherSuite:      0x0001,
-		InitKey:          initKey,
+		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
 		Extensions:       extListValidIn,
 		Signature:        []byte{0x00, 0x00, 0x00},

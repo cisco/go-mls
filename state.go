@@ -13,9 +13,6 @@ type GroupContext struct {
 // TODO: Define this for real, probably in key-schedule.go
 type KeyScheduleEpoch struct{}
 
-// TODO: Define this (#17)
-type Welcome struct{}
-
 ///
 /// State
 ///

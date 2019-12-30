@@ -1,7 +1,9 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/bifurcation/mint/syntax"
 )
 
 ///
@@ -271,4 +273,165 @@ type MLSCiphertext struct {
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	Ciphertext          []byte `tls:"head=4"`
+}
+
+///
+/// GroupInfo
+///
+
+type GroupInfo struct {
+	GroupId                      []byte `tls:"head=1"`
+	Epoch                        Epoch
+	Tree                         *RatchetTree
+	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
+
+	ConfirmedTranscriptHash []byte `tls:"head=1"`
+	InterimTranscriptHash   []byte `tls:"head=1"`
+	Path                    *DirectPath
+	Confirmation            []byte `tls:"head=1"`
+
+	SignerIndex uint32
+	Signature   []byte `tls:"head=2"`
+}
+
+func (gi GroupInfo) toBeSigned() []byte {
+	s := NewWriteStream()
+	err := s.Write(struct {
+		GroupId                 []byte `tls:"head=1"`
+		Epoch                   Epoch
+		Tree                    *RatchetTree
+		ConfirmedTranscriptHash []byte `tls:"head=1"`
+		InterimTranscriptHash   []byte `tls:"head=1"`
+		Path                    *DirectPath
+		Confirmation            []byte `tls:"head=1"`
+		SignerIndex             uint32
+	}{
+		GroupId:                 gi.GroupId,
+		Epoch:                   gi.Epoch,
+		Tree:                    gi.Tree,
+		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
+		InterimTranscriptHash:   gi.InterimTranscriptHash,
+		Path:                    gi.Path,
+		Confirmation:            gi.Confirmation,
+		SignerIndex:             gi.SignerIndex,
+	})
+
+	if err != nil {
+		panic(fmt.Errorf("mls.groupInfo: marshal err %v", err))
+	}
+
+	return s.Data()
+}
+
+func (gi GroupInfo) sign(index leafIndex, priv SignaturePrivateKey) {
+	// verify that priv corresponds to tree[index]
+	c := gi.Tree.GetCredential(index)
+	if !bytes.Equal(c.PublicKey().Data, priv.PublicKey.Data) {
+		panic(fmt.Errorf("mls.groupInfo: badkey for index"))
+	}
+	// sign toBeSigned() with priv -> SignerIndex, Signature
+	gi.SignerIndex = uint32(index)
+	gi.Signature = c.Scheme().Sign(priv, gi.toBeSigned())
+}
+
+func (gi GroupInfo) verify() bool {
+	// get pub from tree[SignerIndex] and verify (toBeSigned(), Signature) with pub
+	c := gi.Tree.GetCredential(leafIndex(gi.SignerIndex))
+	return c.Scheme().Verify(c.PublicKey(), gi.toBeSigned(), gi.Signature)
+}
+
+///
+/// KeyPackage
+///
+type KeyPackage struct {
+	InitSecret []byte `tls:"head=1"`
+}
+
+///
+/// EncryptedKeyPackage
+///
+type EncryptedKeyPackage struct {
+	ClientInitKeyHash []byte `tls:"head=1"`
+	EncryptedPackage  HPKECiphertext
+}
+
+///
+/// Welcome
+///
+
+type Welcome struct {
+	Version              uint8
+	CipherSuite          CipherSuite
+	EncryptedKeyPackages []EncryptedKeyPackage `tls:"head=4"`
+	EncryptedGroupInfo   []byte                `tls:"head=4"`
+	initSecret           []byte                `tls:"omit"`
+}
+
+func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
+	secretSize := suite.constants().SecretSize
+	keySize := suite.constants().KeySize
+	nonceSize := suite.constants().NonceSize
+
+	groupInfoSecret := suite.hkdfExpandLabel(initSecret, "group info", []byte{}, secretSize)
+	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
+	groupInfoNonce := suite.hkdfExpandLabel(groupInfoSecret, "nonce", []byte{}, nonceSize)
+
+	return keyAndNonce{
+		Key:   groupInfoKey,
+		Nonce: groupInfoNonce,
+	}
+}
+
+func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome {
+	pt, err := syntax.Marshal(groupInfo)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
+	}
+
+	// generate the keyy to encrypt groupInfo
+	kn := deriveGroupKeyAndNonce(cs, initSecret)
+	aead, err := cs.newAEAD(kn.Key)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: error creating AEAD: %v", err))
+	}
+	ct := aead.Seal(nil, kn.Nonce, pt, []byte{})
+
+	w := &Welcome{
+		Version:            0,
+		CipherSuite:        cs,
+		EncryptedGroupInfo: ct,
+		initSecret:         initSecret,
+	}
+	return w
+}
+
+func (w *Welcome) encrypt(cik ClientInitKey) {
+
+	data, err := syntax.Marshal(cik)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: CIK marshal failure %v", err))
+	}
+
+	cikHash := w.CipherSuite.digest(data)
+
+	kp := KeyPackage{
+		InitSecret: w.initSecret,
+	}
+
+	pt, err := syntax.Marshal(kp)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
+	}
+
+	// encrypt the group init secret to new members PublicKey
+	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))
+	}
+
+	ekp := EncryptedKeyPackage{
+		ClientInitKeyHash: cikHash,
+		EncryptedPackage:  ep,
+	}
+	w.EncryptedKeyPackages = append(w.EncryptedKeyPackages, ekp)
 }
