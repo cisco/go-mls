@@ -158,7 +158,7 @@ type Commit struct {
 ///
 /// MLSPlaintext and MLSCiphertext
 ///
-type Epoch uint32
+type Epoch uint64
 
 type ContentType uint8
 
