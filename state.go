@@ -13,6 +13,9 @@ type GroupContext struct {
 // TODO: Define this for real, probably in key-schedule.go
 type KeyScheduleEpoch struct{}
 
+// TODO: Define this (#17)
+type Welcome struct{}
+
 ///
 /// State
 ///
@@ -34,8 +37,11 @@ type State struct {
 	IdentityPriv SignaturePrivateKey
 
 	// Cache of proposals and update secrets
+	// XXX: The map key for UpdateSecrets should actually be ProposalID, but that
+	// struct can't be used as a map key because it's not comparable (because
+	// slices are not comparable).  Instead, we use ProposalID.String()
 	PendingProposals []MLSPlaintext
-	UpdateSecrets    map[ProposalID][]byte
+	UpdateSecrets    map[string][]byte
 }
 
 func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) (*State, error) {
@@ -95,5 +101,5 @@ func (s *State) protect(data []byte) *MLSCiphertext {
 
 func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
 	// TODO
-	return nil
+	return nil, nil
 }
