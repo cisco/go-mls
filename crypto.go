@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -188,6 +189,10 @@ type HPKEPublicKey struct {
 	Data []byte `tls:"head=2"`
 }
 
+func (k *HPKEPublicKey) equals(o *HPKEPublicKey) bool {
+	return bytes.Equal(k.Data, o.Data)
+}
+
 type HPKECiphertext struct {
 	KEMOutput  []byte `tls:"head=2"`
 	Ciphertext []byte `tls:"head=2"`
@@ -301,7 +306,7 @@ func (ss SignatureScheme) String() string {
 		return "Ed25519"
 	}
 
-	return "UknownSignatureScheme"
+	return "UnknownSignatureScheme"
 }
 
 func (ss SignatureScheme) Derive(preSeed []byte) (SignaturePrivateKey, error) {

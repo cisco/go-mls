@@ -57,7 +57,12 @@ func level(x nodeIndex) uint {
 
 // Number of nodes for a tree of size N
 func nodeWidth(n leafCount) nodeCount {
-	return nodeCount(2*(n-1) + 1)
+	return nodeCount(2*n - 1)
+}
+
+// Number of leaves for a tree with N nodes
+func leafWidth(n nodeCount) leafCount {
+	return leafCount((n + 1) >> 1)
 }
 
 // Index of the root of the tree with N leaves

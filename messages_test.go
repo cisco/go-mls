@@ -76,7 +76,7 @@ var (
 		Data: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
 
-	nodes = []RatchetTreeNode{
+	nodes = []DirectPathNode{
 		{
 			PublicKey: nodePublicKey,
 		},
@@ -119,6 +119,42 @@ var (
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 		CipherText:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
+
+	priv, _          = supportedSuites[0].hpke().Derive(secretA)
+	rtnNilCredential = &RatchetTreeNode{
+		Credential:     nil,
+		PublicKey:      &priv.PublicKey,
+		UnmergedLeaves: []leafIndex{leafIndex(1)},
+	}
+
+	rtnWithCredential = &RatchetTreeNode{
+		Credential:     &credentialBasic,
+		PublicKey:      &priv.PublicKey,
+		UnmergedLeaves: []leafIndex{leafIndex(1)},
+	}
+
+	ortnRtnNilCred = &OptionalRatchetNode{
+		Node: rtnNilCredential,
+		hash: nil,
+	}
+
+	rachetTree = &RatchetTree{
+		Nodes:       []OptionalRatchetNode{*ortnRtnNilCred},
+		CipherSuite: supportedSuites[0],
+	}
+
+	leafNodeWithNilInfo = &LeafNodeHashInput{
+		HashType: 0,
+		Info:     nil,
+	}
+
+	leafNodeWithInfo = &LeafNodeHashInput{
+		HashType: 0,
+		Info: &LeafNodeInfo{
+			Credential: credA,
+			PublicKey:  priv.PublicKey,
+		},
+	}
 )
 
 func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
@@ -139,4 +175,10 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("UpdateProposal", roundTrip(updateProposal, new(Proposal)))
 	t.Run("MLSPlainTextContentApplication", roundTrip(mlsPlainTextIn, new(MLSPlainText)))
 	t.Run("MLSCipherText", roundTrip(mlsCiphertextIn, new(MLSCipherText)))
+	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
+	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
+	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
+	t.Run("RatchetTree", roundTrip(rachetTree, new(RatchetTree)))
+	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
+	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
 }
