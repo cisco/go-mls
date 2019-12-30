@@ -68,10 +68,9 @@ func genCredential(identity []byte, secret []byte, scheme SignatureScheme) Crede
 	sigPriv, _ := scheme.Derive(secret)
 
 	basicCredential = &BasicCredential{
-		Identity:            identity,
-		SignatureScheme:     scheme,
-		SignaturePublicKey:  sigPriv.PublicKey,
-		signaturePrivateKey: sigPriv,
+		Identity:           identity,
+		SignatureScheme:    scheme,
+		SignaturePublicKey: sigPriv.PublicKey,
 	}
 
 	credentialBasic = Credential{Basic: basicCredential}

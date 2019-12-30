@@ -8,10 +8,9 @@ import (
 var (
 	sigPublicKey    = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 	basicCredential = &BasicCredential{
-		Identity:            []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:     0x0403,
-		SignaturePublicKey:  sigPublicKey,
-		signaturePrivateKey: SignaturePrivateKey{[]byte{0xAA, 0xBB}, sigPublicKey},
+		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
+		SignatureScheme:    0x0403,
+		SignaturePublicKey: sigPublicKey,
 	}
 
 	credentialBasic = Credential{
@@ -173,4 +172,49 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("RatchetTree", roundTrip(rachetTree, new(RatchetTree)))
 	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
 	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
+}
+
+func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
+	// a tree with 2 members
+	treeAB := newTestRatchetTree(t, supportedSuites[0], [][]byte{secretA, secretB}, []Credential{credA, credB})
+	assertTrue(t, treeAB.size() == 2, "size mismatch")
+	assertEquals(t, *treeAB.GetCredential(leafIndex(0)), credA)
+	assertEquals(t, *treeAB.GetCredential(leafIndex(1)), credB)
+
+	cs := supportedSuites[0]
+	secret, _ := getRandomBytes(32)
+	dp, _ := treeAB.Encap(leafIndex(0), []byte{}, secret)
+
+	// setup things needed to welcome c
+	initSecret := []byte("we welcome you c")
+	gi := GroupInfo{
+		GroupId:                      unhex("0007"),
+		Epoch:                        121,
+		Tree:                         treeAB,
+		PriorConfirmedTranscriptHash: []byte{0x00, 0x01, 0x02, 0x03},
+		ConfirmedTranscriptHash:      []byte{0x03, 0x04, 0x05, 0x06},
+		InterimTranscriptHash:        []byte{0x02, 0x03, 0x04, 0x05},
+		Path:                         dp,
+		SignerIndex:                  0,
+		Confirmation:                 []byte{0x00, 0x00, 0x00, 0x00},
+		Signature:                    []byte{0xAA, 0xBB, 0xCC},
+	}
+
+	w1 := newWelcome(cs, initSecret, gi)
+	w1.encrypt(*clientInitKey)
+	// doing this so that test can omit this field when matching w1, w2
+	w1.initSecret = nil
+	w2 := new(Welcome)
+	t.Run("WelcomeOneMember", roundTrip(w1, w2))
+
+	// decrypt the group init secret with C's privateKey and check if
+	// it matches.
+	ekp := w2.EncryptedKeyPackages[0]
+	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, ekp.EncryptedPackage)
+	assertNotError(t, err, "decryption error")
+
+	w2kp := new(KeyPackage)
+	_, err = syntax.Unmarshal(pt, w2kp)
+	assertNotError(t, err, "unmarshal failure for decrypted KeyPackage")
+	assertByteEquals(t, initSecret, w2kp.InitSecret)
 }
