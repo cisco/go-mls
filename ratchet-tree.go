@@ -7,9 +7,10 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-//// Tree Hashes
+///
+/// Tree hash inputs
 type ParentNodeInfo struct {
-	PublicKey      *HPKEPublicKey
+	PublicKey      HPKEPublicKey
 	UnmergedLeaves []leafIndex `tls:"head=4"`
 }
 
@@ -30,14 +31,14 @@ type LeafNodeHashInput struct {
 	Info     *LeafNodeInfo `tls:"optional"`
 }
 
-//// ratchet tree node and helpers
-
-//// RatchetTree Node
+///
+/// RatchetTreeNode
+///
 type RatchetTreeNode struct {
 	Credential     *Credential `tls:"optional"`
 	PublicKey      *HPKEPublicKey
-	PrivateKey     *HPKEPrivateKey
-	UnmergedLeaves []leafIndex `tls:"head=2"`
+	PrivateKey     *HPKEPrivateKey `tls:"omit"`
+	UnmergedLeaves []leafIndex     `tls:"head=2"`
 }
 
 // Compare the public aspects of two nodes
@@ -51,12 +52,8 @@ func (n RatchetTreeNode) Equals(o RatchetTreeNode) bool {
 		return false
 	}
 
-	if !reflect.DeepEqual(n.PublicKey, o.PublicKey) ||
-		!reflect.DeepEqual(n.UnmergedLeaves, o.UnmergedLeaves) {
-		return false
-	}
-
-	return true
+	return reflect.DeepEqual(n.PublicKey, o.PublicKey) &&
+		reflect.DeepEqual(n.UnmergedLeaves, o.UnmergedLeaves)
 }
 
 func (n *RatchetTreeNode) setPublic(pub *HPKEPublicKey) {
@@ -82,6 +79,9 @@ func (n *RatchetTreeNode) AddUnmerged(l leafIndex) {
 	n.UnmergedLeaves = append(n.UnmergedLeaves, l)
 }
 
+///
+/// OptionalRatchetTreeNode
+///
 type OptionalRatchetNode struct {
 	Node *RatchetTreeNode `tls:"optional"`
 	hash []byte           `tls:"omit"`
@@ -155,10 +155,13 @@ func (n *OptionalRatchetNode) mergePublic(key *HPKEPublicKey) {
 	n.Node.setPublic(key)
 }
 
-func (n *OptionalRatchetNode) setHash(cs CipherSuite, l, r OptionalRatchetNode) {
+func (n *OptionalRatchetNode) setParentHash(cs CipherSuite, l, r OptionalRatchetNode) {
 	phi := ParentNodeHashInput{HashType: 1}
 	if n.Node != nil {
-		phi.Info = &ParentNodeInfo{PublicKey: n.Node.PublicKey, UnmergedLeaves: n.Node.UnmergedLeaves}
+		phi.Info = &ParentNodeInfo{
+			PublicKey:      *n.Node.PublicKey,
+			UnmergedLeaves: n.Node.UnmergedLeaves,
+		}
 	}
 	phi.LeftHash = l.hash
 	phi.RightHash = r.hash
@@ -170,17 +173,15 @@ func (n *OptionalRatchetNode) setHash(cs CipherSuite, l, r OptionalRatchetNode) 
 }
 
 func (n *OptionalRatchetNode) hasPrivate() bool {
-	if n.Node != nil && n.Node.PrivateKey != nil {
-		return true
-	}
-	return false
+	return n.Node != nil && n.Node.PrivateKey != nil
 }
 
-//// Ratchet Tree
+///
+/// Ratchet Tree
+///
 type RatchetTree struct {
 	Nodes       []OptionalRatchetNode `tls:"head=2"`
 	CipherSuite CipherSuite
-	NumLeaves   leafCount
 }
 
 func newRatchetTree(cs CipherSuite) *RatchetTree {
@@ -191,7 +192,7 @@ func newRatchetTree(cs CipherSuite) *RatchetTree {
 }
 
 func (t RatchetTree) Dump(label string) {
-	fmt.Printf("===== tree(%s) [%d] [%04x] =====\n", label, t.NumLeaves, t.CipherSuite)
+	fmt.Printf("===== tree(%s) [%04x] =====\n", label, t.CipherSuite)
 	for i, n := range t.Nodes {
 		if n.blank() {
 			fmt.Printf("  %2d _\n", i)
@@ -203,8 +204,7 @@ func (t RatchetTree) Dump(label string) {
 
 func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *Credential) {
 	n := toNodeIndex(index)
-	sz := uint32(t.size())
-	if uint32(index) == sz {
+	if leafCount(index) == t.size() {
 		if len(t.Nodes) == 0 {
 			t.Nodes = append(t.Nodes, OptionalRatchetNode{})
 		} else {
@@ -220,10 +220,9 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 	}
 
 	t.Nodes[n] = newLeafNode(key, credential)
-	t.NumLeaves += 1
 
 	// update unmerged list
-	dp := dirpath(n, t.NumLeaves)
+	dp := dirpath(n, t.size())
 	for _, v := range dp {
 		if v == toNodeIndex(index) || t.Nodes[v].Node == nil {
 			continue
@@ -393,7 +392,7 @@ func (t *RatchetTree) RootHash() []byte {
 }
 
 func (t *RatchetTree) Equals(o *RatchetTree) bool {
-	if t.NumLeaves != o.NumLeaves {
+	if len(t.Nodes) != len(o.Nodes) {
 		return false
 	}
 
@@ -405,7 +404,7 @@ func (t *RatchetTree) Equals(o *RatchetTree) bool {
 	return true
 }
 
-func (t *RatchetTree) LeftMostFree() leafIndex {
+func (t *RatchetTree) LeftmostFree() leafIndex {
 	curr := leafIndex(0)
 	for {
 		if t.occupied(curr) && curr < leafIndex(t.size()) {
@@ -429,10 +428,7 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 			return i, true
 		}
 	}
-	// 0 is a bad idea , use some Max value here ?
-	// calling code must check for bool before using the index,
-	// so it might be ok
-	// ask richard...
+
 	return 0, false
 }
 
@@ -440,21 +436,25 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 
 // number of leaves in the ratchet tree
 func (t *RatchetTree) size() leafCount {
-	return t.NumLeaves
+	return leafWidth(nodeCount(len(t.Nodes)))
+}
+
+func (t *RatchetTree) nodeSize() nodeCount {
+	return nodeCount(len(t.Nodes))
 }
 
 func (t *RatchetTree) occupied(l leafIndex) bool {
-	n := nodeIndex(l)
-	if nodeCount(n) >= t.nodeSize() {
+	n := toNodeIndex(l)
+	if int(n) >= len(t.Nodes) {
 		return false
 	}
-	return true
+	return !t.Nodes[n].blank()
 }
 
 func (t *RatchetTree) rootIndex() nodeIndex {
 	return root(t.size())
-
 }
+
 func (t *RatchetTree) nodeStep(pathSecret []byte) []byte {
 	return t.CipherSuite.hkdfExpandLabel(pathSecret, "node", []byte{}, t.CipherSuite.constants().SecretSize)
 }
@@ -474,52 +474,42 @@ func (t *RatchetTree) newNode(pathSecret []byte) *RatchetTreeNode {
 	return rtn
 }
 
-func (t *RatchetTree) nodeSize() nodeCount {
-	if t.NumLeaves == 0 {
-		return 0
-	}
-	return nodeWidth(t.NumLeaves)
-}
-
 func (t *RatchetTree) resolve(index nodeIndex) []nodeIndex {
-	res := []nodeIndex{index}
+	// Resolution of non-blank is node + unmerged leaves
 	if t.Nodes[index].Node != nil {
+		res := []nodeIndex{index}
 		for _, v := range t.Nodes[index].Node.UnmergedLeaves {
 			res = append(res, nodeIndex(v))
 		}
 		return res
 	}
 
-	// leaf - empty resolution
+	// Resolution of blank leaf is the empty list
 	if level(index) == 0 {
 		return []nodeIndex{}
 	}
 
+	// Resolution of blank intermediate node is concatenation of the resolutions
+	// of the children
 	l := t.resolve(left(index))
 	r := t.resolve(right(index, t.size()))
 	l = append(l, r...)
 	return l
 }
 
-func (t *RatchetTree) setHash(index nodeIndex) {
-	if level(index) == 0 {
-		t.Nodes[index].setLeafHash(t.CipherSuite)
-		return
-	}
-	l := left(index)
-	r := right(index, t.size())
-	t.Nodes[index].setHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
-}
-
 func (t *RatchetTree) setHashPath(index leafIndex) {
 	curr := toNodeIndex(index)
-	t.setHash(curr)
-	r := root(t.size())
+	t.Nodes[curr].setLeafHash(t.CipherSuite)
+
+	size := t.size()
+	r := root(size)
 	for {
 		if curr == r {
 			break
 		}
-		curr = parent(curr, t.size())
-		t.setHash(curr)
+		curr = parent(curr, size)
+		l := left(curr)
+		r := right(curr, size)
+		t.Nodes[curr].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
 	}
 }
