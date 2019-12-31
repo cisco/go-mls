@@ -26,7 +26,8 @@ type ClientInitKey struct {
 	InitKey          HPKEPublicKey
 	Credential       Credential
 	Extensions       ExtensionList
-	Signature        []byte `tls:"head=2"`
+	Signature        []byte          `tls:"head=2"`
+	privateKey       *HPKEPrivateKey `tls:"omit"`
 }
 
 ///
@@ -266,6 +267,41 @@ type MLSPlaintext struct {
 	Signature         []byte `tls:"head=2"`
 }
 
+func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
+	s := NewWriteStream()
+
+	err := s.Write(ctx)
+	if err != nil {
+		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
+	}
+
+	err = s.Write(struct {
+		GroupID           []byte `tls:"head=1"`
+		Epoch             Epoch
+		Sender            uint32
+		AuthenticatedData []byte `tls:"head=4"`
+		Content           MLSPlaintextContent
+	}{
+		GroupID:           pt.GroupID,
+		Epoch:             pt.Epoch,
+		Sender:            pt.Sender,
+		AuthenticatedData: pt.AuthenticatedData,
+		Content:           pt.Content,
+	})
+
+	if err != nil {
+		panic(fmt.Errorf("mls.mlsplaintext: marshal failure %v", err))
+	}
+
+	return s.Data()
+}
+
+func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
+	tbs := pt.toBeSigned(ctx)
+	pt.Signature = scheme.Sign(priv, tbs)
+
+}
+
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
@@ -284,14 +320,12 @@ type GroupInfo struct {
 	Epoch                        Epoch
 	Tree                         *RatchetTree
 	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
-
-	ConfirmedTranscriptHash []byte `tls:"head=1"`
-	InterimTranscriptHash   []byte `tls:"head=1"`
-	Path                    *DirectPath
-	Confirmation            []byte `tls:"head=1"`
-
-	SignerIndex uint32
-	Signature   []byte `tls:"head=2"`
+	ConfirmedTranscriptHash      []byte `tls:"head=1"`
+	InterimTranscriptHash        []byte `tls:"head=1"`
+	Path                         *DirectPath
+	Confirmation                 []byte `tls:"head=1"`
+	SignerIndex                  uint32
+	Signature                    []byte `tls:"head=2"`
 }
 
 func (gi GroupInfo) toBeSigned() []byte {

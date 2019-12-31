@@ -20,7 +20,7 @@ type BasicCredential struct {
 	Identity            []byte `tls:"head=2"`
 	SignatureScheme     SignatureScheme
 	SignaturePublicKey  SignaturePublicKey
-	signaturePrivateKey SignaturePrivateKey `tls:"omit"`
+	signaturePrivateKey *SignaturePrivateKey `tls:"omit"`
 }
 
 type X509Credential struct {
@@ -61,7 +61,7 @@ func (c Credential) PublicKey() SignaturePublicKey {
 	}
 }
 
-func (c Credential) PrivateKey() SignaturePrivateKey {
+func (c Credential) PrivateKey() *SignaturePrivateKey {
 	switch {
 	case c.Basic != nil:
 		return c.Basic.signaturePrivateKey
