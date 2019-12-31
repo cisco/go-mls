@@ -349,7 +349,7 @@ func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
 	panic("Unsupported algorithm")
 }
 
-func (ss SignatureScheme) Sign(priv SignaturePrivateKey, message []byte) []byte {
+func (ss SignatureScheme) Sign(priv *SignaturePrivateKey, message []byte) []byte {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
 		// TODO
@@ -361,7 +361,7 @@ func (ss SignatureScheme) Sign(priv SignaturePrivateKey, message []byte) []byte 
 	panic("Unsupported algorithm")
 }
 
-func (ss SignatureScheme) Verify(pub SignaturePublicKey, message, signature []byte) bool {
+func (ss SignatureScheme) Verify(pub *SignaturePublicKey, message, signature []byte) bool {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
 		// TODO
