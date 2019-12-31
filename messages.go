@@ -284,14 +284,12 @@ type GroupInfo struct {
 	Epoch                        Epoch
 	Tree                         *RatchetTree
 	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
-
-	ConfirmedTranscriptHash []byte `tls:"head=1"`
-	InterimTranscriptHash   []byte `tls:"head=1"`
-	Path                    *DirectPath
-	Confirmation            []byte `tls:"head=1"`
-
-	SignerIndex uint32
-	Signature   []byte `tls:"head=2"`
+	ConfirmedTranscriptHash      []byte `tls:"head=1"`
+	InterimTranscriptHash        []byte `tls:"head=1"`
+	Path                         *DirectPath
+	Confirmation                 []byte `tls:"head=1"`
+	SignerIndex                  uint32
+	Signature                    []byte `tls:"head=2"`
 }
 
 func (gi GroupInfo) toBeSigned() []byte {
