@@ -1,7 +1,9 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/bifurcation/mint/syntax"
 )
 
 ///
@@ -161,7 +163,7 @@ type Commit struct {
 ///
 /// MLSPlaintext and MLSCiphertext
 ///
-type Epoch uint32
+type Epoch uint64
 
 type ContentType uint8
 
@@ -271,4 +273,189 @@ type MLSCiphertext struct {
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	Ciphertext          []byte `tls:"head=4"`
+}
+
+///
+/// GroupInfo
+///
+
+type GroupInfo struct {
+	GroupId                      []byte `tls:"head=1"`
+	Epoch                        Epoch
+	Tree                         *RatchetTree
+	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
+	ConfirmedTranscriptHash      []byte `tls:"head=1"`
+	InterimTranscriptHash        []byte `tls:"head=1"`
+	Path                         *DirectPath
+	Confirmation                 []byte `tls:"head=1"`
+	SignerIndex                  leafIndex
+	Signature                    []byte `tls:"head=2"`
+}
+
+func (gi GroupInfo) toBeSigned() ([]byte, error) {
+	return syntax.Marshal(struct {
+		GroupId                 []byte `tls:"head=1"`
+		Epoch                   Epoch
+		Tree                    *RatchetTree
+		ConfirmedTranscriptHash []byte `tls:"head=1"`
+		InterimTranscriptHash   []byte `tls:"head=1"`
+		Path                    *DirectPath
+		Confirmation            []byte `tls:"head=1"`
+		SignerIndex             leafIndex
+	}{
+		GroupId:                 gi.GroupId,
+		Epoch:                   gi.Epoch,
+		Tree:                    gi.Tree,
+		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
+		InterimTranscriptHash:   gi.InterimTranscriptHash,
+		Path:                    gi.Path,
+		Confirmation:            gi.Confirmation,
+		SignerIndex:             gi.SignerIndex,
+	})
+}
+
+func (gi GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
+	// Verify that priv corresponds to tree[index]
+	cred := gi.Tree.GetCredential(index)
+	if !bytes.Equal(cred.PublicKey().Data, priv.PublicKey.Data) {
+		return fmt.Errorf("mls.groupInfo: Incorrect private key for index")
+	}
+
+	// Marshal the contents
+	tbs, err := gi.toBeSigned()
+	if err != nil {
+		return err
+	}
+
+	// Sign toBeSigned() with priv -> SignerIndex, Signature
+	gi.SignerIndex = index
+	gi.Signature = cred.Scheme().Sign(priv, tbs)
+	return nil
+}
+
+func (gi GroupInfo) verify() error {
+	// Get pub from tree[SignerIndex]
+	cred := gi.Tree.GetCredential(gi.SignerIndex)
+
+	// Marshal the contents of the GroupInfo
+	tbs, err := gi.toBeSigned()
+	if err != nil {
+		return err
+	}
+
+	// Verify (toBeSigned(), Signature) with pub
+	ver := cred.Scheme().Verify(cred.PublicKey(), tbs, gi.Signature)
+	if !ver {
+		return fmt.Errorf("mls.groupInfo: Vefication failed")
+	}
+
+	return nil
+}
+
+///
+/// KeyPackage
+///
+type KeyPackage struct {
+	InitSecret []byte `tls:"head=1"`
+}
+
+///
+/// EncryptedKeyPackage
+///
+type EncryptedKeyPackage struct {
+	ClientInitKeyHash []byte `tls:"head=1"`
+	EncryptedPackage  HPKECiphertext
+}
+
+///
+/// Welcome
+///
+
+type Welcome struct {
+	Version              uint8
+	CipherSuite          CipherSuite
+	EncryptedKeyPackages []EncryptedKeyPackage `tls:"head=4"`
+	EncryptedGroupInfo   []byte                `tls:"head=4"`
+	initSecret           []byte                `tls:"omit"`
+}
+
+func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
+	secretSize := suite.constants().SecretSize
+	keySize := suite.constants().KeySize
+	nonceSize := suite.constants().NonceSize
+
+	groupInfoSecret := suite.hkdfExpandLabel(initSecret, "group info", []byte{}, secretSize)
+	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
+	groupInfoNonce := suite.hkdfExpandLabel(groupInfoSecret, "nonce", []byte{}, nonceSize)
+
+	return keyAndNonce{
+		Key:   groupInfoKey,
+		Nonce: groupInfoNonce,
+	}
+}
+
+// XXX(rlb): The pattern we follow here basically locks us into having empty
+// AAD.  I suspect that eventually we're going to want to have the header to the
+// message (version, cipher, encrypted key packages) as AAD.  We should consider
+// refactoring so that the API flows slightly differently:
+//
+// * newWelcome() - caches initSecret and *unencrypted* GroupInfo
+// * encrypt() for each member
+// * finalize() - computes AAD and encrypts GroupInfo
+//
+// This will also probably require a helper method for decryption.
+func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome {
+	// Encrypt the GroupInfo
+	pt, err := syntax.Marshal(groupInfo)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
+	}
+
+	kn := deriveGroupKeyAndNonce(cs, initSecret)
+	aead, err := cs.newAEAD(kn.Key)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: error creating AEAD: %v", err))
+	}
+	ct := aead.Seal(nil, kn.Nonce, pt, []byte{})
+
+	// Assemble the Welcome
+	w := &Welcome{
+		Version:            0,
+		CipherSuite:        cs,
+		EncryptedGroupInfo: ct,
+		initSecret:         initSecret,
+	}
+	return w
+}
+
+func (w *Welcome) encrypt(cik ClientInitKey) {
+	// Compute the hash of the CIK
+	data, err := syntax.Marshal(cik)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: CIK marshal failure %v", err))
+	}
+
+	cikHash := w.CipherSuite.digest(data)
+
+	// Encrypt the group init secret to new member's public key
+	kp := KeyPackage{
+		InitSecret: w.initSecret,
+	}
+
+	pt, err := syntax.Marshal(kp)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
+	}
+
+	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
+	if err != nil {
+		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))
+	}
+
+	// Assemble and append the key package
+	ekp := EncryptedKeyPackage{
+		ClientInitKeyHash: cikHash,
+		EncryptedPackage:  ep,
+	}
+	w.EncryptedKeyPackages = append(w.EncryptedKeyPackages, ekp)
 }

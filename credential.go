@@ -36,8 +36,9 @@ type X509Credential struct {
 //		};
 //} Credential;
 type Credential struct {
-	Basic *BasicCredential
-	X509  *X509Credential
+	Basic      *BasicCredential
+	X509       *X509Credential
+	privateKey *SignaturePrivateKey
 }
 
 func (c Credential) Type() CredentialType {
@@ -48,6 +49,30 @@ func (c Credential) Type() CredentialType {
 		return CredentialTypeX509
 	default:
 		panic("Malformed credential")
+	}
+}
+
+func (c Credential) PublicKey() *SignaturePublicKey {
+	switch {
+	case c.Basic != nil:
+		return &c.Basic.SignaturePublicKey
+	case c.X509 != nil:
+		// TODO
+		fallthrough
+	default:
+		panic("mls.credential: Can't retrieve PublicKey")
+	}
+}
+
+func (c Credential) Scheme() SignatureScheme {
+	switch {
+	case c.Basic != nil:
+		return c.Basic.SignatureScheme
+	case c.X509 != nil:
+		// TODO
+		fallthrough
+	default:
+		panic("mls.credential: Can't retrieve SignatureScheme")
 	}
 }
 
