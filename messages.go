@@ -298,7 +298,7 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 
 func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
 	tbs := pt.toBeSigned(ctx)
-	pt.Signature = scheme.Sign(priv, tbs)
+	pt.Signature = scheme.Sign(&priv, tbs)
 
 }
 
@@ -324,13 +324,12 @@ type GroupInfo struct {
 	InterimTranscriptHash        []byte `tls:"head=1"`
 	Path                         *DirectPath
 	Confirmation                 []byte `tls:"head=1"`
-	SignerIndex                  uint32
+	SignerIndex                  leafIndex
 	Signature                    []byte `tls:"head=2"`
 }
 
-func (gi GroupInfo) toBeSigned() []byte {
-	s := NewWriteStream()
-	err := s.Write(struct {
+func (gi GroupInfo) toBeSigned() ([]byte, error) {
+	return syntax.Marshal(struct {
 		GroupId                 []byte `tls:"head=1"`
 		Epoch                   Epoch
 		Tree                    *RatchetTree
@@ -338,7 +337,7 @@ func (gi GroupInfo) toBeSigned() []byte {
 		InterimTranscriptHash   []byte `tls:"head=1"`
 		Path                    *DirectPath
 		Confirmation            []byte `tls:"head=1"`
-		SignerIndex             uint32
+		SignerIndex             leafIndex
 	}{
 		GroupId:                 gi.GroupId,
 		Epoch:                   gi.Epoch,
@@ -349,29 +348,44 @@ func (gi GroupInfo) toBeSigned() []byte {
 		Confirmation:            gi.Confirmation,
 		SignerIndex:             gi.SignerIndex,
 	})
+}
 
+func (gi GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
+	// Verify that priv corresponds to tree[index]
+	cred := gi.Tree.GetCredential(index)
+	if !bytes.Equal(cred.PublicKey().Data, priv.PublicKey.Data) {
+		return fmt.Errorf("mls.groupInfo: Incorrect private key for index")
+	}
+
+	// Marshal the contents
+	tbs, err := gi.toBeSigned()
 	if err != nil {
-		panic(fmt.Errorf("mls.groupInfo: marshal err %v", err))
+		return err
 	}
 
-	return s.Data()
+	// Sign toBeSigned() with priv -> SignerIndex, Signature
+	gi.SignerIndex = index
+	gi.Signature = cred.Scheme().Sign(priv, tbs)
+	return nil
 }
 
-func (gi GroupInfo) sign(index leafIndex, priv SignaturePrivateKey) {
-	// verify that priv corresponds to tree[index]
-	c := gi.Tree.GetCredential(index)
-	if !bytes.Equal(c.PublicKey().Data, priv.PublicKey.Data) {
-		panic(fmt.Errorf("mls.groupInfo: badkey for index"))
+func (gi GroupInfo) verify() error {
+	// Get pub from tree[SignerIndex]
+	cred := gi.Tree.GetCredential(gi.SignerIndex)
+
+	// Marshal the contents of the GroupInfo
+	tbs, err := gi.toBeSigned()
+	if err != nil {
+		return err
 	}
-	// sign toBeSigned() with priv -> SignerIndex, Signature
-	gi.SignerIndex = uint32(index)
-	gi.Signature = c.Scheme().Sign(priv, gi.toBeSigned())
-}
 
-func (gi GroupInfo) verify() bool {
-	// get pub from tree[SignerIndex] and verify (toBeSigned(), Signature) with pub
-	c := gi.Tree.GetCredential(leafIndex(gi.SignerIndex))
-	return c.Scheme().Verify(c.PublicKey(), gi.toBeSigned(), gi.Signature)
+	// Verify (toBeSigned(), Signature) with pub
+	ver := cred.Scheme().Verify(cred.PublicKey(), tbs, gi.Signature)
+	if !ver {
+		return fmt.Errorf("mls.groupInfo: Vefication failed")
+	}
+
+	return nil
 }
 
 ///
@@ -416,13 +430,23 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 	}
 }
 
+// XXX(rlb): The pattern we follow here basically locks us into having empty
+// AAD.  I suspect that eventually we're going to want to have the header to the
+// message (version, cipher, encrypted key packages) as AAD.  We should consider
+// refactoring so that the API flows slightly differently:
+//
+// * newWelcome() - caches initSecret and *unencrypted* GroupInfo
+// * encrypt() for each member
+// * finalize() - computes AAD and encrypts GroupInfo
+//
+// This will also probably require a helper method for decryption.
 func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome {
+	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
 	}
 
-	// generate the keyy to encrypt groupInfo
 	kn := deriveGroupKeyAndNonce(cs, initSecret)
 	aead, err := cs.newAEAD(kn.Key)
 	if err != nil {
@@ -430,6 +454,7 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome
 	}
 	ct := aead.Seal(nil, kn.Nonce, pt, []byte{})
 
+	// Assemble the Welcome
 	w := &Welcome{
 		Version:            0,
 		CipherSuite:        cs,
@@ -440,7 +465,7 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome
 }
 
 func (w *Welcome) encrypt(cik ClientInitKey) {
-
+	// Compute the hash of the CIK
 	data, err := syntax.Marshal(cik)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: CIK marshal failure %v", err))
@@ -448,6 +473,7 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 
 	cikHash := w.CipherSuite.digest(data)
 
+	// Encrypt the group init secret to new member's public key
 	kp := KeyPackage{
 		InitSecret: w.initSecret,
 	}
@@ -457,12 +483,12 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
 	}
 
-	// encrypt the group init secret to new members PublicKey
 	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))
 	}
 
+	// Assemble and append the key package
 	ekp := EncryptedKeyPackage{
 		ClientInitKeyHash: cikHash,
 		EncryptedPackage:  ep,

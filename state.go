@@ -57,7 +57,7 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 		Tree:         *tree,
 		Keys:         *kse,
 		Index:        0,
-		IdentityPriv: *cred.PrivateKey(),
+		IdentityPriv: *cred.privateKey,
 		scheme:       cred.Scheme(),
 	}
 	return s
@@ -97,11 +97,11 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 				return nil, fmt.Errorf("mls.state: no private key for init key")
 			}
 
-			if cik.Credential.PrivateKey() == nil {
+			if cik.Credential.privateKey == nil {
 				return nil, fmt.Errorf("mls.state: no signing key for init key")
 			}
 
-			s.IdentityPriv = *cik.Credential.PrivateKey()
+			s.IdentityPriv = *cik.Credential.privateKey
 			s.scheme = cik.Credential.Scheme()
 
 			pt, err := suite.hpke().Decrypt(*cik.privateKey, []byte{}, ekp.EncryptedPackage)
@@ -146,7 +146,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
 	}
 
-	if !gi.verify() {
+	if err = gi.verify(); err != nil {
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
 

@@ -138,8 +138,8 @@ func TestSignVerify(t *testing.T) {
 			priv, err = scheme.Derive(seed)
 			assertNotError(t, err, "Error generating signing key")
 
-			signature := scheme.Sign(priv, message)
-			verified := scheme.Verify(priv.PublicKey, message, signature)
+			signature := scheme.Sign(&priv, message)
+			verified := scheme.Verify(&priv.PublicKey, message, signature)
 			assertTrue(t, verified, "Signature failed to verify")
 		}
 	}

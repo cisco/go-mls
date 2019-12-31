@@ -17,10 +17,9 @@ const (
 //     SignaturePublicKey public_key;
 // } BasicCredential;
 type BasicCredential struct {
-	Identity            []byte `tls:"head=2"`
-	SignatureScheme     SignatureScheme
-	SignaturePublicKey  SignaturePublicKey
-	signaturePrivateKey *SignaturePrivateKey `tls:"omit"`
+	Identity           []byte `tls:"head=2"`
+	SignatureScheme    SignatureScheme
+	SignaturePublicKey SignaturePublicKey
 }
 
 type X509Credential struct {
@@ -37,8 +36,9 @@ type X509Credential struct {
 //		};
 //} Credential;
 type Credential struct {
-	Basic *BasicCredential
-	X509  *X509Credential
+	Basic      *BasicCredential
+	X509       *X509Credential
+	privateKey *SignaturePrivateKey
 }
 
 func (c Credential) Type() CredentialType {
@@ -52,21 +52,15 @@ func (c Credential) Type() CredentialType {
 	}
 }
 
-func (c Credential) PublicKey() SignaturePublicKey {
+func (c Credential) PublicKey() *SignaturePublicKey {
 	switch {
 	case c.Basic != nil:
-		return c.Basic.SignaturePublicKey
+		return &c.Basic.SignaturePublicKey
+	case c.X509 != nil:
+		// TODO
+		fallthrough
 	default:
 		panic("mls.credential: Can't retrieve PublicKey")
-	}
-}
-
-func (c Credential) PrivateKey() *SignaturePrivateKey {
-	switch {
-	case c.Basic != nil:
-		return c.Basic.signaturePrivateKey
-	default:
-		panic("mls.credential: Can't retrieve PrivateKey")
 	}
 }
 
@@ -74,6 +68,9 @@ func (c Credential) Scheme() SignatureScheme {
 	switch {
 	case c.Basic != nil:
 		return c.Basic.SignatureScheme
+	case c.X509 != nil:
+		// TODO
+		fallthrough
 	default:
 		panic("mls.credential: Can't retrieve SignatureScheme")
 	}
