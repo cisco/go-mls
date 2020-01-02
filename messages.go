@@ -261,7 +261,7 @@ func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
 type MLSPlaintext struct {
 	GroupID           []byte `tls:"head=1"`
 	Epoch             Epoch
-	Sender            uint32
+	Sender            leafIndex
 	AuthenticatedData []byte `tls:"head=4"`
 	Content           MLSPlaintextContent
 	Signature         []byte `tls:"head=2"`
@@ -278,7 +278,7 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	err = s.Write(struct {
 		GroupID           []byte `tls:"head=1"`
 		Epoch             Epoch
-		Sender            uint32
+		Sender            leafIndex
 		AuthenticatedData []byte `tls:"head=4"`
 		Content           MLSPlaintextContent
 	}{
@@ -299,13 +299,18 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
 	tbs := pt.toBeSigned(ctx)
 	pt.Signature = scheme.Sign(&priv, tbs)
+}
 
+func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {
+	tbs := pt.toBeSigned(ctx)
+	return scheme.Verify(&pub, tbs, pt.Signature)
 }
 
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
 	ContentType         uint8
+	AuthenticatedData   []byte `tls:head=4`
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	Ciphertext          []byte `tls:"head=4"`
