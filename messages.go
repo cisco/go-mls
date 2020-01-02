@@ -303,7 +303,7 @@ func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme 
 
 func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {
 	tbs := pt.toBeSigned(ctx)
-	return scheme.Verify(&pub, tbs, pt.Signature)
+	return scheme.Verify(pub, tbs, pt.Signature)
 }
 
 type MLSCiphertext struct {

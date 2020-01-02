@@ -43,8 +43,8 @@ type RatchetTreeNode struct {
 
 // Compare the public aspects of two nodes
 func (n RatchetTreeNode) Equals(o RatchetTreeNode) bool {
-	lhsCredNil := (n.Credential == nil)
-	rhsCredNil := (o.Credential == nil)
+	lhsCredNil := n.Credential == nil
+	rhsCredNil := o.Credential == nil
 	if lhsCredNil != rhsCredNil {
 		return false
 	}
@@ -364,7 +364,6 @@ func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
 	if len(t.Nodes) == 0 {
 		return
 	}
-
 	nc := t.nodeSize()
 	r := t.rootIndex()
 	first := true
@@ -522,4 +521,23 @@ func (t *RatchetTree) setHashPath(index leafIndex) {
 		r := right(curr, size)
 		t.Nodes[curr].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
 	}
+}
+
+func (t RatchetTree) clone() *RatchetTree {
+	var n []OptionalRatchetNode
+	for _, node := range t.Nodes {
+		onode := OptionalRatchetNode{
+			Node: &(*node.Node),
+			hash: append(node.hash[:0:0], node.hash...),
+		}
+		// copy over unmerged leaves (slice)
+		onode.Node.UnmergedLeaves = append(node.Node.UnmergedLeaves[:0:0], node.Node.UnmergedLeaves...)
+		n = append(n, onode)
+	}
+
+	cloned := &RatchetTree{
+		Nodes:       n,
+		CipherSuite: t.CipherSuite,
+	}
+	return cloned
 }
