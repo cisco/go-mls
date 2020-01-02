@@ -272,9 +272,9 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	commit := Commit{}
 	joiners := []ClientInitKey{}
 
-	for _, pt := range s.PendingProposals {
-		pid := s.proposalId(pt)
-		proposal := pt.Content.Proposal
+	for _, pp := range s.PendingProposals {
+		pid := s.proposalId(pp)
+		proposal := pp.Content.Proposal
 		switch {
 		case proposal.Add != nil:
 			commit.Adds = append(commit.Adds, pid)
@@ -289,8 +289,49 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	fmt.Printf("mls.state: adds %v, updates %v, removes %v", len(commit.Adds),
 		len(commit.Updates), len(commit.Removes))
 
-	//next := reflect.DeepCop
-	return nil, nil, nil, nil
+	next := s.clone()
+	next.apply(commit)
+	next.PendingProposals = nil
+
+	// Start a GroupInfo with the prepared state
+	prevInitSecret := s.Keys.InitSecret
+	gi := new(GroupInfo)
+	gi.GroupId = next.GroupID
+	gi.Epoch = next.Epoch
+	gi.Tree = &next.Tree
+	gi.PriorConfirmedTranscriptHash = s.ConfirmedTranscriptHash
+
+	ctx, err := syntax.Marshal(GroupContext{
+		GroupID:                 gi.GroupId,
+		Epoch:                   gi.Epoch,
+		TreeHash:                gi.Tree.RootHash(),
+		ConfirmedTranscriptHash: gi.PriorConfirmedTranscriptHash,
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("mls.state: grpCtx marshal failure %v", err)
+	}
+
+	// KEM new entropy to the group and the new joiners
+	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
+
+	// Create the Commit message and advance the transcripts / key schedule
+	pt := next.ratchetAndSign(commit, updateSecret, s.groupContext())
+
+	// Complete the GroupInfo and form the Welcome
+	gi.ConfirmedTranscriptHash = next.ConfirmedTranscriptHash
+	gi.InterimTranscriptHash = next.InterimTranscriptHash
+	gi.Path = path
+	gi.Confirmation = pt.Content.Commit.Confirmation
+	err = gi.sign(s.Index, &s.IdentityPriv)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
+	}
+
+	welcome := newWelcome(s.CipherSuite, prevInitSecret, gi)
+	for _, joiner := range joiners {
+		welcome.encrypt(joiner)
+	}
+	return pt, welcome, next, nil
 }
 
 /// Proposal processing helpers
@@ -399,12 +440,129 @@ func (s State) sign(p Proposal) *MLSPlaintext {
 	return pt
 }
 
+func (s *State) updateEpochSecrets(secret []byte) {
+	ctx, err := syntax.Marshal(GroupContext{
+		GroupID:                 s.GroupID,
+		Epoch:                   s.Epoch,
+		TreeHash:                s.Tree.RootHash(),
+		ConfirmedTranscriptHash: s.ConfirmedTranscriptHash,
+	})
+	if err != nil {
+		panic(fmt.Errorf("mls.state: update epoch secret failed %v", err))
+	}
+	s.Keys = *s.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
+}
+
+func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) *MLSPlaintext {
+	pt := &MLSPlaintext{
+		GroupID: s.GroupID,
+		Epoch:   s.Epoch,
+		Sender:  s.Index,
+		Content: MLSPlaintextContent{
+			Commit: &CommitData{
+				Commit: op,
+			},
+		},
+	}
+
+	s.Epoch += 1
+	// derive new key schedule based on the update secret
+	s.updateEpochSecrets(updateSecret)
+
+	// generate the confirmation based on the new keys
+	commit := pt.Content.Commit
+	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac.Write(s.ConfirmedTranscriptHash)
+	commit.Confirmation = hmac.Sum(nil)
+
+	// sign the MLSPlainText and update state hashes
+	// as a result of ratcheting.
+	pt.sign(prevGrpCtx, s.IdentityPriv, s.scheme)
+
+	digest := s.CipherSuite.newDigest()
+	digest.Write(s.ConfirmedTranscriptHash)
+	s.InterimTranscriptHash = digest.Sum(pt.commitAuthData())
+	return pt
+}
+
 func (s *State) handle(pt *MLSPlaintext) (*State, error) {
-	// TODO
-	return nil, nil
+
+	if !bytes.Equal(pt.GroupID, s.GroupID) {
+		return nil, fmt.Errorf("mls.state: groupId mismatch")
+	}
+
+	if pt.Epoch != s.Epoch {
+		return nil, fmt.Errorf("mls.state: epoch mismatch")
+	}
+
+	sigPubKey := s.Tree.GetCredential(pt.Sender).PublicKey()
+	if !pt.verify(s.groupContext(), sigPubKey, s.scheme) {
+		return nil, fmt.Errorf("invalid handshake message signature")
+	}
+
+	// Proposals get queued, do not result in a state transition
+	contentType := pt.Content.Type()
+	if contentType == ContentTypeProposal {
+		s.PendingProposals = append(s.PendingProposals, *pt)
+		return nil, nil
+	}
+
+	if contentType != ContentTypeCommit {
+		return nil, fmt.Errorf("mls.state: incorrect content type")
+	}
+
+	if pt.Sender == s.Index {
+		return nil, fmt.Errorf("mls.state: handle own commits with caching")
+	}
+
+	// apply the commit
+	commitData := pt.Content.Commit
+	next := s.clone()
+	next.apply(commitData.Commit)
+
+	// apply the direct path
+	ctx, err := syntax.Marshal(GroupContext{
+		GroupID:                 next.GroupID,
+		Epoch:                   next.Epoch + 1,
+		TreeHash:                next.Tree.RootHash(),
+		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
+	}
+	updateSecret := next.Tree.Decap(pt.Sender, ctx, &commitData.Commit.Path)
+
+	// Update the transcripts and advance the key schedule
+	digest := next.CipherSuite.newDigest()
+	digest.Write(next.InterimTranscriptHash)
+	s.ConfirmedTranscriptHash = digest.Sum(pt.commitContent())
+
+	digest = next.CipherSuite.newDigest()
+	digest.Write(next.ConfirmedTranscriptHash)
+	s.InterimTranscriptHash = digest.Sum(pt.commitAuthData())
+
+	next.Epoch += 1
+	next.updateEpochSecrets(updateSecret)
+
+	// verify confirmation MAC
+	if !next.verifyConfirmation(commitData.Confirmation) {
+		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
+	}
+	return next, nil
 }
 
 ///// protect/unprotect and helpers
+
+func (s State) verifyConfirmation(confirmation []byte) bool {
+	// confirmation verification
+	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac.Write(s.ConfirmedTranscriptHash)
+	confirm := hmac.Sum(nil)
+	if !bytes.Equal(confirm, confirmation) {
+		return false
+	}
+	return true
+}
 
 func (s *State) encrypt(pt *MLSPlaintext) *MLSCiphertext {
 	var generation uint32
@@ -548,7 +706,6 @@ func (s *State) protect(data []byte) *MLSCiphertext {
 }
 
 func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
-	// TODO
 	pt, err := s.decrypt(ct)
 	if err != nil {
 		return nil, err
@@ -612,4 +769,24 @@ func contentAAD(gid []byte, epoch Epoch,
 		return nil
 	}
 	return s.Data()
+}
+
+func (s State) clone() *State {
+	// Note: all the slice/map copy operations below on state are mere
+	// reference copies.
+	cloned := new(State)
+	cloned.CipherSuite = s.CipherSuite
+	cloned.GroupID = append(s.GroupID[:0:0], s.GroupID...)
+	cloned.Epoch = s.Epoch
+	cloned.Tree = *s.Tree.clone()
+	cloned.ConfirmedTranscriptHash = append(s.ConfirmedTranscriptHash[:0:0], s.ConfirmedTranscriptHash...)
+	cloned.InterimTranscriptHash = append(s.InterimTranscriptHash[:0:0], s.InterimTranscriptHash...)
+	cloned.Keys = s.Keys
+	cloned.Index = s.Index
+	cloned.IdentityPriv = s.IdentityPriv
+	cloned.scheme = s.scheme
+	cloned.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
+	cloned.UpdateSecrets = s.UpdateSecrets
+	cloned.processedProposals = s.processedProposals
+	return cloned
 }

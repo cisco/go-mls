@@ -306,6 +306,41 @@ func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme
 	return scheme.Verify(pub, tbs, pt.Signature)
 }
 
+func (pt MLSPlaintext) commitContent() []byte {
+	enc, err := syntax.Marshal(struct {
+		GroupId []byte `tls:"head=1"`
+		Epoch   Epoch
+		Sender  leafIndex
+		Commit  Commit
+	}{
+		GroupId: pt.GroupID,
+		Epoch:   pt.Epoch,
+		Sender:  pt.Sender,
+		Commit:  pt.Content.Commit.Commit,
+	})
+
+	if err != nil {
+		return nil
+	}
+
+	return enc
+}
+func (pt MLSPlaintext) commitAuthData() []byte {
+	data := pt.Content.Commit
+	s := NewWriteStream()
+	err := s.Write(data.Confirmation)
+	if err != nil {
+		return nil
+	}
+
+	err = s.Write(pt.Signature)
+	if err != nil {
+		return nil
+	}
+
+	return s.Data()
+}
+
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
@@ -355,7 +390,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	})
 }
 
-func (gi GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
+func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 	// Verify that priv corresponds to tree[index]
 	cred := gi.Tree.GetCredential(index)
 	if !bytes.Equal(cred.PublicKey().Data, priv.PublicKey.Data) {
@@ -445,7 +480,7 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome {
+func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
