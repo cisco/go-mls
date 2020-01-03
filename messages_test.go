@@ -105,6 +105,7 @@ var (
 		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
 		ContentType:         1,
+		AuthenticatedData:   []byte{0xAA, 0xBB, 0xCC},
 		SenderDataNonce:     []byte{0x01, 0x02},
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 		Ciphertext:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
@@ -187,7 +188,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 
 	// setup things needed to welcome c
 	initSecret := []byte("we welcome you c")
-	gi := GroupInfo{
+	gi := &GroupInfo{
 		GroupId:                      unhex("0007"),
 		Epoch:                        121,
 		Tree:                         treeAB,

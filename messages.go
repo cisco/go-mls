@@ -22,12 +22,59 @@ type ExtensionList struct {
 
 type ClientInitKey struct {
 	SupportedVersion uint8
+	Id               uint8
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
 	Extensions       ExtensionList
 	Signature        []byte          `tls:"head=2"`
 	privateKey       *HPKEPrivateKey `tls:"omit"`
+}
+
+func (cik ClientInitKey) toBeSigned() []byte {
+	enc, err := syntax.Marshal(struct {
+		Version     uint8
+		CipherSuite CipherSuite
+		InitKey     HPKEPublicKey
+		Credential  Credential
+	}{
+		Version:     cik.SupportedVersion,
+		CipherSuite: cik.CipherSuite,
+		InitKey:     cik.InitKey,
+		Credential:  cik.Credential,
+	})
+
+	if err != nil {
+		return nil
+	}
+
+	return enc
+}
+
+func (cik *ClientInitKey) sign(tbs []byte) []byte {
+	return cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)
+}
+
+func (cik ClientInitKey) verify() bool {
+	tbs := cik.toBeSigned()
+	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature)
+}
+
+func newClientInitKey(suite CipherSuite, cred *Credential) *ClientInitKey {
+	priv, err := suite.hpke().Generate()
+	if err != nil {
+		return nil
+	}
+	cik := new(ClientInitKey)
+	cik.SupportedVersion = 0
+	cik.CipherSuite = suite
+	cik.InitKey = priv.PublicKey
+	cik.Credential = *cred
+	cik.privateKey = &priv
+
+	tobeSigned := cik.toBeSigned()
+	cik.sign(tobeSigned)
+	return cik
 }
 
 ///
@@ -345,7 +392,7 @@ type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
 	ContentType         uint8
-	AuthenticatedData   []byte `tls:head=4`
+	AuthenticatedData   []byte `tls:"head=4"`
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	Ciphertext          []byte `tls:"head=4"`
@@ -405,6 +452,7 @@ func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 
 	// Sign toBeSigned() with priv -> SignerIndex, Signature
 	gi.SignerIndex = index
+	fmt.Printf("\ngroupInfo signing with index %v\n", gi.SignerIndex)
 	gi.Signature = cred.Scheme().Sign(priv, tbs)
 	return nil
 }
@@ -487,6 +535,8 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo) *Welcom
 		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
 	}
 
+	var gi GroupInfo
+	syntax.Unmarshal(pt, &gi)
 	kn := deriveGroupKeyAndNonce(cs, initSecret)
 	aead, err := cs.newAEAD(kn.Key)
 	if err != nil {
@@ -523,6 +573,7 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
 	}
 
+	fmt.Printf("\nwelcome: cik %d encrypting pk with pub %x\n", cik.Id, cik.InitKey.Data)
 	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))

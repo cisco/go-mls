@@ -316,7 +316,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []
 				}
 				encryptedSecret := pathNode.EncryptedPathSecrets[idx]
 				priv := t.Nodes[v].Node.PrivateKey
-				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, []byte{}, encryptedSecret)
+				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, context, encryptedSecret)
 				if err != nil {
 					panic(fmt.Errorf("mls:rtn: Ratchet node %v Decryption failure %v", v, err))
 				}
@@ -426,14 +426,17 @@ func (t *RatchetTree) LeftmostFree() leafIndex {
 }
 
 func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
-	for i := leafIndex(0); leafCount(i) < t.size(); i++ {
-		n := t.Nodes[toNodeIndex(i)]
-		if n.Node != nil || n.Node.Credential == nil {
+	num := t.size()
+	for i := leafIndex(0); leafCount(i) < num; i++ {
+		idx := toNodeIndex(i)
+		n := t.Nodes[idx]
+		if n.Node == nil || n.Node.Credential == nil {
 			continue
 		}
 		hpkeMatch := cik.InitKey.equals(n.Node.PublicKey)
-		credMatch := cik.Credential == *n.Node.Credential
-		if hpkeMatch && credMatch {
+		credMatch1 := reflect.DeepEqual(cik.Credential.Basic, n.Node.Credential.Basic)
+		credMatch2 := reflect.DeepEqual(cik.Credential.X509, n.Node.Credential.X509)
+		if hpkeMatch && credMatch1 && credMatch2 {
 			return i, true
 		}
 	}

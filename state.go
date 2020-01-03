@@ -66,6 +66,7 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 		processedProposals: map[string]bool{},
 		UpdateSecrets:      map[string][]byte{},
 	}
+	fmt.Printf("identifyPrivate : %x", s.IdentityPriv.Data)
 	return s
 }
 
@@ -81,7 +82,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	var clientInitKey ClientInitKey
 	var found = false
 
-	// extract the keyPackage for initsecret
+	// extract the keyPackage for init secret
 	for idx, cik := range ciks {
 		data, err := syntax.Marshal(cik)
 		if err != nil {
@@ -177,7 +178,12 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		gi.Tree.RootHash(),
 		gi.PriorConfirmedTranscriptHash,
 	})
-	updateSecret := s.Tree.Decap(leafIndex(gi.SignerIndex), decapCtx, gi.Path)
+
+	// question to richard: should the index be gi.SignerIndex instead?
+	updateSecret := s.Tree.Decap(gi.SignerIndex, decapCtx, gi.Path)
+	if updateSecret == nil {
+		return nil, fmt.Errorf("mls.state: decrypting root secret got nil value")
+	}
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
 	if err != nil {
@@ -239,6 +245,7 @@ func (s State) add(cik ClientInitKey) *MLSPlaintext {
 			ClientInitKey: cik,
 		},
 	}
+	fmt.Printf("\nadd: cik id %d, ikPriv %x, ikPub %x\n", cik.Id, cik.privateKey.Data, cik.InitKey.Data)
 	return s.sign(addProposal)
 }
 
@@ -313,7 +320,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// KEM new entropy to the group and the new joiners
 	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
-
+	fmt.Printf("encap root secret %x", updateSecret)
 	// Create the Commit message and advance the transcripts / key schedule
 	pt := next.ratchetAndSign(commit, updateSecret, s.groupContext())
 
