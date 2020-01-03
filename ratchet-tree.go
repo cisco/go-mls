@@ -360,6 +360,16 @@ func (t *RatchetTree) MergePublic(index leafIndex, key *HPKEPublicKey) {
 	t.setHashPath(index)
 }
 
+func (t *RatchetTree) MergePrivate(index leafIndex, key *HPKEPrivateKey) {
+	curr := toNodeIndex(index)
+	if t.Nodes[curr].blank() {
+		panic(fmt.Errorf("mls.rtn.MergePK: Cannot update a blank leaf"))
+	}
+
+	t.Nodes[curr].Node.setPrivate(key)
+	t.setHashPath(index)
+}
+
 func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
 	if len(t.Nodes) == 0 {
 		return

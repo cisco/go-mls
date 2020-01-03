@@ -170,7 +170,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: new joiner not in the tree")
 	}
 	s.Index = index
-	s.Tree.Merge(s.Index, clientInitKey.privateKey.Data)
+	s.Tree.MergePrivate(s.Index, clientInitKey.privateKey)
 
 	decapCtx, err := syntax.Marshal(GroupContext{
 		gi.GroupId,
