@@ -279,6 +279,11 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	for _, pp := range s.PendingProposals {
 		pid := s.proposalId(pp)
+		if s.processedProposals[pid.String()] {
+			fmt.Printf("mls.state: skipping processed proposal %v", pp)
+			continue
+		}
+
 		proposal := pp.Content.Proposal
 		switch {
 		case proposal.Add != nil:

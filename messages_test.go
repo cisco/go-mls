@@ -126,10 +126,10 @@ var (
 
 	ortnRtnNilCred = &OptionalRatchetNode{
 		Node: rtnNilCredential,
-		Hash: nil,
+		Hash: []byte{},
 	}
 
-	rachetTree = &RatchetTree{
+	ratchetTree = &RatchetTree{
 		Nodes:       []OptionalRatchetNode{*ortnRtnNilCred},
 		CipherSuite: supportedSuites[0],
 	}
@@ -170,7 +170,7 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
 	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
 	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
-	t.Run("RatchetTree", roundTrip(rachetTree, new(RatchetTree)))
+	t.Run("RatchetTree", roundTrip(ratchetTree, new(RatchetTree)))
 	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
 	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
 }
