@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
 	"math/rand"
+	"reflect"
 )
 
 ///
@@ -20,7 +21,6 @@ type GroupContext struct {
 ///
 /// State
 ///
-// TODO: Make this serializable, including serializing private aspects of the tree
 type State struct {
 	// Shared confirmed state
 	CipherSuite             CipherSuite
@@ -45,7 +45,9 @@ type State struct {
 	PendingProposals []MLSPlaintext
 	UpdateSecrets    map[string][]byte
 
-	// local state
+	// local state to identify proposals being procesesed
+	// in the PendingProposals. Avoids linear loop to
+	// remove entries from PendingProposals.
 	processedProposals map[string]bool
 }
 
@@ -135,25 +137,23 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: unable to decrypt welcome message")
 	}
 
-	// decrypt the groupInfo
+	// init the epoch with initSecret in the key package
 	fe := newFirstEpoch(suite, kp.InitSecret)
 
+	// decrypt the groupInfo
 	aead, err := suite.newAEAD(fe.GroupInfoKey)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: error creating AEAD: %v", err)
 	}
-
 	data, err := aead.Open(nil, fe.GroupInfoNonce, welcome.EncryptedGroupInfo, []byte{})
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to decrypt groupInfo: %v", err)
 	}
-
 	var gi GroupInfo
 	_, err = syntax.Unmarshal(data, &gi)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
 	}
-
 	if err = gi.verify(); err != nil {
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
@@ -164,6 +164,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
+	s.processedProposals = map[string]bool{}
 
 	// add self to tree
 	index, res := s.Tree.Find(clientInitKey)
@@ -204,8 +205,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 }
 
 func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commitSecret []byte) (*Welcome, *State, error) {
-	// TODO
-
 	var selected = false
 	var mySelectedCik, otherSelectedCik ClientInitKey
 
@@ -227,9 +226,15 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 		return nil, nil, fmt.Errorf("mls.state: negotiation failure")
 	}
 
+	// init our state and add the negotiated peer's cik
 	s := newEmptyState(groupID, mySelectedCik.CipherSuite, *mySelectedCik.privateKey, mySelectedCik.Credential)
 	add := s.add(otherSelectedCik)
-	s.handle(add)
+	// update tree state
+	_, err := s.handle(add)
+	if err != nil {
+		return nil, nil, err
+	}
+	// commit the add and generate welcome to be sent to the peer
 	_, welcome, newState, err := s.commit(commitSecret)
 	if err != nil {
 		panic(fmt.Errorf("mls.state: commit failure"))
@@ -268,14 +273,12 @@ func (s *State) remove(removed leafIndex) *MLSPlaintext {
 			Removed: uint32(removed),
 		},
 	}
-
 	return s.sign(removeProposal)
 }
 
 func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
-	// TODO
 	commit := Commit{}
-	joiners := []ClientInitKey{}
+	var joiners []ClientInitKey
 
 	for _, pp := range s.PendingProposals {
 		pid := s.proposalId(pp)
@@ -296,6 +299,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 	}
 
+	// init new state to apply commit and ratchet forward
 	next := s.clone()
 	next.apply(commit)
 	next.PendingProposals = nil
@@ -355,7 +359,6 @@ func (s *State) apply(commit Commit) {
 func (s *State) applyAddProposal(add *AddProposal) {
 	target := s.Tree.LeftmostFree()
 	s.Tree.AddLeaf(target, &add.ClientInitKey.InitKey, &add.ClientInitKey.Credential)
-
 }
 
 func (s *State) applyRemoveProposal(remove *RemoveProposal) {
@@ -748,7 +751,6 @@ func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
 		return nil, fmt.Errorf("unprotect attempted on non-application message")
 	}
 	return pt.Content.Application.Data, nil
-
 }
 
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
@@ -813,8 +815,20 @@ func (s State) clone() *State {
 	cloned.Index = s.Index
 	cloned.IdentityPriv = s.IdentityPriv
 	cloned.scheme = s.scheme
-	cloned.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
+	if s.PendingProposals != nil {
+		cloned.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
+	}
 	cloned.UpdateSecrets = s.UpdateSecrets
 	cloned.processedProposals = s.processedProposals
 	return cloned
+}
+
+// Compare the public aspects of two nodes
+func (s State) Equals(o State) bool {
+
+	if s.Epoch != o.Epoch && !bytes.Equal(s.GroupID, o.GroupID) && s.CipherSuite != o.CipherSuite {
+		return false
+	}
+
+	return s.Tree.Equals(&o.Tree) && reflect.DeepEqual(s.Keys, o.Keys)
 }

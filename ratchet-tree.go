@@ -48,7 +48,8 @@ func (n RatchetTreeNode) Equals(o RatchetTreeNode) bool {
 	if lhsCredNil != rhsCredNil {
 		return false
 	}
-	if !lhsCredNil && !reflect.DeepEqual(n.Credential, o.Credential) {
+
+	if !lhsCredNil && !n.Credential.Equals(*o.Credential) {
 		return false
 	}
 

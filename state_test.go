@@ -11,6 +11,7 @@ var (
 	suite     = P256_SHA256_AES128GCM
 	scheme    = Ed25519
 	groupSize = 5
+	setupDone = false
 
 	identityPrivs  []SignaturePrivateKey
 	credentials    []Credential
@@ -23,6 +24,11 @@ var (
 
 func setup() {
 	var cik *ClientInitKey = nil
+
+	if setupDone {
+		return
+	}
+
 	for i := 0; i < groupSize; i++ {
 		// cred gen
 		sigPriv, _ := scheme.Generate()
@@ -44,6 +50,7 @@ func setup() {
 		cik = nil
 		//dump(clientInitKeys)
 	}
+	setupDone = true
 }
 
 func dump(ciks []ClientInitKey) {
@@ -81,5 +88,85 @@ func TestState_TwoPerson(t *testing.T) {
 	pt, err := second0.unprotect(ct)
 	assertNotError(t, err, "unprotect failure")
 	assertByteEquals(t, pt, testMessage)
+}
+
+func TestState_Multi(t *testing.T) {
+	setup()
+	// start with the group creator
+	states = append(states, *newEmptyState(groupId, suite, initPrivs[0], credentials[0]))
+
+	// add proposals for rest of the participants
+	for i := 1; i < groupSize; i++ {
+		add := states[0].add(clientInitKeys[i])
+		_, err := states[0].handle(add)
+		assertNotError(t, err, "add failed")
+	}
+
+	// commit the adds
+	secret, _ := getRandomBytes(32)
+	_, welcome, next, err := states[0].commit(secret)
+	assertNotError(t, err, "commit add proposals failed")
+	states[0] = *next.clone()
+
+	// initialize the new joiners from the welcome
+	for i := 1; i < groupSize; i++ {
+		s, err := newJoinedState([]ClientInitKey{clientInitKeys[i]}, *welcome)
+		assertNotError(t, err, "initializing the state from welcome failed")
+		states = append(states, *s)
+	}
+
+	for i, s := range states {
+		ct, _ := s.protect(testMessage)
+		for j, o := range states {
+			if i == j {
+				continue
+			}
+			pt, _ := o.unprotect(ct)
+			assertByteEquals(t, pt, testMessage)
+		}
+	}
+}
+
+func TestState_CipherNegotiation(t *testing.T) {
+	// Alice supports P-256 and X25519
+	alicePriv, _ := scheme.Generate()
+	aliceBc := &BasicCredential{
+		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
+		SignatureScheme:    scheme,
+		SignaturePublicKey: alicePriv.PublicKey,
+	}
+	aliceCred := Credential{Basic: aliceBc, privateKey: &alicePriv}
+	aliceSuites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+	var aliceCiks []ClientInitKey
+	for _, s := range aliceSuites {
+		cik := newClientInitKey(s, &aliceCred)
+		aliceCiks = append(aliceCiks, *cik)
+	}
+
+	// Bob spuports P-256 and P-521
+	bobPriv, _ := scheme.Generate()
+	bobBc := &BasicCredential{
+		Identity:           []byte{0x04, 0x05, 0x06, 0x07},
+		SignatureScheme:    scheme,
+		SignaturePublicKey: bobPriv.PublicKey,
+	}
+	bobCred := Credential{Basic: bobBc, privateKey: &bobPriv}
+	bobSuites := []CipherSuite{P256_SHA256_AES128GCM, P521_SHA512_AES256GCM}
+	var bobCiks []ClientInitKey
+	for _, s := range bobSuites {
+		cik := newClientInitKey(s, &bobCred)
+		bobCiks = append(bobCiks, *cik)
+	}
+
+	// Bob should choose P-256
+	secret, _ := getRandomBytes(32)
+	welcome, bobState, err := negotiateWithPeer(groupId, bobCiks, aliceCiks, secret)
+	assertNotError(t, err, "state negotiation failed")
+
+	// Alice should also arrive at P-256
+	aliceState, err := newJoinedState(aliceCiks, *welcome)
+	assertNotError(t, err, "state negotiation failed")
+
+	assertTrue(t, aliceState.Equals(*bobState), "states are unequal")
 
 }
