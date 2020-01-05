@@ -826,7 +826,7 @@ func (s State) clone() *State {
 // Compare the public aspects of two nodes
 func (s State) Equals(o State) bool {
 
-	if s.Epoch != o.Epoch && !bytes.Equal(s.GroupID, o.GroupID) && s.CipherSuite != o.CipherSuite {
+	if s.Epoch != o.Epoch || !bytes.Equal(s.GroupID, o.GroupID) || s.CipherSuite != o.CipherSuite {
 		return false
 	}
 
