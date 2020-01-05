@@ -50,7 +50,7 @@ func TestKeySchedule(t *testing.T) {
 		t.Fatalf("Malformed first epoch")
 	}
 
-	checkEpoch := func(epoch *keyScheduleEpoch, size leafCount) {
+	checkEpoch := func(epoch keyScheduleEpoch, size leafCount) {
 		ok := (epoch.Suite == suite) &&
 			(len(epoch.EpochSecret) == secretSize) &&
 			(len(epoch.SenderDataSecret) == secretSize) &&

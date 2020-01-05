@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
 	"math/rand"
-	"reflect"
 )
 
 ///
@@ -61,7 +60,7 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 		GroupID:                 groupID,
 		Epoch:                   0,
 		Tree:                    *tree,
-		Keys:                    *kse,
+		Keys:                    kse,
 		Index:                   0,
 		IdentityPriv:            *cred.privateKey,
 		scheme:                  cred.Scheme(),
@@ -74,9 +73,7 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 }
 
 func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
-
 	suite := welcome.CipherSuite
-
 	s := new(State)
 	s.CipherSuite = suite
 	s.Tree = *newRatchetTree(suite)
@@ -191,7 +188,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: groupCtx marshal failure %v", err)
 	}
 
-	s.Keys = *fe.Next(leafCount(s.Tree.size()), updateSecret, encGrpCtx)
+	s.Keys = fe.Next(leafCount(s.Tree.size()), updateSecret, encGrpCtx)
 
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
@@ -326,13 +323,16 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
 
 	// Create the Commit message and advance the transcripts / key schedule
-	pt := next.ratchetAndSign(commit, updateSecret, s.groupContext())
+	pt, err := next.ratchetAndSign(commit, updateSecret, s.groupContext())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("mls.state: racthet forward failed %v", err)
+	}
 
 	// Complete the GroupInfo and form the Welcome
 	gi.ConfirmedTranscriptHash = next.ConfirmedTranscriptHash
 	gi.InterimTranscriptHash = next.InterimTranscriptHash
 	gi.Path = path
-	gi.Confirmation = pt.Content.Commit.Confirmation
+	gi.Confirmation = pt.Content.Commit.Confirmation.Data
 	err = gi.sign(s.Index, &s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
@@ -348,12 +348,20 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 /// Proposal processing helpers
 
-func (s *State) apply(commit Commit) {
-	s.applyProposals(commit.Updates)
-	s.applyProposals(commit.Removes)
-	s.applyProposals(commit.Adds)
-	// tree truncate
-
+func (s *State) apply(commit Commit) error {
+	err := s.applyProposals(commit.Updates)
+	if err != nil {
+		return err
+	}
+	err = s.applyProposals(commit.Removes)
+	if err != nil {
+		return err
+	}
+	err = s.applyProposals(commit.Adds)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *State) applyAddProposal(add *AddProposal) {
@@ -375,32 +383,33 @@ func (s *State) applyUpdateSecret(target leafIndex, secret []byte) {
 	s.Tree.Merge(target, secret)
 }
 
-func (s *State) applyProposals(ids []ProposalID) {
+func (s *State) applyProposals(ids []ProposalID) error {
 	for _, id := range ids {
 		pt, ok := s.findProposal(id)
 		if !ok {
-			panic("mls.state: commit of unknown proposal")
+			return fmt.Errorf("mls.state: commit of unknow proposal type %v", id)
 		}
 		proposal := pt.Content.Proposal
-		switch {
-		case proposal.Add != nil:
+		switch proposal.Type() {
+		case ProposalTypeAdd:
 			s.applyAddProposal(proposal.Add)
-		case proposal.Update != nil:
+		case ProposalTypeUpdate:
 			if pt.Sender != s.Index {
 				// apply update from the given member
 				s.applyUpdateProposal(pt.Sender, proposal.Update)
 			}
 			// handle self-update commit
 			if len(s.UpdateSecrets[id.String()]) == 0 {
-				panic("mls.state: self-update with no cached secret")
+				return fmt.Errorf("mls.state: self-update with no cached secret")
 			}
 			s.applyUpdateSecret(pt.Sender, s.UpdateSecrets[id.String()])
-		case proposal.Remove != nil:
+		case ProposalTypeRemove:
 			s.applyRemoveProposal(proposal.Remove)
 		default:
-			panic("mls.state: invalid proposal type")
+			return fmt.Errorf("mls.state: invalid proposal type")
 		}
 	}
+	return nil
 }
 
 func (s State) findProposal(id ProposalID) (MLSPlaintext, bool) {
@@ -461,10 +470,10 @@ func (s *State) updateEpochSecrets(secret []byte) {
 	if err != nil {
 		panic(fmt.Errorf("mls.state: update epoch secret failed %v", err))
 	}
-	s.Keys = *s.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
+	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
 }
 
-func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) *MLSPlaintext {
+func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -484,7 +493,7 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	commit := pt.Content.Commit
 	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
-	commit.Confirmation = hmac.Sum(nil)
+	commit.Confirmation.Data = hmac.Sum(nil)
 
 	// sign the MLSPlainText and update state hashes
 	// as a result of ratcheting.
@@ -492,12 +501,15 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 
 	digest := s.CipherSuite.newDigest()
 	digest.Write(s.ConfirmedTranscriptHash)
-	s.InterimTranscriptHash = digest.Sum(pt.commitAuthData())
-	return pt
+	authData, err := pt.commitAuthData()
+	if err != nil {
+		return nil, err
+	}
+	s.InterimTranscriptHash = digest.Sum(authData)
+	return pt, nil
 }
 
 func (s *State) handle(pt *MLSPlaintext) (*State, error) {
-
 	if !bytes.Equal(pt.GroupID, s.GroupID) {
 		return nil, fmt.Errorf("mls.state: groupId mismatch")
 	}
@@ -529,7 +541,10 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	// apply the commit
 	commitData := pt.Content.Commit
 	next := s.clone()
-	next.apply(commitData.Commit)
+	err := next.apply(commitData.Commit)
+	if err != nil {
+		return nil, err
+	}
 
 	// apply the direct path
 	ctx, err := syntax.Marshal(GroupContext{
@@ -550,13 +565,17 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 
 	digest = next.CipherSuite.newDigest()
 	digest.Write(next.ConfirmedTranscriptHash)
-	s.InterimTranscriptHash = digest.Sum(pt.commitAuthData())
+	authData, err := pt.commitAuthData()
+	if err != nil {
+		return nil, err
+	}
+	s.InterimTranscriptHash = digest.Sum(authData)
 
 	next.Epoch += 1
 	next.updateEpochSecrets(updateSecret)
 
 	// verify confirmation MAC
-	if !next.verifyConfirmation(commitData.Confirmation) {
+	if !next.verifyConfirmation(commitData.Confirmation.Data) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 	return next, nil
@@ -830,5 +849,5 @@ func (s State) Equals(o State) bool {
 		return false
 	}
 
-	return s.Tree.Equals(&o.Tree) && reflect.DeepEqual(s.Keys, o.Keys)
+	return s.Tree.Equals(&o.Tree)
 }

@@ -9,11 +9,13 @@ type keyAndNonce struct {
 	Nonce []byte
 }
 
-func (k keyAndNonce) clone() keyAndNonce {
+func (k keyAndNonce) clone(suite CipherSuite) keyAndNonce {
 	cloned := keyAndNonce{
-		Key:   append(k.Key[:0:0], k.Key...),
-		Nonce: append(k.Nonce[:0:0], k.Nonce...),
+		Key:   make([]byte, suite.constants().KeySize),
+		Nonce: make([]byte, suite.constants().NonceSize),
 	}
+	copy(cloned.Key, k.Key)
+	copy(cloned.Nonce, k.Nonce)
 	return cloned
 }
 
@@ -63,7 +65,7 @@ func (hr *hashRatchet) Next() (uint32, keyAndNonce) {
 	hr.NextSecret = secret
 
 	hr.Cache[generation] = keyAndNonce{key, nonce}
-	return generation, hr.Cache[generation]
+	return generation, hr.Cache[generation].clone(hr.Suite)
 }
 
 func (hr *hashRatchet) Get(generation uint32) (keyAndNonce, error) {
@@ -81,9 +83,7 @@ func (hr *hashRatchet) Get(generation uint32) (keyAndNonce, error) {
 
 	_, kn := hr.Next()
 
-	// return a cloned copy of key and nonce to avoid
-	// slice erasure on calling Erase
-	return kn.clone(), nil
+	return kn, nil
 }
 
 func (hr *hashRatchet) Erase(generation uint32) {
@@ -260,7 +260,7 @@ func newFirstEpoch(suite CipherSuite, initSecret []byte) *firstEpoch {
 	return &firstEpoch{suite, initSecret, groupInfoSecret, groupInfoKey, groupInfoNonce}
 }
 
-func (fe firstEpoch) Next(size leafCount, updateSecret, context []byte) *keyScheduleEpoch {
+func (fe firstEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {
 	epochSecret := fe.Suite.hkdfExtract(fe.InitSecret, updateSecret)
 	return newKeyScheduleEpoch(fe.Suite, size, epochSecret, context)
 }
@@ -282,7 +282,7 @@ type keyScheduleEpoch struct {
 	InitSecret        []byte
 }
 
-func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context []byte) *keyScheduleEpoch {
+func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context []byte) keyScheduleEpoch {
 	senderDataSecret := suite.deriveSecret(epochSecret, "sender data", context)
 	handshakeSecret := suite.deriveSecret(epochSecret, "handshake", context)
 	applicationSecret := suite.deriveSecret(epochSecret, "application", context)
@@ -293,7 +293,7 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 	handshakeBaseKeys := newNoFSBaseKeySource(suite, handshakeSecret)
 	applicationBaseKeys := newTreeBaseKeySource(suite, size, applicationSecret)
 
-	return &keyScheduleEpoch{
+	return keyScheduleEpoch{
 		Suite:             suite,
 		EpochSecret:       epochSecret,
 		SenderDataSecret:  senderDataSecret,
@@ -307,7 +307,7 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 	}
 }
 
-func (kse *keyScheduleEpoch) Next(size leafCount, updateSecret, context []byte) *keyScheduleEpoch {
+func (kse *keyScheduleEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {
 	epochSecret := kse.Suite.hkdfExtract(kse.InitSecret, updateSecret)
 	return newKeyScheduleEpoch(kse.Suite, size, epochSecret, context)
 }

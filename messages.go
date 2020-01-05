@@ -24,61 +24,79 @@ type Signature struct {
 	Data []byte `tls:"head=2"`
 }
 
+type SupportedVersion uint8
+
+const (
+	SupportedVersionMLS10   = 0
+	SupportedVersionInvalid = 255
+)
+
 type ClientInitKey struct {
-	SupportedVersion uint8
-	Id               uint8
+	SupportedVersion SupportedVersion
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
 	Extensions       ExtensionList
-	Signature        []byte          `tls:"head=2"`
+	Signature        Signature
 	privateKey       *HPKEPrivateKey `tls:"omit"`
 }
 
-func (cik ClientInitKey) toBeSigned() []byte {
+func (cik ClientInitKey) toBeSigned() ([]byte, error) {
 	enc, err := syntax.Marshal(struct {
-		Version     uint8
+		Version     SupportedVersion
 		CipherSuite CipherSuite
 		InitKey     HPKEPublicKey
 		Credential  Credential
+		Extensions  ExtensionList
 	}{
 		Version:     cik.SupportedVersion,
 		CipherSuite: cik.CipherSuite,
 		InitKey:     cik.InitKey,
 		Credential:  cik.Credential,
+		Extensions:  cik.Extensions,
 	})
 
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return enc
+	return enc, nil
 }
 
-func (cik *ClientInitKey) sign(tbs []byte) []byte {
-	return cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)
+func (cik *ClientInitKey) sign() error {
+	tbs, err := cik.toBeSigned()
+	if err != nil {
+		return err
+	}
+	cik.Signature = Signature{cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)}
+	return nil
 }
 
-func (cik ClientInitKey) verify() bool {
-	tbs := cik.toBeSigned()
-	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature)
+func (cik ClientInitKey) verify() (bool, error) {
+	tbs, err := cik.toBeSigned()
+	if err != nil {
+		return false, fmt.Errorf("mls.cik: verification marshal error %v", err)
+	}
+
+	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data), nil
 }
 
-func newClientInitKey(suite CipherSuite, cred *Credential) *ClientInitKey {
+func newClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
 	priv, err := suite.hpke().Generate()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("mls.cik: private key generation failure %v", err)
 	}
 	cik := new(ClientInitKey)
-	cik.SupportedVersion = 0
+	cik.SupportedVersion = SupportedVersionMLS10
 	cik.CipherSuite = suite
 	cik.InitKey = priv.PublicKey
 	cik.Credential = *cred
 	cik.privateKey = &priv
-
-	tobeSigned := cik.toBeSigned()
-	cik.sign(tobeSigned)
-	return cik
+	err = cik.sign()
+	if err != nil {
+		return nil, fmt.Errorf("mls.cik: sign marshal failure %v", err)
+	}
+	return cik, nil
 }
 
 ///
@@ -230,9 +248,12 @@ type ApplicationData struct {
 	Data []byte `tls:"head=4"`
 }
 
+type Confirmation struct {
+	Data []byte `tls:"head=1"`
+}
 type CommitData struct {
 	Commit       Commit
-	Confirmation []byte `tls:"head=1"`
+	Confirmation Confirmation
 }
 
 type MLSPlaintextContent struct {
@@ -318,13 +339,6 @@ type MLSPlaintext struct {
 	Signature         Signature
 }
 
-func (pt MLSPlaintext) marshalContent() ([]byte, error) {
-	if pt.Content.Type() == ContentTypeApplication {
-		return syntax.Marshal(pt.Content.Application)
-	}
-	return nil, fmt.Errorf("mls.mlsPlaintext: wrong content type")
-}
-
 func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	s := NewWriteStream()
 	err := s.Write(ctx)
@@ -364,15 +378,17 @@ func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme
 
 func (pt MLSPlaintext) commitContent() []byte {
 	enc, err := syntax.Marshal(struct {
-		GroupId []byte `tls:"head=1"`
-		Epoch   Epoch
-		Sender  leafIndex
-		Commit  Commit
+		GroupId     []byte `tls:"head=1"`
+		Epoch       Epoch
+		Sender      leafIndex
+		Commit      Commit
+		ContentType ContentType
 	}{
-		GroupId: pt.GroupID,
-		Epoch:   pt.Epoch,
-		Sender:  pt.Sender,
-		Commit:  pt.Content.Commit.Commit,
+		GroupId:     pt.GroupID,
+		Epoch:       pt.Epoch,
+		Sender:      pt.Sender,
+		Commit:      pt.Content.Commit.Commit,
+		ContentType: pt.Content.Type(),
 	})
 
 	if err != nil {
@@ -381,20 +397,14 @@ func (pt MLSPlaintext) commitContent() []byte {
 
 	return enc
 }
-func (pt MLSPlaintext) commitAuthData() []byte {
+func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	data := pt.Content.Commit
 	s := NewWriteStream()
-	err := s.Write(data.Confirmation)
+	err := s.WriteAll(data.Confirmation, pt.Signature)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-
-	err = s.Write(pt.Signature)
-	if err != nil {
-		return nil
-	}
-
-	return s.Data()
+	return s.Data(), nil
 }
 
 type MLSCiphertext struct {
@@ -543,8 +553,6 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo) *Welcom
 		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
 	}
 
-	var gi GroupInfo
-	syntax.Unmarshal(pt, &gi)
 	kn := deriveGroupKeyAndNonce(cs, initSecret)
 	aead, err := cs.newAEAD(kn.Key)
 	if err != nil {

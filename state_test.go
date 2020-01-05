@@ -22,9 +22,7 @@ var (
 	testMessage = unhex("1112131415")
 )
 
-func setup() {
-	var cik *ClientInitKey = nil
-
+func setup(t *testing.T) {
 	if setupDone {
 		return
 	}
@@ -40,8 +38,8 @@ func setup() {
 		credentialBasic = Credential{Basic: basicCredential, privateKey: &sigPriv}
 
 		//cik gen
-		cik = newClientInitKey(suite, &credentialBasic)
-		cik.Id = uint8(i)
+		cik, err := newClientInitKey(suite, &credentialBasic)
+		assertNotError(t, err, "newClientInitKey error")
 		// save all the materials
 		identityPrivs = append(identityPrivs, sigPriv)
 		credentials = append(credentials, credentialBasic)
@@ -56,12 +54,12 @@ func setup() {
 func dump(ciks []ClientInitKey) {
 	fmt.Println("---- DUMP -----")
 	for _, cik := range ciks {
-		fmt.Printf("%d priv %x pub %x\n", cik.Id, cik.privateKey.Data, cik.InitKey.Data)
+		fmt.Printf("priv %x pub %x\n", cik.privateKey.Data, cik.InitKey.Data)
 	}
 }
 
 func TestState_TwoPerson(t *testing.T) {
-	setup()
+	setup(t)
 	// creator's state
 	// dump(clientInitKeys)
 	first0 := newEmptyState(groupId, suite, initPrivs[0], credentials[0])
@@ -91,7 +89,7 @@ func TestState_TwoPerson(t *testing.T) {
 }
 
 func TestState_Multi(t *testing.T) {
-	setup()
+	setup(t)
 	// start with the group creator
 	states = append(states, *newEmptyState(groupId, suite, initPrivs[0], credentials[0]))
 
@@ -139,7 +137,8 @@ func TestState_CipherNegotiation(t *testing.T) {
 	aliceSuites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
 	var aliceCiks []ClientInitKey
 	for _, s := range aliceSuites {
-		cik := newClientInitKey(s, &aliceCred)
+		cik, err := newClientInitKey(s, &aliceCred)
+		assertNotError(t, err, "newClientInitKey error")
 		aliceCiks = append(aliceCiks, *cik)
 	}
 
@@ -154,7 +153,8 @@ func TestState_CipherNegotiation(t *testing.T) {
 	bobSuites := []CipherSuite{P256_SHA256_AES128GCM, P521_SHA512_AES256GCM}
 	var bobCiks []ClientInitKey
 	for _, s := range bobSuites {
-		cik := newClientInitKey(s, &bobCred)
+		cik, err := newClientInitKey(s, &bobCred)
+		assertNotError(t, err, "newClientInitKey error")
 		bobCiks = append(bobCiks, *cik)
 	}
 

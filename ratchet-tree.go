@@ -57,6 +57,17 @@ func (n RatchetTreeNode) Equals(o RatchetTreeNode) bool {
 		reflect.DeepEqual(n.UnmergedLeaves, o.UnmergedLeaves)
 }
 
+func (n RatchetTreeNode) Clone() RatchetTreeNode {
+	cloned := RatchetTreeNode{
+		Credential:     n.Credential,
+		PublicKey:      n.PublicKey,
+		PrivateKey:     n.PrivateKey,
+		UnmergedLeaves: make([]leafIndex, len(n.UnmergedLeaves)),
+	}
+	copy(cloned.UnmergedLeaves, n.UnmergedLeaves)
+	return cloned
+}
+
 func (n *RatchetTreeNode) setPublic(pub *HPKEPublicKey) {
 	n.PublicKey = pub
 	n.UnmergedLeaves = []leafIndex{}
@@ -122,6 +133,21 @@ func (n OptionalRatchetNode) Equals(o OptionalRatchetNode) bool {
 	}
 
 	return false
+}
+
+func (n OptionalRatchetNode) Clone() OptionalRatchetNode {
+	cloned := OptionalRatchetNode{
+		Node: nil,
+		Hash: make([]byte, len(n.Hash)),
+	}
+
+	if !n.blank() {
+		var node RatchetTreeNode
+		node = n.Node.Clone()
+		cloned.Node = &node
+	}
+	copy(cloned.Hash, n.Hash)
+	return cloned
 }
 
 func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
@@ -442,13 +468,12 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 	for i := leafIndex(0); leafCount(i) < num; i++ {
 		idx := toNodeIndex(i)
 		n := t.Nodes[idx]
-		if n.Node == nil || n.Node.Credential == nil {
+		if n.blank() {
 			continue
 		}
 		hpkeMatch := cik.InitKey.equals(n.Node.PublicKey)
-		credMatch1 := reflect.DeepEqual(cik.Credential.Basic, n.Node.Credential.Basic)
-		credMatch2 := reflect.DeepEqual(cik.Credential.X509, n.Node.Credential.X509)
-		if hpkeMatch && credMatch1 && credMatch2 {
+		credMatch := cik.Credential.Equals(*n.Node.Credential)
+		if hpkeMatch && credMatch {
 			return i, true
 		}
 	}
@@ -541,18 +566,8 @@ func (t *RatchetTree) setHashPath(index leafIndex) {
 func (t RatchetTree) clone() *RatchetTree {
 	var n []OptionalRatchetNode
 	for _, node := range t.Nodes {
-		var onode OptionalRatchetNode
-		if !node.blank() {
-			onode.Node = &(*node.Node)
-			// copy over unmerged leaves (slice)
-			onode.Node.UnmergedLeaves = append(node.Node.UnmergedLeaves[:0:0], node.Node.UnmergedLeaves...)
-		}
-		if node.Hash != nil {
-			onode.Hash = append(node.Hash[:0:0], node.Hash...)
-		}
-		n = append(n, onode)
+		n = append(n, node.Clone())
 	}
-
 	cloned := &RatchetTree{
 		Nodes:       n,
 		CipherSuite: t.CipherSuite,

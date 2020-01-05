@@ -43,12 +43,12 @@ var (
 	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
 	clientInitKey = &ClientInitKey{
-		SupportedVersion: 0xFF,
+		SupportedVersion: SupportedVersionInvalid,
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
 		Extensions:       extListValidIn,
-		Signature:        []byte{0x00, 0x00, 0x00},
+		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
