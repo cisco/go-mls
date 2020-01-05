@@ -55,18 +55,19 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 	secret := make([]byte, cs.newDigest().Size())
 	kse := newKeyScheduleEpoch(cs, 1, secret, []byte{})
 	s := &State{
-		CipherSuite:        cs,
-		GroupID:            groupID,
-		Epoch:              0,
-		Tree:               *tree,
-		Keys:               *kse,
-		Index:              0,
-		IdentityPriv:       *cred.privateKey,
-		scheme:             cred.Scheme(),
-		processedProposals: map[string]bool{},
-		UpdateSecrets:      map[string][]byte{},
+		CipherSuite:             cs,
+		GroupID:                 groupID,
+		Epoch:                   0,
+		Tree:                    *tree,
+		Keys:                    *kse,
+		Index:                   0,
+		IdentityPriv:            *cred.privateKey,
+		scheme:                  cred.Scheme(),
+		processedProposals:      map[string]bool{},
+		UpdateSecrets:           map[string][]byte{},
+		ConfirmedTranscriptHash: []byte{},
+		InterimTranscriptHash:   []byte{},
 	}
-	fmt.Printf("identifyPrivate : %x", s.IdentityPriv.Data)
 	return s
 }
 
@@ -160,7 +161,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	// parse group info context
 	s.Epoch = gi.Epoch
 	s.GroupID = gi.GroupId
-	s.Tree = *gi.Tree
+	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
 
@@ -179,7 +180,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		gi.PriorConfirmedTranscriptHash,
 	})
 
-	// question to richard: should the index be gi.SignerIndex instead?
 	updateSecret := s.Tree.Decap(gi.SignerIndex, decapCtx, gi.Path)
 	if updateSecret == nil {
 		return nil, fmt.Errorf("mls.state: decrypting root secret got nil value")
@@ -227,7 +227,6 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 		return nil, nil, fmt.Errorf("mls.state: negotiation failure")
 	}
 
-	//newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
 	s := newEmptyState(groupID, mySelectedCik.CipherSuite, *mySelectedCik.privateKey, mySelectedCik.Credential)
 	add := s.add(otherSelectedCik)
 	s.handle(add)
@@ -245,7 +244,6 @@ func (s State) add(cik ClientInitKey) *MLSPlaintext {
 			ClientInitKey: cik,
 		},
 	}
-	fmt.Printf("\nadd: cik id %d, ikPriv %x, ikPub %x\n", cik.Id, cik.privateKey.Data, cik.InitKey.Data)
 	return s.sign(addProposal)
 }
 
@@ -293,9 +291,6 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 	}
 
-	fmt.Printf("mls.state: adds %v, updates %v, removes %v", len(commit.Adds),
-		len(commit.Updates), len(commit.Removes))
-
 	next := s.clone()
 	next.apply(commit)
 	next.PendingProposals = nil
@@ -304,8 +299,8 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	prevInitSecret := s.Keys.InitSecret
 	gi := new(GroupInfo)
 	gi.GroupId = next.GroupID
-	gi.Epoch = next.Epoch
-	gi.Tree = &next.Tree
+	gi.Epoch = next.Epoch + 1
+	gi.Tree = next.Tree.clone()
 	gi.PriorConfirmedTranscriptHash = s.ConfirmedTranscriptHash
 
 	ctx, err := syntax.Marshal(GroupContext{
@@ -320,7 +315,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// KEM new entropy to the group and the new joiners
 	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
-	fmt.Printf("encap root secret %x", updateSecret)
+
 	// Create the Commit message and advance the transcripts / key schedule
 	pt := next.ratchetAndSign(commit, updateSecret, s.groupContext())
 
@@ -338,6 +333,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	for _, joiner := range joiners {
 		welcome.encrypt(joiner)
 	}
+
 	return pt, welcome, next, nil
 }
 
@@ -530,7 +526,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	// apply the direct path
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch + 1,
+		Epoch:                   next.Epoch,
 		TreeHash:                next.Tree.RootHash(),
 		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
 	})
@@ -571,7 +567,7 @@ func (s State) verifyConfirmation(confirmation []byte) bool {
 	return true
 }
 
-func (s *State) encrypt(pt *MLSPlaintext) *MLSCiphertext {
+func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var generation uint32
 	var keys keyAndNonce
 	switch pt.Content.Type() {
@@ -580,30 +576,39 @@ func (s *State) encrypt(pt *MLSPlaintext) *MLSCiphertext {
 	case ContentTypeProposal, ContentTypeCommit:
 		generation, keys = s.Keys.HandshakeKeys.Next(s.Index)
 	default:
-		panic("mls.state: encrypt unknown content type")
+		return nil, fmt.Errorf("mls.state: encrypt unknown content type")
 	}
 
 	stream := NewWriteStream()
 	// skipping error checks since we are trying plain integers
-	_ = stream.Write(s.Index)
-	_ = stream.Write(generation)
+	err := stream.Write(s.Index)
+	if err == nil {
+		err = stream.Write(generation)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
+	}
+
 	senderData := stream.Data()
 	senderDataNonce := make([]byte, s.CipherSuite.constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
-
-	sdAead, _ := s.CipherSuite.newAEAD(keys.Key)
+	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
 	// content data
-	content, err := syntax.Marshal(pt)
-	if err != nil {
-		fmt.Printf("mls.state: mlsPlaintext marshal failure %v", err)
-		return nil
+	stream = NewWriteStream()
+	err = stream.Write(pt.Content)
+	if err == nil {
+		err = stream.Write(pt.Signature)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: content marshal failure %v", err)
+	}
+	content := stream.Data()
+
 	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
-
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
 	contentCt := aead.Seal(nil, keys.Nonce, content, aad)
 
@@ -617,7 +622,8 @@ func (s *State) encrypt(pt *MLSPlaintext) *MLSCiphertext {
 		EncryptedSenderData: sdCt,
 		Ciphertext:          contentCt,
 	}
-	return ct
+
+	return ct, nil
 }
 
 func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
@@ -645,7 +651,6 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	if err == nil {
 		_, err = stream.Read(&generation)
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
@@ -677,27 +682,37 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
 
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
+
 	content, err := aead.Open(nil, keys.Nonce, ct.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
+
+	// parse the Content and Signature
+	stream = NewReadStream(content)
+	var mlsContent MLSPlaintextContent
+	var signature Signature
+	_, err = stream.Read(&mlsContent)
+	if err == nil {
+		_, err = stream.Read(&signature)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: content unmarshal failure %v", err)
+	}
+	_, _ = syntax.Unmarshal(content, &mlsContent)
 
 	pt := &MLSPlaintext{
 		GroupID:           s.GroupID,
 		Epoch:             s.Epoch,
 		Sender:            sender,
 		AuthenticatedData: ct.AuthenticatedData,
-		Content: MLSPlaintextContent{
-			Application: &ApplicationData{
-				Data: content,
-			},
-		},
+		Content:           mlsContent,
+		Signature:         signature,
 	}
-
 	return pt, nil
 }
 
-func (s *State) protect(data []byte) *MLSCiphertext {
+func (s *State) protect(data []byte) (*MLSCiphertext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -708,6 +723,7 @@ func (s *State) protect(data []byte) *MLSCiphertext {
 			},
 		},
 	}
+
 	pt.sign(s.groupContext(), s.IdentityPriv, s.scheme)
 	return s.encrypt(pt)
 }
@@ -726,8 +742,8 @@ func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
 	if pt.Content.Type() != ContentTypeApplication {
 		return nil, fmt.Errorf("unprotect attempted on non-application message")
 	}
-
 	return pt.Content.Application.Data, nil
+
 }
 
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {

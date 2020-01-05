@@ -98,7 +98,7 @@ var (
 				Data: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 			},
 		},
-		Signature: []byte{0x00, 0x01, 0x02, 0x03},
+		Signature: Signature{[]byte{0x00, 0x01, 0x02, 0x03}},
 	}
 
 	mlsCiphertextIn = &MLSCiphertext{
@@ -126,7 +126,7 @@ var (
 
 	ortnRtnNilCred = &OptionalRatchetNode{
 		Node: rtnNilCredential,
-		hash: nil,
+		Hash: nil,
 	}
 
 	rachetTree = &RatchetTree{

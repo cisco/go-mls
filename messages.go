@@ -20,6 +20,10 @@ type ExtensionList struct {
 	Extensions []Extension `tls:"head=2"`
 }
 
+type Signature struct {
+	Data []byte `tls:"head=2"`
+}
+
 type ClientInitKey struct {
 	SupportedVersion uint8
 	Id               uint8
@@ -311,12 +315,18 @@ type MLSPlaintext struct {
 	Sender            leafIndex
 	AuthenticatedData []byte `tls:"head=4"`
 	Content           MLSPlaintextContent
-	Signature         []byte `tls:"head=2"`
+	Signature         Signature
+}
+
+func (pt MLSPlaintext) marshalContent() ([]byte, error) {
+	if pt.Content.Type() == ContentTypeApplication {
+		return syntax.Marshal(pt.Content.Application)
+	}
+	return nil, fmt.Errorf("mls.mlsPlaintext: wrong content type")
 }
 
 func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	s := NewWriteStream()
-
 	err := s.Write(ctx)
 	if err != nil {
 		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
@@ -339,18 +349,17 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	if err != nil {
 		panic(fmt.Errorf("mls.mlsplaintext: marshal failure %v", err))
 	}
-
 	return s.Data()
 }
 
 func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
 	tbs := pt.toBeSigned(ctx)
-	pt.Signature = scheme.Sign(&priv, tbs)
+	pt.Signature = Signature{scheme.Sign(&priv, tbs)}
 }
 
 func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {
 	tbs := pt.toBeSigned(ctx)
-	return scheme.Verify(pub, tbs, pt.Signature)
+	return scheme.Verify(pub, tbs, pt.Signature.Data)
 }
 
 func (pt MLSPlaintext) commitContent() []byte {
@@ -452,7 +461,6 @@ func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 
 	// Sign toBeSigned() with priv -> SignerIndex, Signature
 	gi.SignerIndex = index
-	fmt.Printf("\ngroupInfo signing with index %v\n", gi.SignerIndex)
 	gi.Signature = cred.Scheme().Sign(priv, tbs)
 	return nil
 }
@@ -573,7 +581,6 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
 	}
 
-	fmt.Printf("\nwelcome: cik %d encrypting pk with pub %x\n", cik.Id, cik.InitKey.Data)
 	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))

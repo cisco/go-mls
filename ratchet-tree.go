@@ -84,7 +84,7 @@ func (n *RatchetTreeNode) AddUnmerged(l leafIndex) {
 ///
 type OptionalRatchetNode struct {
 	Node *RatchetTreeNode `tls:"optional"`
-	hash []byte           `tls:"omit"`
+	Hash []byte           `tls:"head=1"`
 }
 
 func newLeafNode(key *HPKEPublicKey, cred *Credential) OptionalRatchetNode {
@@ -141,7 +141,7 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: Marshal error %v", err))
 	}
-	n.hash = cs.digest(h)
+	n.Hash = cs.digest(h)
 
 }
 
@@ -163,13 +163,13 @@ func (n *OptionalRatchetNode) setParentHash(cs CipherSuite, l, r OptionalRatchet
 			UnmergedLeaves: n.Node.UnmergedLeaves,
 		}
 	}
-	phi.LeftHash = l.hash
-	phi.RightHash = r.hash
+	phi.LeftHash = l.Hash
+	phi.RightHash = r.Hash
 	data, err := syntax.Marshal(phi)
 	if err != nil {
 		panic(fmt.Errorf("mls.rtn: set hash error %v", err))
 	}
-	n.hash = cs.digest(data)
+	n.Hash = cs.digest(data)
 }
 
 func (n *OptionalRatchetNode) hasPrivate() bool {
@@ -193,6 +193,8 @@ func newRatchetTree(cs CipherSuite) *RatchetTree {
 
 func (t RatchetTree) Dump(label string) {
 	fmt.Printf("===== tree(%s) [%04x] =====\n", label, t.CipherSuite)
+	fmt.Printf("===== rootHash [%04x] =====\n", t.RootHash())
+
 	for i, n := range t.Nodes {
 		if n.blank() {
 			fmt.Printf("  %2d _\n", i)
@@ -267,7 +269,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		res := t.resolve(v)
 		for _, rnode := range res {
 			pk := t.Nodes[rnode].Node.PublicKey
-			ct, err := t.CipherSuite.hpke().Encrypt(*pk, []byte{}, pathSecret)
+			ct, err := t.CipherSuite.hpke().Encrypt(*pk, context, pathSecret)
 			if err != nil {
 				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
 			}
@@ -278,7 +280,6 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	}
 
 	t.setHashPath(from)
-
 	return dp, pathSecret
 }
 
@@ -407,7 +408,7 @@ func (t *RatchetTree) GetCredential(index leafIndex) *Credential {
 
 func (t *RatchetTree) RootHash() []byte {
 	r := root(t.size())
-	return t.Nodes[r].hash
+	return t.Nodes[r].Hash
 }
 
 func (t *RatchetTree) Equals(o *RatchetTree) bool {
@@ -539,12 +540,15 @@ func (t *RatchetTree) setHashPath(index leafIndex) {
 func (t RatchetTree) clone() *RatchetTree {
 	var n []OptionalRatchetNode
 	for _, node := range t.Nodes {
-		onode := OptionalRatchetNode{
-			Node: &(*node.Node),
-			hash: append(node.hash[:0:0], node.hash...),
+		var onode OptionalRatchetNode
+		if !node.blank() {
+			onode.Node = &(*node.Node)
+			// copy over unmerged leaves (slice)
+			onode.Node.UnmergedLeaves = append(node.Node.UnmergedLeaves[:0:0], node.Node.UnmergedLeaves...)
 		}
-		// copy over unmerged leaves (slice)
-		onode.Node.UnmergedLeaves = append(node.Node.UnmergedLeaves[:0:0], node.Node.UnmergedLeaves...)
+		if node.Hash != nil {
+			onode.Hash = append(node.Hash[:0:0], node.Hash...)
+		}
 		n = append(n, onode)
 	}
 

@@ -9,6 +9,14 @@ type keyAndNonce struct {
 	Nonce []byte
 }
 
+func (k keyAndNonce) clone() keyAndNonce {
+	cloned := keyAndNonce{
+		Key:   append(k.Key[:0:0], k.Key...),
+		Nonce: append(k.Nonce[:0:0], k.Nonce...),
+	}
+	return cloned
+}
+
 func zeroize(data []byte) {
 	for i := range data {
 		data[i] = 0
@@ -72,7 +80,10 @@ func (hr *hashRatchet) Get(generation uint32) (keyAndNonce, error) {
 	}
 
 	_, kn := hr.Next()
-	return kn, nil
+
+	// return a cloned copy of key and nonce to avoid
+	// slice erasure on calling Erase
+	return kn.clone(), nil
 }
 
 func (hr *hashRatchet) Erase(generation uint32) {
