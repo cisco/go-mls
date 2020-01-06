@@ -131,7 +131,7 @@ func generateTreeMathVectors(t *testing.T) []byte {
 	numNodes := nodeWidth(numLeaves)
 	tv := TreeMathTestVectors{
 		NumLeaves: numLeaves,
-		Root:      make([]nodeIndex, numNodes),
+		Root:      make([]nodeIndex, numLeaves),
 		Left:      make([]nodeIndex, numNodes),
 		Right:     make([]nodeIndex, numNodes),
 		Parent:    make([]nodeIndex, numNodes),
@@ -139,7 +139,10 @@ func generateTreeMathVectors(t *testing.T) []byte {
 	}
 
 	for i := range tv.Root {
-		tv.Root[i] = root(leafCount(i))
+		tv.Root[i] = root(leafCount(i + 1))
+	}
+
+	for i := range tv.Left {
 		tv.Left[i] = left(nodeIndex(i))
 		tv.Right[i] = right(nodeIndex(i), numLeaves)
 		tv.Parent[i] = parent(nodeIndex(i), numLeaves)
@@ -157,12 +160,16 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 	assertNotError(t, err, "Malformed tree math test vectors")
 
 	tvLen := int(nodeWidth(tv.NumLeaves))
-	if len(tv.Root) != tvLen || len(tv.Left) != tvLen || len(tv.Right) != tvLen || len(tv.Parent) != tvLen || len(tv.Sibling) != tvLen {
-		t.Fatalf("Malformed tree math test vectors")
+	if len(tv.Root) != int(tv.NumLeaves) || len(tv.Left) != tvLen ||
+		len(tv.Right) != tvLen || len(tv.Parent) != tvLen || len(tv.Sibling) != tvLen {
+		t.Fatalf("Malformed tree math test vectors: Incorrect vector sizes")
 	}
 
 	for i := range tv.Root {
-		assertEquals(t, tv.Root[i], root(leafCount(i)))
+		assertEquals(t, tv.Root[i], root(leafCount(i+1)))
+	}
+
+	for i := range tv.Left {
 		assertEquals(t, tv.Left[i], left(nodeIndex(i)))
 		assertEquals(t, tv.Right[i], right(nodeIndex(i), tv.NumLeaves))
 		assertEquals(t, tv.Parent[i], parent(nodeIndex(i), tv.NumLeaves))
