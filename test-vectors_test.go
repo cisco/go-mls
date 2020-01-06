@@ -41,6 +41,12 @@ var testVectorCases = map[string]TestVectorCase{
 		Verify:   verifyTreeMathVectors,
 	},
 
+	"crypto": {
+		Filename: "crypto.bin",
+		Generate: generateCryptoVectors,
+		Verify:   verifyCryptoVectors,
+	},
+
 	// TODO continue
 }
 

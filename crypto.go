@@ -195,7 +195,7 @@ func (k *HPKEPublicKey) equals(o *HPKEPublicKey) bool {
 
 type HPKECiphertext struct {
 	KEMOutput  []byte `tls:"head=2"`
-	Ciphertext []byte `tls:"head=2"`
+	Ciphertext []byte `tls:"head=4"`
 }
 
 type hpkeInstance struct {
@@ -256,6 +256,12 @@ func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext
 }
 
 func (h hpkeInstance) Decrypt(priv HPKEPrivateKey, aad []byte, ct HPKECiphertext) ([]byte, error) {
+	fmt.Printf("=== HPKE Decrypt ===\n")
+	fmt.Printf("priv: %x\n", priv.Data)
+	fmt.Printf("aad:  %x\n", aad)
+	fmt.Printf("ct.k: %x\n", ct.KEMOutput)
+	fmt.Printf("ct.c: %x\n", ct.Ciphertext)
+
 	skR, err := h.Suite.KEM.UnmarshalPrivate(priv.Data)
 	if err != nil {
 		return nil, err

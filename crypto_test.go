@@ -3,6 +3,8 @@ package mls
 import (
 	"bytes"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 var supportedSuites = []CipherSuite{
@@ -146,5 +148,76 @@ func TestSignVerify(t *testing.T) {
 
 	for _, scheme := range supportedSchemes {
 		t.Run(scheme.String(), signVerify(scheme))
+	}
+}
+
+///
+/// Test Vectors
+///
+
+type CryptoTestCase struct {
+	CipherSuite      CipherSuite
+	HKDFExtractOut   []byte `tls:"head=1"`
+	DeriveKeyPairPub HPKEPublicKey
+	HPKEOut          HPKECiphertext
+}
+
+type CryptoTestVectors struct {
+	HKDFExtractSalt   []byte           `tls:"head=1"`
+	HKDFExtractIKM    []byte           `tls:"head=1"`
+	DeriveKeyPairSeed []byte           `tls:"head=1"`
+	HPKEAAD           []byte           `tls:"head=1"`
+	HPKEPlaintext     []byte           `tls:"head=1"`
+	Cases             []CryptoTestCase `tls:"head=4"`
+}
+
+func generateCryptoVectors(t *testing.T) []byte {
+	tv := CryptoTestVectors{
+		HKDFExtractSalt:   []byte{0, 1, 2, 3},
+		HKDFExtractIKM:    []byte{4, 5, 6, 7},
+		DeriveKeyPairSeed: []byte{0, 1, 2, 3},
+		HPKEAAD:           bytes.Repeat([]byte{0xB1}, 128),
+		HPKEPlaintext:     bytes.Repeat([]byte{0xB2}, 128),
+		Cases: []CryptoTestCase{
+			{CipherSuite: P256_SHA256_AES128GCM},
+			{CipherSuite: X25519_SHA256_AES128GCM},
+		},
+	}
+
+	var err error
+	for i := range tv.Cases {
+		tc := &tv.Cases[i]
+
+		tc.HKDFExtractOut = tc.CipherSuite.hkdfExtract(tv.HKDFExtractSalt, tv.HKDFExtractIKM)
+
+		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
+		tc.DeriveKeyPairPub = priv.PublicKey
+		assertNotError(t, err, "Error deriving HPKE key pair")
+
+		tc.HPKEOut, err = tc.CipherSuite.hpke().Encrypt(tc.DeriveKeyPairPub, tv.HPKEAAD, tv.HPKEPlaintext)
+		assertNotError(t, err, "Error in HPKE encryption")
+	}
+
+	vec, err := syntax.Marshal(tv)
+	assertNotError(t, err, "Error marshaling test vectors")
+	return vec
+}
+
+func verifyCryptoVectors(t *testing.T, data []byte) {
+	var tv CryptoTestVectors
+	_, err := syntax.Unmarshal(data, &tv)
+	assertNotError(t, err, "Malformed crypto test vectors")
+
+	for _, tc := range tv.Cases {
+		hkdfExtractOut := tc.CipherSuite.hkdfExtract(tv.HKDFExtractSalt, tv.HKDFExtractIKM)
+		assertByteEquals(t, hkdfExtractOut, tc.HKDFExtractOut)
+
+		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
+		assertNotError(t, err, "Error deriving HPKE key pair")
+		assertByteEquals(t, priv.PublicKey.Data, tc.DeriveKeyPairPub.Data)
+
+		plaintext, err := tc.CipherSuite.hpke().Decrypt(priv, tv.HPKEAAD, tc.HPKEOut)
+		assertNotError(t, err, "Error in HPKE decryption")
+		assertDeepEquals(t, plaintext, tv.HPKEPlaintext)
 	}
 }
