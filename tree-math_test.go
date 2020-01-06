@@ -110,3 +110,17 @@ func TestPaths(t *testing.T) {
 	run("dirpath", dirpath, aDirpath)
 	run("copath", copath, aCopath)
 }
+
+///
+/// Test Vectors
+///
+
+func generateTreeMathVectors(t *testing.T) []byte {
+	// TODO
+	return nil
+}
+
+func verifyTreeMathVectors(t *testing.T, data []byte) {
+	// TODO
+	return
+}
