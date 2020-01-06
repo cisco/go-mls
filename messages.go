@@ -494,6 +494,15 @@ func (gi GroupInfo) verify() error {
 	return nil
 }
 
+func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byte) *GroupInfo {
+	gi := new(GroupInfo)
+	gi.GroupId = gid
+	gi.Epoch = epoch + 1
+	gi.Tree = tree.clone()
+	gi.PriorConfirmedTranscriptHash = transriptHash
+	return gi
+}
+
 ///
 /// KeyPackage
 ///

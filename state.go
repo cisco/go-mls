@@ -43,11 +43,6 @@ type State struct {
 	// slices are not comparable).  Instead, we use ProposalID.String()
 	PendingProposals []MLSPlaintext
 	UpdateSecrets    map[string][]byte
-
-	// local state to identify proposals being procesesed
-	// in the PendingProposals. Avoids linear loop to
-	// remove entries from PendingProposals.
-	processedProposals map[string]bool
 }
 
 func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
@@ -64,7 +59,6 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 		Index:                   0,
 		IdentityPriv:            *cred.privateKey,
 		scheme:                  cred.Scheme(),
-		processedProposals:      map[string]bool{},
 		UpdateSecrets:           map[string][]byte{},
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
@@ -161,7 +155,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
-	s.processedProposals = map[string]bool{}
 
 	// add self to tree
 	index, res := s.Tree.Find(clientInitKey)
@@ -195,7 +188,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)
 	if !bytes.Equal(confirm, gi.Confirmation) {
-		return nil, fmt.Errorf("mls.state: confirmation failed to verif")
+		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 
 	return s, nil
@@ -207,7 +200,7 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 
 	for _, mycik := range myCIKs {
 		for _, ocik := range otherCIKs {
-			if mycik.CipherSuite == ocik.CipherSuite {
+			if mycik.CipherSuite == ocik.CipherSuite && mycik.SupportedVersion == ocik.SupportedVersion {
 				selected = true
 				mySelectedCik = mycik
 				otherSelectedCik = ocik
@@ -279,35 +272,30 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	for _, pp := range s.PendingProposals {
 		pid := s.proposalId(pp)
-		if s.processedProposals[pid.String()] {
-			fmt.Printf("mls.state: skipping processed proposal %v", pp)
-			continue
-		}
-
 		proposal := pp.Content.Proposal
-		switch {
-		case proposal.Add != nil:
+		switch proposal.Type() {
+		case ProposalTypeAdd:
 			commit.Adds = append(commit.Adds, pid)
 			joiners = append(joiners, proposal.Add.ClientInitKey)
-		case proposal.Update != nil:
+		case ProposalTypeUpdate:
 			commit.Updates = append(commit.Updates, pid)
-		case proposal.Remove != nil:
+		case ProposalTypeRemove:
 			commit.Removes = append(commit.Removes, pid)
 		}
 	}
 
 	// init new state to apply commit and ratchet forward
 	next := s.clone()
-	next.apply(commit)
+	err := next.apply(commit)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	next.PendingProposals = nil
 
 	// Start a GroupInfo with the prepared state
 	prevInitSecret := s.Keys.InitSecret
-	gi := new(GroupInfo)
-	gi.GroupId = next.GroupID
-	gi.Epoch = next.Epoch + 1
-	gi.Tree = next.Tree.clone()
-	gi.PriorConfirmedTranscriptHash = s.ConfirmedTranscriptHash
+	gi := newGroupInfo(next.GroupID, next.Epoch, next.Tree, s.ConfirmedTranscriptHash)
 
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 gi.GroupId,
@@ -349,15 +337,21 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 /// Proposal processing helpers
 
 func (s *State) apply(commit Commit) error {
-	err := s.applyProposals(commit.Updates)
+	// state to identify proposals being processed
+	// in the PendingProposals. Avoids linear loop to
+	// remove entries from PendingProposals.
+	var processedProposals = map[string]bool{}
+	err := s.applyProposals(commit.Updates, processedProposals)
 	if err != nil {
 		return err
 	}
-	err = s.applyProposals(commit.Removes)
+
+	err = s.applyProposals(commit.Removes, processedProposals)
 	if err != nil {
 		return err
 	}
-	err = s.applyProposals(commit.Adds)
+
+	err = s.applyProposals(commit.Adds, processedProposals)
 	if err != nil {
 		return err
 	}
@@ -383,12 +377,21 @@ func (s *State) applyUpdateSecret(target leafIndex, secret []byte) {
 	s.Tree.Merge(target, secret)
 }
 
-func (s *State) applyProposals(ids []ProposalID) error {
+func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
 	for _, id := range ids {
 		pt, ok := s.findProposal(id)
 		if !ok {
 			return fmt.Errorf("mls.state: commit of unknow proposal type %v", id)
 		}
+
+		// we have processed this proposal already
+		if processed[id.String()] {
+			fmt.Printf("mls.state: skipping processed proposal %v", pt)
+			continue
+		} else {
+			processed[id.String()] = true
+		}
+
 		proposal := pt.Content.Proposal
 		switch proposal.Type() {
 		case ProposalTypeAdd:
@@ -416,7 +419,6 @@ func (s State) findProposal(id ProposalID) (MLSPlaintext, bool) {
 	for _, pt := range s.PendingProposals {
 		otherPid := s.proposalId(pt)
 		if bytes.Equal(otherPid.Hash, id.Hash) {
-			s.processedProposals[id.String()] = true
 			return pt, true
 		}
 	}
@@ -838,7 +840,6 @@ func (s State) clone() *State {
 		cloned.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
 	}
 	cloned.UpdateSecrets = s.UpdateSecrets
-	cloned.processedProposals = s.processedProposals
 	return cloned
 }
 
