@@ -3,6 +3,8 @@ package mls
 import (
 	"reflect"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 // Precomputed answers for the tree on ten elements:
@@ -109,4 +111,68 @@ func TestPaths(t *testing.T) {
 
 	run("dirpath", dirpath, aDirpath)
 	run("copath", copath, aCopath)
+}
+
+///
+/// Test Vectors
+///
+
+type TreeMathTestVectors struct {
+	NumLeaves leafCount
+	Root      []nodeIndex `tls:"head=4"`
+	Left      []nodeIndex `tls:"head=4"`
+	Right     []nodeIndex `tls:"head=4"`
+	Parent    []nodeIndex `tls:"head=4"`
+	Sibling   []nodeIndex `tls:"head=4"`
+}
+
+func generateTreeMathVectors(t *testing.T) []byte {
+	numLeaves := leafCount(255)
+	numNodes := nodeWidth(numLeaves)
+	tv := TreeMathTestVectors{
+		NumLeaves: numLeaves,
+		Root:      make([]nodeIndex, numLeaves),
+		Left:      make([]nodeIndex, numNodes),
+		Right:     make([]nodeIndex, numNodes),
+		Parent:    make([]nodeIndex, numNodes),
+		Sibling:   make([]nodeIndex, numNodes),
+	}
+
+	for i := range tv.Root {
+		tv.Root[i] = root(leafCount(i + 1))
+	}
+
+	for i := range tv.Left {
+		tv.Left[i] = left(nodeIndex(i))
+		tv.Right[i] = right(nodeIndex(i), numLeaves)
+		tv.Parent[i] = parent(nodeIndex(i), numLeaves)
+		tv.Sibling[i] = sibling(nodeIndex(i), numLeaves)
+	}
+
+	vec, err := syntax.Marshal(tv)
+	assertNotError(t, err, "Error marshaling test vectors")
+	return vec
+}
+
+func verifyTreeMathVectors(t *testing.T, data []byte) {
+	var tv TreeMathTestVectors
+	_, err := syntax.Unmarshal(data, &tv)
+	assertNotError(t, err, "Malformed tree math test vectors")
+
+	tvLen := int(nodeWidth(tv.NumLeaves))
+	if len(tv.Root) != int(tv.NumLeaves) || len(tv.Left) != tvLen ||
+		len(tv.Right) != tvLen || len(tv.Parent) != tvLen || len(tv.Sibling) != tvLen {
+		t.Fatalf("Malformed tree math test vectors: Incorrect vector sizes")
+	}
+
+	for i := range tv.Root {
+		assertEquals(t, tv.Root[i], root(leafCount(i+1)))
+	}
+
+	for i := range tv.Left {
+		assertEquals(t, tv.Left[i], left(nodeIndex(i)))
+		assertEquals(t, tv.Right[i], right(nodeIndex(i), tv.NumLeaves))
+		assertEquals(t, tv.Parent[i], parent(nodeIndex(i), tv.NumLeaves))
+		assertEquals(t, tv.Sibling[i], sibling(nodeIndex(i), tv.NumLeaves))
+	}
 }
