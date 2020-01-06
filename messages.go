@@ -555,7 +555,7 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo) *Welcome {
+func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
@@ -576,6 +576,11 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo) *Welcom
 		EncryptedGroupInfo: ct,
 		initSecret:         initSecret,
 	}
+
+	for _, joiner := range joiners {
+		w.encrypt(joiner)
+	}
+
 	return w
 }
 

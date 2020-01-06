@@ -104,8 +104,7 @@ func TestState_Multi(t *testing.T) {
 	secret, _ := getRandomBytes(32)
 	_, welcome, next, err := states[0].commit(secret)
 	assertNotError(t, err, "commit add proposals failed")
-	states[0] = *next.clone()
-
+	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
 		s, err := newJoinedState([]ClientInitKey{clientInitKeys[i]}, *welcome)

@@ -43,6 +43,9 @@ type State struct {
 	// slices are not comparable).  Instead, we use ProposalID.String()
 	PendingProposals []MLSPlaintext
 	UpdateSecrets    map[string][]byte
+
+	// stored groupContext
+	grpContext GroupContext
 }
 
 func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
@@ -162,7 +165,10 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: new joiner not in the tree")
 	}
 	s.Index = index
-	s.Tree.MergePrivate(s.Index, clientInitKey.privateKey)
+	err = s.Tree.MergePrivate(s.Index, clientInitKey.privateKey)
+	if err != nil {
+		return nil, err
+	}
 
 	decapCtx, err := syntax.Marshal(GroupContext{
 		gi.GroupId,
@@ -285,13 +291,10 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// init new state to apply commit and ratchet forward
-	next := s.clone()
-	err := next.apply(commit)
+	next, err := s.successor(commit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	next.PendingProposals = nil
 
 	// Start a GroupInfo with the prepared state
 	prevInitSecret := s.Keys.InitSecret
@@ -326,11 +329,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
 	}
 
-	welcome := newWelcome(s.CipherSuite, prevInitSecret, gi)
-	for _, joiner := range joiners {
-		welcome.encrypt(joiner)
-	}
-
+	welcome := newWelcome(s.CipherSuite, prevInitSecret, gi, joiners)
 	return pt, welcome, next, nil
 }
 
@@ -358,23 +357,29 @@ func (s *State) apply(commit Commit) error {
 	return nil
 }
 
-func (s *State) applyAddProposal(add *AddProposal) {
+func (s *State) applyAddProposal(add *AddProposal) error {
 	target := s.Tree.LeftmostFree()
-	s.Tree.AddLeaf(target, &add.ClientInitKey.InitKey, &add.ClientInitKey.Credential)
+	return s.Tree.AddLeaf(target, &add.ClientInitKey.InitKey, &add.ClientInitKey.Credential)
 }
 
-func (s *State) applyRemoveProposal(remove *RemoveProposal) {
-	s.Tree.BlankPath(leafIndex(remove.Removed), false)
+func (s *State) applyRemoveProposal(remove *RemoveProposal) error {
+	return s.Tree.BlankPath(leafIndex(remove.Removed), false)
 }
 
-func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) {
-	s.Tree.BlankPath(target, false)
-	s.Tree.MergePublic(target, &update.LeafKey)
+func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) error {
+	err := s.Tree.BlankPath(target, false)
+	if err != nil {
+		return err
+	}
+	return s.Tree.MergePublic(target, &update.LeafKey)
 }
 
-func (s *State) applyUpdateSecret(target leafIndex, secret []byte) {
-	s.Tree.BlankPath(target, false)
-	s.Tree.Merge(target, secret)
+func (s *State) applyUpdateSecret(target leafIndex, secret []byte) error {
+	err := s.Tree.BlankPath(target, false)
+	if err != nil {
+		return err
+	}
+	return s.Tree.Merge(target, secret)
 }
 
 func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
@@ -393,21 +398,34 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 		}
 
 		proposal := pt.Content.Proposal
+		var err error
 		switch proposal.Type() {
 		case ProposalTypeAdd:
-			s.applyAddProposal(proposal.Add)
+			err = s.applyAddProposal(proposal.Add)
+			if err != nil {
+				return err
+			}
 		case ProposalTypeUpdate:
 			if pt.Sender != s.Index {
 				// apply update from the given member
-				s.applyUpdateProposal(pt.Sender, proposal.Update)
+				err := s.applyUpdateProposal(pt.Sender, proposal.Update)
+				if err != nil {
+					return err
+				}
 			}
 			// handle self-update commit
 			if len(s.UpdateSecrets[id.String()]) == 0 {
 				return fmt.Errorf("mls.state: self-update with no cached secret")
 			}
-			s.applyUpdateSecret(pt.Sender, s.UpdateSecrets[id.String()])
+			err = s.applyUpdateSecret(pt.Sender, s.UpdateSecrets[id.String()])
+			if err != nil {
+				return err
+			}
 		case ProposalTypeRemove:
-			s.applyRemoveProposal(proposal.Remove)
+			err = s.applyRemoveProposal(proposal.Remove)
+			if err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("mls.state: invalid proposal type")
 		}
@@ -542,8 +560,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 
 	// apply the commit
 	commitData := pt.Content.Commit
-	next := s.clone()
-	err := next.apply(commitData.Commit)
+	next, err := s.successor(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -822,25 +839,31 @@ func contentAAD(gid []byte, epoch Epoch,
 	return s.Data()
 }
 
-func (s State) clone() *State {
+func (s State) successor(commit Commit) (*State, error) {
 	// Note: all the slice/map copy operations below on state are mere
 	// reference copies.
-	cloned := new(State)
-	cloned.CipherSuite = s.CipherSuite
-	cloned.GroupID = append(s.GroupID[:0:0], s.GroupID...)
-	cloned.Epoch = s.Epoch
-	cloned.Tree = *s.Tree.clone()
-	cloned.ConfirmedTranscriptHash = append(s.ConfirmedTranscriptHash[:0:0], s.ConfirmedTranscriptHash...)
-	cloned.InterimTranscriptHash = append(s.InterimTranscriptHash[:0:0], s.InterimTranscriptHash...)
-	cloned.Keys = s.Keys
-	cloned.Index = s.Index
-	cloned.IdentityPriv = s.IdentityPriv
-	cloned.scheme = s.scheme
+	next := new(State)
+	next.CipherSuite = s.CipherSuite
+	next.GroupID = append(s.GroupID[:0:0], s.GroupID...)
+	next.Epoch = s.Epoch
+	next.Tree = *s.Tree.clone()
+	next.ConfirmedTranscriptHash = append(s.ConfirmedTranscriptHash[:0:0], s.ConfirmedTranscriptHash...)
+	next.InterimTranscriptHash = append(s.InterimTranscriptHash[:0:0], s.InterimTranscriptHash...)
+	next.Keys = s.Keys
+	next.Index = s.Index
+	next.IdentityPriv = s.IdentityPriv
+	next.scheme = s.scheme
+	next.UpdateSecrets = s.UpdateSecrets
 	if s.PendingProposals != nil {
-		cloned.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
+		next.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
 	}
-	cloned.UpdateSecrets = s.UpdateSecrets
-	return cloned
+	err := next.apply(commit)
+	if err != nil {
+		return nil, err
+	}
+	// reset after commit the proposals
+	next.PendingProposals = nil
+	return next, nil
 }
 
 // Compare the public aspects of two nodes

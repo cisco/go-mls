@@ -231,8 +231,9 @@ func (t RatchetTree) Dump(label string) {
 	}
 }
 
-func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *Credential) {
+func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *Credential) error {
 	n := toNodeIndex(index)
+
 	if leafCount(index) == t.size() {
 		if len(t.Nodes) == 0 {
 			t.Nodes = append(t.Nodes, OptionalRatchetNode{})
@@ -242,10 +243,6 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 				t.Nodes = append(t.Nodes, OptionalRatchetNode{})
 			}
 		}
-	}
-
-	if t.Nodes[n].Node != nil {
-		panic(fmt.Errorf("mls.rtn:addLeaf: add target already occupied"))
 	}
 
 	t.Nodes[n] = newLeafNode(key, credential)
@@ -259,6 +256,7 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 		t.Nodes[v].Node.AddUnmerged(index)
 	}
 	t.setHashPath(index)
+	return nil
 }
 
 func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*DirectPath, []byte) {
@@ -368,44 +366,50 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []
 	return pathSecret
 }
 
-func (t *RatchetTree) Merge(index leafIndex, secret []byte) {
+func (t *RatchetTree) Merge(index leafIndex, secret []byte) error {
 	curr := toNodeIndex(index)
 	if t.Nodes[curr].blank() {
-		panic(fmt.Errorf("mls.rtn.Merge: Cannot update a blank leaf"))
+		return fmt.Errorf("mls.rtn.Merge: Cannot update a blank leaf")
 	}
 
 	t.Nodes[curr].Node.setSecret(t.CipherSuite, secret)
 	t.setHashPath(index)
+	return nil
 }
 
-func (t *RatchetTree) MergePublic(index leafIndex, key *HPKEPublicKey) {
+func (t *RatchetTree) MergePublic(index leafIndex, key *HPKEPublicKey) error {
 	curr := toNodeIndex(index)
 	if t.Nodes[curr].blank() {
-		panic(fmt.Errorf("mls.rtn.MergePK: Cannot update a blank leaf"))
+		return fmt.Errorf("mls.rtn.MergePK: Cannot update a blank leaf")
 	}
 
 	t.Nodes[curr].Node.setPublic(key)
 	t.setHashPath(index)
+	return nil
 }
 
-func (t *RatchetTree) MergePrivate(index leafIndex, key *HPKEPrivateKey) {
+func (t *RatchetTree) MergePrivate(index leafIndex, key *HPKEPrivateKey) error {
 	curr := toNodeIndex(index)
 	if t.Nodes[curr].blank() {
-		panic(fmt.Errorf("mls.rtn.MergePK: Cannot update a blank leaf"))
+		return fmt.Errorf("mls.rtn.MergePK: Cannot update a blank leaf")
 	}
 
 	t.Nodes[curr].Node.setPrivate(key)
 	t.setHashPath(index)
+	return nil
 }
 
-func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
+func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) error {
 	if len(t.Nodes) == 0 {
-		return
+		return nil
 	}
+
 	nc := t.nodeSize()
 	r := t.rootIndex()
 	first := true
+
 	curr := toNodeIndex(index)
+
 	for {
 		if curr == r {
 			break
@@ -419,6 +423,7 @@ func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) {
 
 	t.Nodes[r].Node = nil
 	t.setHashPath(index)
+	return nil
 }
 
 func (t *RatchetTree) GetCredential(index leafIndex) *Credential {

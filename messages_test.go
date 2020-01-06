@@ -201,8 +201,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 		Signature:                    []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, initSecret, gi)
-	w1.encrypt(*clientInitKey)
+	w1 := newWelcome(cs, initSecret, gi, []ClientInitKey{*clientInitKey})
 	// doing this so that test can omit this field when matching w1, w2
 	w1.initSecret = nil
 	w2 := new(Welcome)
