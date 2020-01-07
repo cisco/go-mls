@@ -82,7 +82,6 @@ func (hr *hashRatchet) Get(generation uint32) (keyAndNonce, error) {
 	}
 
 	_, kn := hr.Next()
-
 	return kn, nil
 }
 

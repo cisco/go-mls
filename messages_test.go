@@ -43,7 +43,7 @@ var (
 	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
 	clientInitKey = &ClientInitKey{
-		SupportedVersion: SupportedVersionInvalid,
+		SupportedVersion: SupportedVersionMLS10,
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,

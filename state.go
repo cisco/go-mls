@@ -43,9 +43,6 @@ type State struct {
 	// slices are not comparable).  Instead, we use ProposalID.String()
 	PendingProposals []MLSPlaintext
 	UpdateSecrets    map[string][]byte
-
-	// stored groupContext
-	grpContext GroupContext
 }
 
 func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
@@ -77,6 +74,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 
 	var kp KeyPackage
 	var clientInitKey ClientInitKey
+	var encKeyPackage EncryptedKeyPackage
 	var found = false
 
 	// extract the keyPackage for init secret
@@ -89,39 +87,12 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		// parse the encryptedKeyPackage to find our right cik
 		for _, ekp := range welcome.EncryptedKeyPackages {
 			found = bytes.Equal(cikhash, ekp.ClientInitKeyHash)
-			if !found {
-				continue
+			if found {
+				clientInitKey = cik
+				encKeyPackage = ekp
+				break
 			}
-
-			if cik.CipherSuite != welcome.CipherSuite {
-				return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
-			}
-
-			if cik.privateKey == nil {
-				return nil, fmt.Errorf("mls.state: no private key for init key")
-			}
-
-			if cik.Credential.privateKey == nil {
-				return nil, fmt.Errorf("mls.state: no signing key for init key")
-			}
-
-			s.IdentityPriv = *cik.Credential.privateKey
-			s.scheme = cik.Credential.Scheme()
-
-			pt, err := suite.hpke().Decrypt(*cik.privateKey, []byte{}, ekp.EncryptedPackage)
-			if err != nil {
-				return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
-			}
-
-			_, err = syntax.Unmarshal(pt, &kp)
-			if err != nil {
-				return nil, fmt.Errorf("mls.state: keyPkg unmarshal failure %v", err)
-			}
-
-			clientInitKey = cik
-			break
 		}
-
 		if found {
 			break
 		}
@@ -129,6 +100,31 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 
 	if !found {
 		return nil, fmt.Errorf("mls.state: unable to decrypt welcome message")
+	}
+
+	if clientInitKey.CipherSuite != welcome.CipherSuite {
+		return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
+	}
+
+	if clientInitKey.privateKey == nil {
+		return nil, fmt.Errorf("mls.state: no private key for init key")
+	}
+
+	if clientInitKey.Credential.privateKey == nil {
+		return nil, fmt.Errorf("mls.state: no signing key for init key")
+	}
+
+	s.IdentityPriv = *clientInitKey.Credential.privateKey
+	s.scheme = clientInitKey.Credential.Scheme()
+
+	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encKeyPackage.EncryptedPackage)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
+	}
+
+	_, err = syntax.Unmarshal(pt, &kp)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: keyPkg unmarshal failure %v", err)
 	}
 
 	// init the epoch with initSecret in the key package
@@ -260,7 +256,10 @@ func (s State) update(leafSecret []byte) *MLSPlaintext {
 		},
 	}
 
-	return s.sign(updateProposal)
+	pt := s.sign(updateProposal)
+	pId := s.proposalId(*pt)
+	s.UpdateSecrets[pId.String()] = leafSecret
+	return pt
 }
 
 func (s *State) remove(removed leafIndex) *MLSPlaintext {
@@ -291,10 +290,17 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// init new state to apply commit and ratchet forward
-	next, err := s.successor(commit)
+	next, err := s.clone(commit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	err = next.apply(commit)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// reset after commit the proposals
+	next.PendingProposals = nil
 
 	// Start a GroupInfo with the prepared state
 	prevInitSecret := s.Keys.InitSecret
@@ -375,11 +381,11 @@ func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) er
 }
 
 func (s *State) applyUpdateSecret(target leafIndex, secret []byte) error {
-	err := s.Tree.BlankPath(target, false)
+	err := s.Tree.BlankPath(s.Index, false)
 	if err != nil {
 		return err
 	}
-	return s.Tree.Merge(target, secret)
+	return s.Tree.Merge(s.Index, secret)
 }
 
 func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
@@ -560,7 +566,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 
 	// apply the commit
 	commitData := pt.Content.Commit
-	next, err := s.successor(commitData.Commit)
+	next, err := s.clone(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -839,31 +845,27 @@ func contentAAD(gid []byte, epoch Epoch,
 	return s.Data()
 }
 
-func (s State) successor(commit Commit) (*State, error) {
+func (s State) clone(commit Commit) (*State, error) {
 	// Note: all the slice/map copy operations below on state are mere
 	// reference copies.
-	next := new(State)
-	next.CipherSuite = s.CipherSuite
-	next.GroupID = append(s.GroupID[:0:0], s.GroupID...)
-	next.Epoch = s.Epoch
-	next.Tree = *s.Tree.clone()
-	next.ConfirmedTranscriptHash = append(s.ConfirmedTranscriptHash[:0:0], s.ConfirmedTranscriptHash...)
-	next.InterimTranscriptHash = append(s.InterimTranscriptHash[:0:0], s.InterimTranscriptHash...)
-	next.Keys = s.Keys
-	next.Index = s.Index
-	next.IdentityPriv = s.IdentityPriv
-	next.scheme = s.scheme
-	next.UpdateSecrets = s.UpdateSecrets
-	if s.PendingProposals != nil {
-		next.PendingProposals = append(s.PendingProposals[:0:0], s.PendingProposals...)
+	clone := &State{
+		CipherSuite:             s.CipherSuite,
+		GroupID:                 make([]byte, len(s.GroupID)),
+		Epoch:                   s.Epoch,
+		Tree:                    *s.Tree.clone(),
+		ConfirmedTranscriptHash: nil,
+		InterimTranscriptHash:   make([]byte, len(s.InterimTranscriptHash)),
+		Keys:                    s.Keys,
+		Index:                   s.Index,
+		IdentityPriv:            s.IdentityPriv,
+		scheme:                  s.scheme,
+		UpdateSecrets:           s.UpdateSecrets,
+		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
 	}
-	err := next.apply(commit)
-	if err != nil {
-		return nil, err
-	}
-	// reset after commit the proposals
-	next.PendingProposals = nil
-	return next, nil
+	copy(clone.GroupID, s.GroupID)
+	copy(clone.InterimTranscriptHash, s.InterimTranscriptHash)
+	copy(clone.PendingProposals, s.PendingProposals)
+	return clone, nil
 }
 
 // Compare the public aspects of two nodes

@@ -22,6 +22,17 @@ var (
 	testMessage = unhex("1112131415")
 )
 
+func newBasicCredential(userId []byte, scheme SignatureScheme) Credential {
+	sigPriv, _ := scheme.Generate()
+	basicCredential = &BasicCredential{
+		Identity:           userId,
+		SignatureScheme:    scheme,
+		SignaturePublicKey: sigPriv.PublicKey,
+	}
+	credentialBasic = Credential{Basic: basicCredential, privateKey: &sigPriv}
+	return credentialBasic
+}
+
 func setup(t *testing.T) {
 	if setupDone {
 		return
@@ -29,19 +40,12 @@ func setup(t *testing.T) {
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
-		sigPriv, _ := scheme.Generate()
-		basicCredential = &BasicCredential{
-			Identity:           userId,
-			SignatureScheme:    scheme,
-			SignaturePublicKey: sigPriv.PublicKey,
-		}
-		credentialBasic = Credential{Basic: basicCredential, privateKey: &sigPriv}
-
+		credentialBasic = newBasicCredential(userId, scheme)
 		//cik gen
 		cik, err := newClientInitKey(suite, &credentialBasic)
 		assertNotError(t, err, "newClientInitKey error")
 		// save all the materials
-		identityPrivs = append(identityPrivs, sigPriv)
+		identityPrivs = append(identityPrivs, *credentialBasic.privateKey)
 		credentials = append(credentials, credentialBasic)
 		initPrivs = append(initPrivs, ikPriv)
 		clientInitKeys[i] = *cik

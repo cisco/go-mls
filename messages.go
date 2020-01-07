@@ -27,8 +27,7 @@ type Signature struct {
 type SupportedVersion uint8
 
 const (
-	SupportedVersionMLS10   = 0
-	SupportedVersionInvalid = 255
+	SupportedVersionMLS10 = 0
 )
 
 type ClientInitKey struct {
