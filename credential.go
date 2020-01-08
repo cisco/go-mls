@@ -2,6 +2,7 @@ package mls
 
 import (
 	"fmt"
+	"reflect"
 )
 
 type CredentialType uint8
@@ -39,6 +40,17 @@ type Credential struct {
 	Basic      *BasicCredential
 	X509       *X509Credential
 	privateKey *SignaturePrivateKey
+}
+
+// compare the public aspects
+func (c Credential) Equals(o Credential) bool {
+	switch {
+	case c.Basic != nil:
+		return reflect.DeepEqual(c.Basic, o.Basic)
+	case c.X509 != nil:
+		return reflect.DeepEqual(c.X509, o.X509)
+	}
+	return false
 }
 
 func (c Credential) Type() CredentialType {

@@ -257,3 +257,17 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 		}
 	}
 }
+
+func TestRatchetTree_Clone(t *testing.T) {
+	tree := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
+	assertTrue(t, tree.size() == 4, "size mismatch")
+
+	cloned := tree.clone()
+	assertTrue(t, cloned.size() == 4, "size mismatch")
+	assertEquals(t, *cloned.GetCredential(leafIndex(0)), credA)
+	assertEquals(t, *cloned.GetCredential(leafIndex(1)), credB)
+	assertEquals(t, *cloned.GetCredential(leafIndex(2)), credC)
+	assertEquals(t, *cloned.GetCredential(leafIndex(3)), credD)
+
+	assertTrue(t, tree.Equals(cloned), "clone is not equaled to its parent")
+}

@@ -29,6 +29,17 @@ func (s *WriteStream) Write(val interface{}) error {
 	return nil
 }
 
+func (s *WriteStream) WriteAll(vals ...interface{}) error {
+	for _, val := range vals {
+		enc, err := syntax.Marshal(val)
+		if err != nil {
+			return err
+		}
+		s.buffer = append(s.buffer, enc...)
+	}
+	return nil
+}
+
 func (s *WriteStream) Append(b []byte) error {
 	s.buffer = append(s.buffer, b...)
 	return nil

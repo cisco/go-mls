@@ -43,12 +43,12 @@ var (
 	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
 	clientInitKey = &ClientInitKey{
-		SupportedVersion: 0xFF,
+		SupportedVersion: SupportedVersionMLS10,
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
 		Extensions:       extListValidIn,
-		Signature:        []byte{0x00, 0x00, 0x00},
+		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -98,13 +98,14 @@ var (
 				Data: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 			},
 		},
-		Signature: []byte{0x00, 0x01, 0x02, 0x03},
+		Signature: Signature{[]byte{0x00, 0x01, 0x02, 0x03}},
 	}
 
 	mlsCiphertextIn = &MLSCiphertext{
 		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
 		ContentType:         1,
+		AuthenticatedData:   []byte{0xAA, 0xBB, 0xCC},
 		SenderDataNonce:     []byte{0x01, 0x02},
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 		Ciphertext:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
@@ -125,10 +126,10 @@ var (
 
 	ortnRtnNilCred = &OptionalRatchetNode{
 		Node: rtnNilCredential,
-		hash: nil,
+		Hash: []byte{},
 	}
 
-	rachetTree = &RatchetTree{
+	ratchetTree = &RatchetTree{
 		Nodes:       []OptionalRatchetNode{*ortnRtnNilCred},
 		CipherSuite: supportedSuites[0],
 	}
@@ -169,7 +170,7 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
 	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
 	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
-	t.Run("RatchetTree", roundTrip(rachetTree, new(RatchetTree)))
+	t.Run("RatchetTree", roundTrip(ratchetTree, new(RatchetTree)))
 	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
 	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
 }
@@ -187,7 +188,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 
 	// setup things needed to welcome c
 	initSecret := []byte("we welcome you c")
-	gi := GroupInfo{
+	gi := &GroupInfo{
 		GroupId:                      unhex("0007"),
 		Epoch:                        121,
 		Tree:                         treeAB,
@@ -200,8 +201,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 		Signature:                    []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, initSecret, gi)
-	w1.encrypt(*clientInitKey)
+	w1 := newWelcome(cs, initSecret, gi, []ClientInitKey{*clientInitKey})
 	// doing this so that test can omit this field when matching w1, w2
 	w1.initSecret = nil
 	w2 := new(Welcome)

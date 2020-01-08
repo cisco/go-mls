@@ -20,13 +20,82 @@ type ExtensionList struct {
 	Extensions []Extension `tls:"head=2"`
 }
 
+type Signature struct {
+	Data []byte `tls:"head=2"`
+}
+
+type SupportedVersion uint8
+
+const (
+	SupportedVersionMLS10 = 0
+)
+
 type ClientInitKey struct {
-	SupportedVersion uint8
+	SupportedVersion SupportedVersion
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
 	Extensions       ExtensionList
-	Signature        []byte `tls:"head=2"`
+	Signature        Signature
+	privateKey       *HPKEPrivateKey `tls:"omit"`
+}
+
+func (cik ClientInitKey) toBeSigned() ([]byte, error) {
+	enc, err := syntax.Marshal(struct {
+		Version     SupportedVersion
+		CipherSuite CipherSuite
+		InitKey     HPKEPublicKey
+		Credential  Credential
+		Extensions  ExtensionList
+	}{
+		Version:     cik.SupportedVersion,
+		CipherSuite: cik.CipherSuite,
+		InitKey:     cik.InitKey,
+		Credential:  cik.Credential,
+		Extensions:  cik.Extensions,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return enc, nil
+}
+
+func (cik *ClientInitKey) sign() error {
+	tbs, err := cik.toBeSigned()
+	if err != nil {
+		return err
+	}
+	cik.Signature = Signature{cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)}
+	return nil
+}
+
+func (cik ClientInitKey) verify() (bool, error) {
+	tbs, err := cik.toBeSigned()
+	if err != nil {
+		return false, fmt.Errorf("mls.cik: verification marshal error %v", err)
+	}
+
+	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data), nil
+}
+
+func newClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
+	priv, err := suite.hpke().Generate()
+	if err != nil {
+		return nil, fmt.Errorf("mls.cik: private key generation failure %v", err)
+	}
+	cik := new(ClientInitKey)
+	cik.SupportedVersion = SupportedVersionMLS10
+	cik.CipherSuite = suite
+	cik.InitKey = priv.PublicKey
+	cik.Credential = *cred
+	cik.privateKey = &priv
+	err = cik.sign()
+	if err != nil {
+		return nil, fmt.Errorf("mls.cik: sign marshal failure %v", err)
+	}
+	return cik, nil
 }
 
 ///
@@ -178,9 +247,12 @@ type ApplicationData struct {
 	Data []byte `tls:"head=4"`
 }
 
+type Confirmation struct {
+	Data []byte `tls:"head=1"`
+}
 type CommitData struct {
 	Commit       Commit
-	Confirmation []byte `tls:"head=1"`
+	Confirmation Confirmation
 }
 
 type MLSPlaintextContent struct {
@@ -260,16 +332,85 @@ func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
 type MLSPlaintext struct {
 	GroupID           []byte `tls:"head=1"`
 	Epoch             Epoch
-	Sender            uint32
+	Sender            leafIndex
 	AuthenticatedData []byte `tls:"head=4"`
 	Content           MLSPlaintextContent
-	Signature         []byte `tls:"head=2"`
+	Signature         Signature
+}
+
+func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
+	s := NewWriteStream()
+	err := s.Write(ctx)
+	if err != nil {
+		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
+	}
+
+	err = s.Write(struct {
+		GroupID           []byte `tls:"head=1"`
+		Epoch             Epoch
+		Sender            leafIndex
+		AuthenticatedData []byte `tls:"head=4"`
+		Content           MLSPlaintextContent
+	}{
+		GroupID:           pt.GroupID,
+		Epoch:             pt.Epoch,
+		Sender:            pt.Sender,
+		AuthenticatedData: pt.AuthenticatedData,
+		Content:           pt.Content,
+	})
+
+	if err != nil {
+		panic(fmt.Errorf("mls.mlsplaintext: marshal failure %v", err))
+	}
+	return s.Data()
+}
+
+func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
+	tbs := pt.toBeSigned(ctx)
+	pt.Signature = Signature{scheme.Sign(&priv, tbs)}
+}
+
+func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {
+	tbs := pt.toBeSigned(ctx)
+	return scheme.Verify(pub, tbs, pt.Signature.Data)
+}
+
+func (pt MLSPlaintext) commitContent() []byte {
+	enc, err := syntax.Marshal(struct {
+		GroupId     []byte `tls:"head=1"`
+		Epoch       Epoch
+		Sender      leafIndex
+		Commit      Commit
+		ContentType ContentType
+	}{
+		GroupId:     pt.GroupID,
+		Epoch:       pt.Epoch,
+		Sender:      pt.Sender,
+		Commit:      pt.Content.Commit.Commit,
+		ContentType: pt.Content.Type(),
+	})
+
+	if err != nil {
+		return nil
+	}
+
+	return enc
+}
+func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
+	data := pt.Content.Commit
+	s := NewWriteStream()
+	err := s.WriteAll(data.Confirmation, pt.Signature)
+	if err != nil {
+		return nil, err
+	}
+	return s.Data(), nil
 }
 
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
 	ContentType         uint8
+	AuthenticatedData   []byte `tls:"head=4"`
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	Ciphertext          []byte `tls:"head=4"`
@@ -314,7 +455,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	})
 }
 
-func (gi GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
+func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 	// Verify that priv corresponds to tree[index]
 	cred := gi.Tree.GetCredential(index)
 	if !bytes.Equal(cred.PublicKey().Data, priv.PublicKey.Data) {
@@ -350,6 +491,15 @@ func (gi GroupInfo) verify() error {
 	}
 
 	return nil
+}
+
+func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byte) *GroupInfo {
+	gi := new(GroupInfo)
+	gi.GroupId = gid
+	gi.Epoch = epoch + 1
+	gi.Tree = tree.clone()
+	gi.PriorConfirmedTranscriptHash = transriptHash
+	return gi
 }
 
 ///
@@ -404,7 +554,7 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome {
+func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
@@ -425,6 +575,11 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo GroupInfo) *Welcome
 		EncryptedGroupInfo: ct,
 		initSecret:         initSecret,
 	}
+
+	for _, joiner := range joiners {
+		w.encrypt(joiner)
+	}
+
 	return w
 }
 
