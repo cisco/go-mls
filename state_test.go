@@ -11,13 +11,6 @@ var (
 	suite     = P256_SHA256_AES128GCM
 	scheme    = Ed25519
 	groupSize = 5
-	setupDone = false
-
-	identityPrivs  []SignaturePrivateKey
-	credentials    []Credential
-	initPrivs      []HPKEPrivateKey
-	clientInitKeys = make([]ClientInitKey, groupSize)
-	states         []State
 
 	testMessage = unhex("1112131415")
 )
@@ -33,10 +26,17 @@ func newBasicCredential(userId []byte, scheme SignatureScheme) Credential {
 	return credentialBasic
 }
 
-func setup(t *testing.T) {
-	if setupDone {
-		return
-	}
+type StateTest struct {
+	identityPrivs  []SignaturePrivateKey
+	credentials    []Credential
+	initPrivs      []HPKEPrivateKey
+	clientInitKeys []ClientInitKey
+	states         []State
+}
+
+func setup(t *testing.T) StateTest {
+	stateTest := StateTest{}
+	stateTest.clientInitKeys = make([]ClientInitKey, groupSize)
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
@@ -45,14 +45,43 @@ func setup(t *testing.T) {
 		cik, err := newClientInitKey(suite, &credentialBasic)
 		assertNotError(t, err, "newClientInitKey error")
 		// save all the materials
-		identityPrivs = append(identityPrivs, *credentialBasic.privateKey)
-		credentials = append(credentials, credentialBasic)
-		initPrivs = append(initPrivs, ikPriv)
-		clientInitKeys[i] = *cik
+		stateTest.identityPrivs = append(stateTest.identityPrivs, *credentialBasic.privateKey)
+		stateTest.credentials = append(stateTest.credentials, credentialBasic)
+		stateTest.initPrivs = append(stateTest.initPrivs, ikPriv)
+		stateTest.clientInitKeys[i] = *cik
 		cik = nil
 		//dump(clientInitKeys)
 	}
-	setupDone = true
+	return stateTest
+}
+
+func setupGroup(t *testing.T) StateTest {
+	stateTest := setup(t)
+	var states []State
+	// start with the group creator
+	states = append(states, *newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0]))
+
+	// add proposals for rest of the participants
+	for i := 1; i < groupSize; i++ {
+		add := states[0].add(stateTest.clientInitKeys[i])
+		_, err := states[0].handle(add)
+		assertNotError(t, err, "add failed")
+	}
+
+	// commit the adds
+	secret, _ := getRandomBytes(32)
+	_, welcome, next, err := states[0].commit(secret)
+	assertNotError(t, err, "commit add proposals failed")
+	states[0] = *next
+	// initialize the new joiners from the welcome
+	for i := 1; i < groupSize; i++ {
+		s, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
+		assertNotError(t, err, "initializing the state from welcome failed")
+		states = append(states, *s)
+		states[i].Tree.Dump(fmt.Sprintf("Tree-%v", i))
+	}
+	stateTest.states = states
+	return stateTest
 }
 
 func dump(ciks []ClientInitKey) {
@@ -63,12 +92,12 @@ func dump(ciks []ClientInitKey) {
 }
 
 func TestState_TwoPerson(t *testing.T) {
-	setup(t)
+	stateTest := setup(t)
 	// creator's state
 	// dump(clientInitKeys)
-	first0 := newEmptyState(groupId, suite, initPrivs[0], credentials[0])
+	first0 := newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
 	// add the second participant
-	add := first0.add(clientInitKeys[1])
+	add := first0.add(stateTest.clientInitKeys[1])
 	_, err := first0.handle(add)
 	assertNotError(t, err, "handle add failed")
 
@@ -78,7 +107,7 @@ func TestState_TwoPerson(t *testing.T) {
 	assertNotError(t, err, "state_test. commit failed")
 
 	// Initialize the second participant from the Welcome
-	second0, err := newJoinedState([]ClientInitKey{clientInitKeys[1]}, *welcome)
+	second0, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
 	assertNotError(t, err, "state_test: state creation using Welcome failed")
 
 	//assertByteEquals(t, *first1, *second0)
@@ -93,32 +122,33 @@ func TestState_TwoPerson(t *testing.T) {
 }
 
 func TestState_Multi(t *testing.T) {
-	setup(t)
+	stateTest := setup(t)
 	// start with the group creator
-	states = append(states, *newEmptyState(groupId, suite, initPrivs[0], credentials[0]))
+	stateTest.states = append(stateTest.states, *newEmptyState(groupId, suite, stateTest.initPrivs[0],
+		stateTest.credentials[0]))
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := states[0].add(clientInitKeys[i])
-		_, err := states[0].handle(add)
+		add := stateTest.states[0].add(stateTest.clientInitKeys[i])
+		_, err := stateTest.states[0].handle(add)
 		assertNotError(t, err, "add failed")
 	}
 
 	// commit the adds
 	secret, _ := getRandomBytes(32)
-	_, welcome, next, err := states[0].commit(secret)
+	_, welcome, next, err := stateTest.states[0].commit(secret)
 	assertNotError(t, err, "commit add proposals failed")
-	states[0] = *next
+	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := newJoinedState([]ClientInitKey{clientInitKeys[i]}, *welcome)
+		s, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
 		assertNotError(t, err, "initializing the state from welcome failed")
-		states = append(states, *s)
+		stateTest.states = append(stateTest.states, *s)
 	}
 
-	for i, s := range states {
+	for i, s := range stateTest.states {
 		ct, _ := s.protect(testMessage)
-		for j, o := range states {
+		for j, o := range stateTest.states {
 			if i == j {
 				continue
 			}
@@ -171,5 +201,56 @@ func TestState_CipherNegotiation(t *testing.T) {
 	assertNotError(t, err, "state negotiation failed")
 
 	assertTrue(t, aliceState.Equals(*bobState), "states are unequal")
+}
 
+func TestState_Update(t *testing.T) {
+	stateTest := setupGroup(t)
+	for i := 0; i < groupSize; i++ {
+		leafSecret, _ := getRandomBytes(32)
+		update := stateTest.states[i].update(leafSecret)
+		stateTest.states[i].handle(update)
+		commit, _, next, err := stateTest.states[i].commit(leafSecret)
+		assertNotError(t, err, "creator commit error")
+		for idx, state := range stateTest.states {
+			if idx == i {
+				state = *next
+			} else {
+				state.handle(update)
+				newState, err := state.handle(commit)
+				assertNotError(t, err, "new joinee commit fail")
+				state = *newState
+			}
+		}
+
+		for _, s := range stateTest.states {
+			assertTrue(t, s.Equals(stateTest.states[0]), "states unequal")
+		}
+	}
+}
+
+func TestState_Remove(t *testing.T) {
+	stateTest := setupGroup(t)
+	for i := groupSize - 2; i > 0; i-- {
+		remove := stateTest.states[i].remove(leafIndex(i + 1))
+		stateTest.states[i].handle(remove)
+		secret, _ := getRandomBytes(32)
+		commit, _, next, err := stateTest.states[i].commit(secret)
+		assertNotError(t, err, "remove error")
+		stateTest.states = stateTest.states[:len(stateTest.states)-1]
+
+		for idx, state := range stateTest.states {
+			if idx == i {
+				state = *next
+			} else {
+				state.handle(remove)
+				newState, err := state.handle(commit)
+				assertNotError(t, err, "remove processing error by others")
+				state = *newState
+			}
+		}
+
+		for _, s := range stateTest.states {
+			assertTrue(t, s.Equals(stateTest.states[0]), "states unequal")
+		}
+	}
 }

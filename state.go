@@ -154,6 +154,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
+	s.UpdateSecrets = map[string][]byte{}
 
 	// add self to tree
 	index, res := s.Tree.Find(clientInitKey)
@@ -290,15 +291,12 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// init new state to apply commit and ratchet forward
-	next, err := s.clone(commit)
+	next := s.clone()
+	err := next.apply(commit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	err = next.apply(commit)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	// reset after commit the proposals
 	next.PendingProposals = nil
 
@@ -318,6 +316,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// KEM new entropy to the group and the new joiners
 	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
+	commit.Path = *path
 
 	// Create the Commit message and advance the transcripts / key schedule
 	pt, err := next.ratchetAndSign(commit, updateSecret, s.groupContext())
@@ -418,6 +417,7 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 				if err != nil {
 					return err
 				}
+				return nil
 			}
 			// handle self-update commit
 			if len(s.UpdateSecrets[id.String()]) == 0 {
@@ -541,7 +541,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	}
 
 	if pt.Epoch != s.Epoch {
-		return nil, fmt.Errorf("mls.state: epoch mismatch")
+		return nil, fmt.Errorf("mls.state: epoch mismatch, have %v, got %v", s.Epoch, pt.Epoch)
 	}
 
 	sigPubKey := s.Tree.GetCredential(pt.Sender).PublicKey()
@@ -566,7 +566,8 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 
 	// apply the commit
 	commitData := pt.Content.Commit
-	next, err := s.clone(commitData.Commit)
+	next := s.clone()
+	err := next.apply(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -574,13 +575,14 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	// apply the direct path
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch,
+		Epoch:                   next.Epoch + 1,
 		TreeHash:                next.Tree.RootHash(),
 		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
+
 	updateSecret := next.Tree.Decap(pt.Sender, ctx, &commitData.Commit.Path)
 
 	// Update the transcripts and advance the key schedule
@@ -845,7 +847,7 @@ func contentAAD(gid []byte, epoch Epoch,
 	return s.Data()
 }
 
-func (s State) clone(commit Commit) (*State, error) {
+func (s State) clone() *State {
 	// Note: all the slice/map copy operations below on state are mere
 	// reference copies.
 	clone := &State{
@@ -865,7 +867,7 @@ func (s State) clone(commit Commit) (*State, error) {
 	copy(clone.GroupID, s.GroupID)
 	copy(clone.InterimTranscriptHash, s.InterimTranscriptHash)
 	copy(clone.PendingProposals, s.PendingProposals)
-	return clone, nil
+	return clone
 }
 
 // Compare the public aspects of two nodes
