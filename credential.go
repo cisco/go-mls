@@ -53,6 +53,17 @@ func (c Credential) Equals(o Credential) bool {
 	return false
 }
 
+func (c Credential) dump() {
+	fmt.Printf("Type %v\n", c.Type())
+	switch c.Type() {
+	case CredentialTypeBasic:
+		fmt.Printf("\tIdentity %x\n \tSigScheme %v\n \tSigPubKey %x\n",
+			c.Basic.Identity, c.Basic.SignatureScheme, c.Basic.SignaturePublicKey)
+	case CredentialTypeX509:
+		fmt.Printf("X509 PubKey %x", c.X509.CertData)
+	}
+}
+
 func (c Credential) Type() CredentialType {
 	switch {
 	case c.Basic != nil:

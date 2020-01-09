@@ -302,7 +302,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// Start a GroupInfo with the prepared state
 	prevInitSecret := s.Keys.InitSecret
-	gi := newGroupInfo(next.GroupID, next.Epoch, next.Tree, s.ConfirmedTranscriptHash)
+	gi := newGroupInfo(next.GroupID, next.Epoch+1, next.Tree, s.ConfirmedTranscriptHash)
 
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 gi.GroupId,

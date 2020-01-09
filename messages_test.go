@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"github.com/bifurcation/mint/syntax"
 	"testing"
 )
@@ -217,4 +218,420 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	_, err = syntax.Unmarshal(pt, w2kp)
 	assertNotError(t, err, "unmarshal failure for decrypted KeyPackage")
 	assertByteEquals(t, initSecret, w2kp.InitSecret)
+}
+
+///
+/// Test Vectors
+///
+
+type MessageTestCase struct {
+	CipherSuite     CipherSuite
+	SignatureScheme SignatureScheme
+
+	ClientInitKey       []byte `tls:"head=4"`
+	GroupInfo           []byte `tls:"head=4"`
+	KeyPackage          []byte `tls:"head=4"`
+	EncryptedKeyPackage []byte `tls:"head=4"`
+	Welcome             []byte `tls:"head=4"`
+	AddProposal         []byte `tls:"head=4"`
+	UpdateProposal      []byte `tls:"head=4"`
+	RemoveProposal      []byte `tls:"head=4"`
+	Commit              []byte `tls:"head=4"`
+	MLSCiphertext       []byte `tls:"head=4"`
+}
+
+type MessageTestVectors struct {
+	Epoch           Epoch
+	SingerIndex     leafIndex
+	Removed         leafIndex
+	UserId          []byte            `tls:"head=1"`
+	GroupId         []byte            `tls:"head=1"`
+	ClientInitKeyId []byte            `tls:"head=1"`
+	DHSeed          []byte            `tls:"head=1"`
+	SigSeed         []byte            `tls:"head=1"`
+	Random          []byte            `tls:"head=1"`
+	Cases           []MessageTestCase `tls:"head=4"`
+}
+
+func generateMessageVectors(t *testing.T) []byte {
+	tv := MessageTestVectors{
+		Epoch:           0xA0A1A2A3,
+		SingerIndex:     leafIndex(0xB0B1B2B3),
+		Removed:         leafIndex(0xC0C1C2C3),
+		UserId:          bytes.Repeat([]byte{0xD1}, 16),
+		GroupId:         bytes.Repeat([]byte{0xD2}, 16),
+		ClientInitKeyId: bytes.Repeat([]byte{0xD3}, 16),
+		DHSeed:          bytes.Repeat([]byte{0xD4}, 32),
+		SigSeed:         bytes.Repeat([]byte{0xD5}, 32),
+		Random:          bytes.Repeat([]byte{0xD6}, 32),
+		Cases:           []MessageTestCase{},
+	}
+
+	suites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+	//schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
+
+	for i := range suites {
+		suite := suites[i]
+		// today just this scheme is supported
+		scheme := Ed25519
+
+		// hpke
+		priv, err := suite.hpke().Derive(tv.DHSeed)
+		assertNotError(t, err, "priv key failure")
+		pub := priv.PublicKey
+
+		// identity
+		sigPriv, err := scheme.Derive(tv.SigSeed)
+		assertNotError(t, err, "sigPriv failure")
+		sigPub := sigPriv.PublicKey
+
+		bc := &BasicCredential{
+			Identity:           tv.UserId,
+			SignatureScheme:    scheme,
+			SignaturePublicKey: sigPub,
+		}
+		cred := Credential{Basic: bc}
+
+		ratchetTree := newTestRatchetTree(t, suite,
+			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
+			[]Credential{cred, cred, cred, cred})
+
+		//err = ratchetTree.BlankPath(leafIndex(2), true)
+		//assertNotError(t, err, "rtree blank path")
+
+		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+
+		// CIK
+		cik := ClientInitKey{
+			SupportedVersion: SupportedVersionMLS10,
+			CipherSuite:      suite,
+			InitKey:          pub,
+			Credential:       cred,
+			Signature:        Signature{tv.Random},
+		}
+
+		cikM, err := syntax.Marshal(cik)
+		assertNotError(t, err, "cik marshal")
+
+		// Welcome
+
+		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
+		gi.SignerIndex = tv.SingerIndex
+		gi.Path = dp
+		gi.ConfirmedTranscriptHash = tv.Random
+		gi.InterimTranscriptHash = tv.Random
+		gi.Confirmation = tv.Random
+		gi.Signature = tv.Random
+
+		giM, err := syntax.Marshal(gi)
+		assertNotError(t, err, "grpInfo marshal")
+
+		kp := KeyPackage{
+			InitSecret: tv.Random,
+		}
+
+		kpM, err := syntax.Marshal(kp)
+		assertNotError(t, err, "keyy package marshal")
+
+		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
+		assertNotError(t, err, "encrypt ekp")
+		ekp := EncryptedKeyPackage{
+			ClientInitKeyHash: tv.Random,
+			EncryptedPackage:  encPayload,
+		}
+
+		ekpM, err := syntax.Marshal(ekp)
+		assertNotError(t, err, "encrypted key package marshal")
+
+		var welcome Welcome
+		welcome.Version = SupportedVersionMLS10
+		welcome.CipherSuite = suite
+		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.EncryptedGroupInfo = tv.Random
+
+		welM, err := syntax.Marshal(welcome)
+		assertNotError(t, err, "welcome marshal")
+
+		// proposals
+		addProposal := &Proposal{
+			Add: &AddProposal{
+				ClientInitKey: cik,
+			},
+		}
+
+		addHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: addProposal,
+			},
+		}
+		addHs.Signature = Signature{tv.Random}
+
+		addM, err := syntax.Marshal(addHs)
+		assertNotError(t, err, "add HS marshal")
+
+		updateProposal := &Proposal{
+			Update: &UpdateProposal{
+				LeafKey: pub,
+			},
+		}
+
+		updateHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: updateProposal,
+			},
+		}
+		updateHs.Signature = Signature{tv.Random}
+
+		updateM, err := syntax.Marshal(updateHs)
+		assertNotError(t, err, "update HS marshal")
+
+		removeProposal := &Proposal{
+			Remove: &RemoveProposal{
+				Removed: uint32(tv.SingerIndex),
+			},
+		}
+
+		removeHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: removeProposal,
+			},
+		}
+		removeHs.Signature = Signature{tv.Random}
+
+		remM, err := syntax.Marshal(removeHs)
+		assertNotError(t, err, "remove HS marshal")
+
+		// commit
+		proposal := []ProposalID{{tv.Random}, {tv.Random}}
+		commit := Commit{
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Ignored: proposal,
+			Path:    *dp,
+		}
+
+		commitM, err := syntax.Marshal(commit)
+		assertNotError(t, err, "commit marshal")
+
+		//MlsCiphertext
+		ct := MLSCiphertext{
+			GroupID:             tv.GroupId,
+			Epoch:               tv.Epoch,
+			ContentType:         uint8(ContentTypeApplication),
+			SenderDataNonce:     tv.Random,
+			EncryptedSenderData: tv.Random,
+			AuthenticatedData:   tv.Random,
+		}
+
+		ctM, err := syntax.Marshal(ct)
+		assertNotError(t, err, "MLSCiphertext marshal")
+
+		tc := MessageTestCase{
+			CipherSuite:         suite,
+			SignatureScheme:     scheme,
+			ClientInitKey:       cikM,
+			GroupInfo:           giM,
+			KeyPackage:          kpM,
+			EncryptedKeyPackage: ekpM,
+			Welcome:             welM,
+			AddProposal:         addM,
+			UpdateProposal:      updateM,
+			RemoveProposal:      remM,
+			Commit:              commitM,
+			MLSCiphertext:       ctM,
+		}
+		tv.Cases = append(tv.Cases, tc)
+	}
+
+	vec, err := syntax.Marshal(tv)
+	assertNotError(t, err, "Error marshaling test vectors")
+	return vec
+}
+
+func verifyMessageVectors(t *testing.T, data []byte) {
+	var tv MessageTestVectors
+	_, err := syntax.Unmarshal(data, &tv)
+	assertNotError(t, err, "Malformed message test vectors")
+
+	for _, tc := range tv.Cases {
+		suite := tc.CipherSuite
+		scheme := tc.SignatureScheme
+		priv, err := suite.hpke().Derive(tv.DHSeed)
+		assertNotError(t, err, "hpke error")
+		pub := priv.PublicKey
+
+		sigPriv, err := scheme.Derive(tv.SigSeed)
+		assertNotError(t, err, "sig error")
+		sigPub := sigPriv.PublicKey
+
+		bc := &BasicCredential{
+			Identity:           tv.UserId,
+			SignatureScheme:    scheme,
+			SignaturePublicKey: sigPub,
+		}
+		cred := Credential{Basic: bc}
+		cred.dump()
+
+		ratchetTree := newTestRatchetTree(t, suite,
+			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
+			[]Credential{cred, cred, cred, cred})
+
+		//err = ratchetTree.BlankPath(leafIndex(2), true)
+		//assertNotError(t, err, "rtree blank path")
+
+		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+
+		// CIK
+		cik := ClientInitKey{
+			SupportedVersion: SupportedVersionMLS10,
+			CipherSuite:      suite,
+			InitKey:          pub,
+			Credential:       cred,
+			Signature:        Signature{tv.Random},
+		}
+		cikM, err := syntax.Marshal(cik)
+		assertNotError(t, err, "cik marshal")
+		assertByteEquals(t, cikM, tc.ClientInitKey)
+
+		// Welcome
+		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
+		gi.SignerIndex = tv.SingerIndex
+		gi.Path = dp
+		gi.ConfirmedTranscriptHash = tv.Random
+		gi.InterimTranscriptHash = tv.Random
+		gi.Confirmation = tv.Random
+		gi.Signature = tv.Random
+		gi.dump()
+
+		giM, err := syntax.Marshal(gi)
+		assertNotError(t, err, "grpInfo marshal")
+		assertByteEquals(t, giM, tc.GroupInfo)
+
+		kp := KeyPackage{
+			InitSecret: tv.Random,
+		}
+
+		kpM, err := syntax.Marshal(kp)
+		assertNotError(t, err, "key package marshal")
+		assertByteEquals(t, kpM, tc.KeyPackage)
+
+		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
+		assertNotError(t, err, "encrypt ekp")
+		ekp := EncryptedKeyPackage{
+			ClientInitKeyHash: tv.Random,
+			EncryptedPackage:  encPayload,
+		}
+
+		ekpM, err := syntax.Marshal(ekp)
+		assertNotError(t, err, "encrypted key package marshal")
+		assertByteEquals(t, ekpM, tc.EncryptedKeyPackage)
+
+		var welcome Welcome
+		welcome.Version = SupportedVersionMLS10
+		welcome.CipherSuite = suite
+		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.EncryptedGroupInfo = tv.Random
+
+		welM, err := syntax.Marshal(welcome)
+		assertNotError(t, err, "welcome marshal")
+		assertByteEquals(t, welM, tc.Welcome)
+
+		// proposals
+		addProposal := &Proposal{
+			Add: &AddProposal{
+				ClientInitKey: cik,
+			},
+		}
+
+		addHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: addProposal,
+			},
+		}
+		addHs.Signature = Signature{tv.Random}
+
+		addM, err := syntax.Marshal(addHs)
+		assertNotError(t, err, "add HS marshal")
+		assertByteEquals(t, addM, tc.AddProposal)
+
+		updateProposal := &Proposal{
+			Update: &UpdateProposal{
+				LeafKey: pub,
+			},
+		}
+
+		updateHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: updateProposal,
+			},
+		}
+		updateHs.Signature = Signature{tv.Random}
+
+		updateM, err := syntax.Marshal(updateHs)
+		assertNotError(t, err, "update HS marshal")
+		assertByteEquals(t, updateM, tc.UpdateProposal)
+
+		removeProposal := &Proposal{
+			Remove: &RemoveProposal{
+				Removed: uint32(tv.SingerIndex),
+			},
+		}
+
+		removeHs := MLSPlaintext{
+			GroupID: tv.GroupId,
+			Epoch:   tv.Epoch,
+			Sender:  tv.SingerIndex,
+			Content: MLSPlaintextContent{
+				Proposal: removeProposal,
+			},
+		}
+		removeHs.Signature = Signature{tv.Random}
+		remM, err := syntax.Marshal(removeHs)
+		assertNotError(t, err, "remove HS marshal")
+		assertByteEquals(t, remM, tc.RemoveProposal)
+
+		// commit
+		proposal := []ProposalID{{tv.Random}, {tv.Random}}
+		commit := Commit{
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Ignored: proposal,
+			Path:    *dp,
+		}
+		commitM, err := syntax.Marshal(commit)
+		assertNotError(t, err, "commit marshal")
+		assertByteEquals(t, commitM, tc.Commit)
+
+		//MlsCiphertext
+		ct := MLSCiphertext{
+			GroupID:             tv.GroupId,
+			Epoch:               tv.Epoch,
+			ContentType:         uint8(ContentTypeApplication),
+			SenderDataNonce:     tv.Random,
+			EncryptedSenderData: tv.Random,
+			AuthenticatedData:   tv.Random,
+		}
+
+		ctM, err := syntax.Marshal(ct)
+		assertNotError(t, err, "MLSCiphertext marshal")
+		assertByteEquals(t, ctM, tc.MLSCiphertext)
+	}
+
 }
