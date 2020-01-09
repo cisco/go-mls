@@ -253,6 +253,21 @@ type MessageTestVectors struct {
 	Cases           []MessageTestCase `tls:"head=4"`
 }
 
+//helpers
+
+func groupInfoMatch(t *testing.T, l, r GroupInfo) {
+	assertByteEquals(t, l.GroupId, r.GroupId)
+	assertEquals(t, l.Epoch, r.Epoch)
+	assertTrue(t, l.Tree.Equals(r.Tree), "tree unequal")
+	assertByteEquals(t, l.PriorConfirmedTranscriptHash, r.PriorConfirmedTranscriptHash)
+	assertByteEquals(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
+	assertByteEquals(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
+	assertByteEquals(t, l.Confirmation, r.Confirmation)
+	assertEquals(t, l.SignerIndex, r.SignerIndex)
+	assertByteEquals(t, l.Signature, r.Signature)
+}
+
+/// Gen and Verify
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
 		Epoch:           0xA0A1A2A3,
@@ -296,8 +311,8 @@ func generateMessageVectors(t *testing.T) []byte {
 			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
 			[]Credential{cred, cred, cred, cred})
 
-		//err = ratchetTree.BlankPath(leafIndex(2), true)
-		//assertNotError(t, err, "rtree blank path")
+		err = ratchetTree.BlankPath(leafIndex(2), true)
+		assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -417,7 +432,6 @@ func generateMessageVectors(t *testing.T) []byte {
 			Removes: proposal,
 			Adds:    proposal,
 			Ignored: proposal,
-			Path:    *dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -480,14 +494,13 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			SignaturePublicKey: sigPub,
 		}
 		cred := Credential{Basic: bc}
-		cred.dump()
 
 		ratchetTree := newTestRatchetTree(t, suite,
 			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
 			[]Credential{cred, cred, cred, cred})
 
-		//err = ratchetTree.BlankPath(leafIndex(2), true)
-		//assertNotError(t, err, "rtree blank path")
+		err = ratchetTree.BlankPath(leafIndex(2), true)
+		assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -511,11 +524,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random
 		gi.Signature = tv.Random
-		gi.dump()
-
-		giM, err := syntax.Marshal(gi)
-		assertNotError(t, err, "grpInfo marshal")
-		assertByteEquals(t, giM, tc.GroupInfo)
+		var giWire GroupInfo
+		syntax.Unmarshal(tc.GroupInfo, &giWire)
+		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{
 			InitSecret: tv.Random,
@@ -531,10 +542,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			ClientInitKeyHash: tv.Random,
 			EncryptedPackage:  encPayload,
 		}
-
-		ekpM, err := syntax.Marshal(ekp)
-		assertNotError(t, err, "encrypted key package marshal")
-		assertByteEquals(t, ekpM, tc.EncryptedKeyPackage)
+		var ekpWire EncryptedKeyPackage
+		syntax.Unmarshal(tc.EncryptedKeyPackage, &ekpWire)
+		assertByteEquals(t, ekp.ClientInitKeyHash, ekpWire.ClientInitKeyHash)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
@@ -542,9 +552,11 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
 		welcome.EncryptedGroupInfo = tv.Random
 
-		welM, err := syntax.Marshal(welcome)
-		assertNotError(t, err, "welcome marshal")
-		assertByteEquals(t, welM, tc.Welcome)
+		var welWire Welcome
+		syntax.Unmarshal(tc.Welcome, &welWire)
+		assertTrue(t, welcome.CipherSuite == welWire.CipherSuite, "welcome suite")
+		assertTrue(t, welcome.Version == welWire.Version, "welcome version")
+		assertByteEquals(t, welcome.EncryptedGroupInfo, welWire.EncryptedGroupInfo)
 
 		// proposals
 		addProposal := &Proposal{
@@ -613,7 +625,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Removes: proposal,
 			Adds:    proposal,
 			Ignored: proposal,
-			Path:    *dp,
 		}
 		commitM, err := syntax.Marshal(commit)
 		assertNotError(t, err, "commit marshal")

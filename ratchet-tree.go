@@ -260,8 +260,6 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 }
 
 func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*DirectPath, []byte) {
-	fmt.Printf("encap: suite %v, from %v, leafSecret %x, context %x\n", t.CipherSuite, from, leafSecret, context)
-
 	// list of updated nodes - output
 	dp := &DirectPath{}
 
@@ -296,12 +294,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		res := t.resolve(v)
 		for _, rnode := range res {
 			pk := t.Nodes[rnode].Node.PublicKey
-			fmt.Printf("\tencap: resNode %v, pk %x\n", rnode, pk.Data)
-			fmt.Printf("\tencap: pathSecret %x\n", pathSecret)
-
 			ct, err := t.CipherSuite.hpke().Encrypt(*pk, context, pathSecret)
-			fmt.Printf("\tencap: EncpathSecret %x\n", ct)
-
 			if err != nil {
 				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
 			}
@@ -312,7 +305,6 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	}
 
 	t.setHashPath(from)
-	dp.dump()
 	return dp, pathSecret
 }
 

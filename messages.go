@@ -458,7 +458,6 @@ func (gi GroupInfo) dump() {
 	fmt.Printf("\tConfirmation %x, SignerIndex %x\n", gi.Confirmation, gi.SignerIndex)
 	fmt.Printf("\tSignature %x\n", gi.Signature)
 	fmt.Printf("\n+++++ groupInfo +++++\n")
-
 }
 
 func (gi GroupInfo) toBeSigned() ([]byte, error) {
