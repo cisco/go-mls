@@ -408,7 +408,7 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
-				Removed: uint32(tv.SingerIndex),
+				Removed: tv.SingerIndex,
 			},
 		}
 
@@ -441,7 +441,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		ct := MLSCiphertext{
 			GroupID:             tv.GroupId,
 			Epoch:               tv.Epoch,
-			ContentType:         uint8(ContentTypeApplication),
+			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
 			AuthenticatedData:   tv.Random,
@@ -601,7 +601,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
-				Removed: uint32(tv.SingerIndex),
+				Removed: tv.SingerIndex,
 			},
 		}
 
@@ -634,7 +634,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		ct := MLSCiphertext{
 			GroupID:             tv.GroupId,
 			Epoch:               tv.Epoch,
-			ContentType:         uint8(ContentTypeApplication),
+			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
 			AuthenticatedData:   tv.Random,

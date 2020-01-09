@@ -118,9 +118,8 @@ type UpdateProposal struct {
 	LeafKey HPKEPublicKey
 }
 
-//todo: change it to leafindex
 type RemoveProposal struct {
-	Removed uint32
+	Removed leafIndex
 }
 
 type Proposal struct {
@@ -246,7 +245,7 @@ type Commit struct {
 ///
 /// MLSPlaintext and MLSCiphertext
 ///
-type Epoch uint64
+type Epoch uint32
 
 type ContentType uint8
 
@@ -420,11 +419,10 @@ func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	return s.Data(), nil
 }
 
-//todo: change ContentType to ContentType from unit8
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
-	ContentType         uint8
+	ContentType         ContentType
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	AuthenticatedData   []byte `tls:"head=4"`

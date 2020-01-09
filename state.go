@@ -266,7 +266,7 @@ func (s State) update(leafSecret []byte) *MLSPlaintext {
 func (s *State) remove(removed leafIndex) *MLSPlaintext {
 	removeProposal := Proposal{
 		Remove: &RemoveProposal{
-			Removed: uint32(removed),
+			Removed: removed,
 		},
 	}
 	return s.sign(removeProposal)
@@ -670,7 +670,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	ct := &MLSCiphertext{
 		GroupID:             s.GroupID,
 		Epoch:               s.Epoch,
-		ContentType:         uint8(pt.Content.Type()),
+		ContentType:         pt.Content.Type(),
 		AuthenticatedData:   pt.AuthenticatedData,
 		SenderDataNonce:     senderDataNonce,
 		EncryptedSenderData: sdCt,
