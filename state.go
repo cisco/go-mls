@@ -396,7 +396,6 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 
 		// we have processed this proposal already
 		if processed[id.String()] {
-			fmt.Printf("mls.state: skipping processed proposal %v", pt)
 			continue
 		} else {
 			processed[id.String()] = true

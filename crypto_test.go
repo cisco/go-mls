@@ -15,7 +15,7 @@ var supportedSuites = []CipherSuite{
 }
 
 var supportedSchemes = []SignatureScheme{
-	// ECDSA_SECP256R1_SHA256, // TODO
+	ECDSA_SECP256R1_SHA256,
 	Ed25519,
 }
 
@@ -140,7 +140,9 @@ func TestSignVerify(t *testing.T) {
 			priv, err = scheme.Derive(seed)
 			assertNotError(t, err, "Error generating signing key")
 
-			signature := scheme.Sign(&priv, message)
+			signature, err := scheme.Sign(&priv, message)
+			assertNotError(t, err, "Error signing")
+
 			verified := scheme.Verify(&priv.PublicKey, message, signature)
 			assertTrue(t, verified, "Signature failed to verify")
 		}
