@@ -67,7 +67,13 @@ func (cik *ClientInitKey) sign() error {
 	if err != nil {
 		return err
 	}
-	cik.Signature = Signature{cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)}
+
+	sig, err := cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)
+	if err != nil {
+		return err
+	}
+
+	cik.Signature = Signature{sig}
 	return nil
 }
 
@@ -367,7 +373,12 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 
 func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
 	tbs := pt.toBeSigned(ctx)
-	pt.Signature = Signature{scheme.Sign(&priv, tbs)}
+	sig, err := scheme.Sign(&priv, tbs)
+	if err != nil {
+		panic(err)
+	}
+
+	pt.Signature = Signature{sig}
 }
 
 func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {
@@ -463,14 +474,19 @@ func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 	}
 
 	// Marshal the contents
+	gi.SignerIndex = index
 	tbs, err := gi.toBeSigned()
 	if err != nil {
 		return err
 	}
 
 	// Sign toBeSigned() with priv -> SignerIndex, Signature
-	gi.SignerIndex = index
-	gi.Signature = cred.Scheme().Sign(priv, tbs)
+	sig, err := cred.Scheme().Sign(priv, tbs)
+	if err != nil {
+		return err
+	}
+
+	gi.Signature = sig
 	return nil
 }
 

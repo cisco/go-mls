@@ -78,7 +78,6 @@ func setupGroup(t *testing.T) StateTest {
 		s, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
 		assertNotError(t, err, "initializing the state from welcome failed")
 		states = append(states, *s)
-		states[i].Tree.Dump(fmt.Sprintf("Tree-%v", i))
 	}
 	stateTest.states = states
 	return stateTest
@@ -113,7 +112,6 @@ func TestState_TwoPerson(t *testing.T) {
 	//assertByteEquals(t, *first1, *second0)
 
 	/// Verify that they can exchange protected messages
-	fmt.Printf(" >>>>>>>>> Protect/Unprotect <<<<<<<<< \n")
 	ct, err := first1.protect(testMessage)
 	assertNotError(t, err, "protect error")
 	pt, err := second0.unprotect(ct)

@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/asn1"
 	"fmt"
 	"hash"
+	"math/big"
 
 	"github.com/bifurcation/hpke"
 	"github.com/bifurcation/mint/syntax"
@@ -256,12 +260,6 @@ func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext
 }
 
 func (h hpkeInstance) Decrypt(priv HPKEPrivateKey, aad []byte, ct HPKECiphertext) ([]byte, error) {
-	fmt.Printf("=== HPKE Decrypt ===\n")
-	fmt.Printf("priv: %x\n", priv.Data)
-	fmt.Printf("aad:  %x\n", aad)
-	fmt.Printf("ct.k: %x\n", ct.KEMOutput)
-	fmt.Printf("ct.c: %x\n", ct.Ciphertext)
-
 	skR, err := h.Suite.KEM.UnmarshalPrivate(priv.Data)
 	if err != nil {
 		return nil, err
@@ -318,7 +316,18 @@ func (ss SignatureScheme) String() string {
 func (ss SignatureScheme) Derive(preSeed []byte) (SignaturePrivateKey, error) {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
-		// TODO
+		h := sha256.New()
+		h.Write(preSeed)
+		priv := h.Sum(nil)
+
+		curve := elliptic.P256()
+		x, y := curve.Params().ScalarBaseMult(priv)
+		pub := elliptic.Marshal(curve, x, y)
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
 
 	case Ed25519:
 		h := sha256.New()
@@ -338,7 +347,18 @@ func (ss SignatureScheme) Derive(preSeed []byte) (SignaturePrivateKey, error) {
 func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
-		// TODO
+		curve := elliptic.P256()
+		priv, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return SignaturePrivateKey{}, err
+		}
+
+		pub := elliptic.Marshal(curve, x, y)
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
 
 	case Ed25519:
 		pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -355,14 +375,28 @@ func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
 	panic("Unsupported algorithm")
 }
 
-func (ss SignatureScheme) Sign(priv *SignaturePrivateKey, message []byte) []byte {
+type ecdsaSignature struct {
+	R, S *big.Int
+}
+
+func (ss SignatureScheme) Sign(priv *SignaturePrivateKey, message []byte) ([]byte, error) {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
-		// TODO
+		h := sha256.New()
+		h.Write(message)
+		digest := h.Sum(nil)
+
+		ecPriv := &ecdsa.PrivateKey{
+			D: big.NewInt(0).SetBytes(priv.Data),
+			PublicKey: ecdsa.PublicKey{
+				Curve: elliptic.P256(),
+			},
+		}
+		return ecPriv.Sign(rand.Reader, digest, nil)
 
 	case Ed25519:
 		priv25519 := ed25519.PrivateKey(priv.Data)
-		return ed25519.Sign(priv25519, message)
+		return ed25519.Sign(priv25519, message), nil
 	}
 	panic("Unsupported algorithm")
 }
@@ -370,7 +404,21 @@ func (ss SignatureScheme) Sign(priv *SignaturePrivateKey, message []byte) []byte
 func (ss SignatureScheme) Verify(pub *SignaturePublicKey, message, signature []byte) bool {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
-		// TODO
+		h := sha256.New()
+		h.Write(message)
+		digest := h.Sum(nil)
+
+		curve := elliptic.P256()
+		x, y := elliptic.Unmarshal(curve, pub.Data)
+
+		var sig ecdsaSignature
+		_, err := asn1.Unmarshal(signature, &sig)
+		if err != nil {
+			return false
+		}
+
+		ecPub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+		return ecdsa.Verify(ecPub, digest, sig.R, sig.S)
 
 	case Ed25519:
 		pub25519 := ed25519.PublicKey(pub.Data)
