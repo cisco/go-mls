@@ -125,7 +125,7 @@ type UpdateProposal struct {
 }
 
 type RemoveProposal struct {
-	Removed uint32
+	Removed leafIndex
 }
 
 type Proposal struct {
@@ -223,6 +223,19 @@ type DirectPath struct {
 	Nodes []DirectPathNode `tls:"head=2"`
 }
 
+func (p DirectPath) dump() {
+	fmt.Printf("\n++++ DirectPath ++++\n")
+	fmt.Printf("Num Nodes %d\n", len(p.Nodes))
+	for _, n := range p.Nodes {
+		fmt.Printf("\tPubKey %x\n", n.PublicKey)
+		for _, e := range n.EncryptedPathSecrets {
+			fmt.Printf("\t\tPathSecret %x\n", e)
+		}
+	}
+	fmt.Printf("\n++++ DirectPath ++++\n")
+
+}
+
 func (p *DirectPath) addNode(n DirectPathNode) {
 	p.Nodes = append(p.Nodes, n)
 }
@@ -238,7 +251,7 @@ type Commit struct {
 ///
 /// MLSPlaintext and MLSCiphertext
 ///
-type Epoch uint64
+type Epoch uint32
 
 type ContentType uint8
 
@@ -420,10 +433,10 @@ func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
-	ContentType         uint8
-	AuthenticatedData   []byte `tls:"head=4"`
+	ContentType         ContentType
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
+	AuthenticatedData   []byte `tls:"head=4"`
 	Ciphertext          []byte `tls:"head=4"`
 }
 
@@ -442,6 +455,18 @@ type GroupInfo struct {
 	Confirmation                 []byte `tls:"head=1"`
 	SignerIndex                  leafIndex
 	Signature                    []byte `tls:"head=2"`
+}
+
+func (gi GroupInfo) dump() {
+	fmt.Printf("\n+++++ groupInfo +++++\n")
+	fmt.Printf("\tGroupId %x, Epoch %x\n", gi.GroupId, gi.Epoch)
+	gi.Tree.Dump("Tree")
+	fmt.Printf("\tPriorConfirmedTranscriptHash %x, ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
+		gi.PriorConfirmedTranscriptHash, gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
+	gi.Path.dump()
+	fmt.Printf("\tConfirmation %x, SignerIndex %x\n", gi.Confirmation, gi.SignerIndex)
+	fmt.Printf("\tSignature %x\n", gi.Signature)
+	fmt.Printf("\n+++++ groupInfo +++++\n")
 }
 
 func (gi GroupInfo) toBeSigned() ([]byte, error) {
@@ -512,7 +537,7 @@ func (gi GroupInfo) verify() error {
 func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byte) *GroupInfo {
 	gi := new(GroupInfo)
 	gi.GroupId = gid
-	gi.Epoch = epoch + 1
+	gi.Epoch = epoch
 	gi.Tree = tree.clone()
 	gi.PriorConfirmedTranscriptHash = transriptHash
 	return gi
@@ -586,7 +611,7 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners
 
 	// Assemble the Welcome
 	w := &Welcome{
-		Version:            0,
+		Version:            SupportedVersionMLS10,
 		CipherSuite:        cs,
 		EncryptedGroupInfo: ct,
 		initSecret:         initSecret,

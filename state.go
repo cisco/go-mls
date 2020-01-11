@@ -266,7 +266,7 @@ func (s State) update(leafSecret []byte) *MLSPlaintext {
 func (s *State) remove(removed leafIndex) *MLSPlaintext {
 	removeProposal := Proposal{
 		Remove: &RemoveProposal{
-			Removed: uint32(removed),
+			Removed: removed,
 		},
 	}
 	return s.sign(removeProposal)
@@ -302,7 +302,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// Start a GroupInfo with the prepared state
 	prevInitSecret := s.Keys.InitSecret
-	gi := newGroupInfo(next.GroupID, next.Epoch, next.Tree, s.ConfirmedTranscriptHash)
+	gi := newGroupInfo(next.GroupID, next.Epoch+1, next.Tree, s.ConfirmedTranscriptHash)
 
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 gi.GroupId,
@@ -669,7 +669,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	ct := &MLSCiphertext{
 		GroupID:             s.GroupID,
 		Epoch:               s.Epoch,
-		ContentType:         uint8(pt.Content.Type()),
+		ContentType:         pt.Content.Type(),
 		AuthenticatedData:   pt.AuthenticatedData,
 		SenderDataNonce:     senderDataNonce,
 		EncryptedSenderData: sdCt,
