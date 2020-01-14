@@ -5,8 +5,8 @@ import (
 )
 
 type keyAndNonce struct {
-	Key   []byte
-	Nonce []byte
+	Key   []byte `tls:"head=1"`
+	Nonce []byte `tls:"head=1"`
 }
 
 func (k keyAndNonce) clone(suite CipherSuite) keyAndNonce {
