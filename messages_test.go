@@ -288,7 +288,6 @@ func generateMessageVectors(t *testing.T) []byte {
 	for i := range suites {
 		suite := suites[i]
 		scheme := schemes[i]
-
 		// hpke
 		priv, err := suite.hpke().Derive(tv.DHSeed)
 		assertNotError(t, err, "priv key failure")
