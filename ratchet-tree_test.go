@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"github.com/bifurcation/mint/syntax"
@@ -270,4 +271,138 @@ func TestRatchetTree_Clone(t *testing.T) {
 	assertEquals(t, *cloned.GetCredential(leafIndex(3)), credD)
 
 	assertTrue(t, tree.Equals(cloned), "clone is not equaled to its parent")
+}
+
+///
+/// Test Vectors
+///
+
+type TreeNode struct {
+	PubKey []byte `tls:"head=1"`
+	Hash   []byte `tls:"head=1"`
+}
+
+type RatchetTreeCase struct {
+	CipherSuite     CipherSuite
+	SignatureScheme SignatureScheme
+
+	Credentials []Credential `tls:"head=4"`
+	Trees       [][]TreeNode `tls:"head=4"`
+}
+
+type RatchetTreeVectors struct {
+	LeafSecrets [][]byte          `tls:"head=4"`
+	Credentials []Credential      `tls:"head=4"`
+	Cases       []RatchetTreeCase `tls:"head=4"`
+}
+
+func treeToTreeNode(tree *RatchetTree) []TreeNode {
+
+	nodes := tree.Nodes
+	tc := make([]TreeNode, len(nodes))
+	for i := 0; i < len(nodes); i++ {
+		tc[i].Hash = nodes[i].Hash
+		if !nodes[i].blank() {
+			tc[i].PubKey = nodes[i].Node.PublicKey.Data
+		}
+	}
+	return tc
+}
+
+func generateRatchetTreeVectors(t *testing.T) []byte {
+	var tv RatchetTreeVectors
+	suites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+	schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
+	var leaves = 10
+
+	tv.LeafSecrets = [][]byte{}
+	for i := 0; i < leaves; i++ {
+		tv.LeafSecrets = append(tv.LeafSecrets, []byte{byte(i)})
+	}
+
+	for i := range suites {
+		var tc RatchetTreeCase
+		suite := suites[i]
+		scheme := schemes[i]
+		tc.CipherSuite = suite
+		tc.SignatureScheme = scheme
+		tree := newRatchetTree(suite)
+
+		// add leaves
+		for j := 0; j < leaves; j++ {
+			id := []byte{byte(j)}
+			sigPriv, err := scheme.Derive(id)
+			assertNotError(t, err, "sig error")
+			sigPub := sigPriv.PublicKey
+			bc := &BasicCredential{
+				Identity:           id,
+				SignatureScheme:    scheme,
+				SignaturePublicKey: sigPub,
+			}
+			cred := Credential{Basic: bc}
+			tc.Credentials = append(tc.Credentials, cred)
+			priv, err := suite.hpke().Derive(tv.LeafSecrets[j])
+			assertNotError(t, err, "hpke error")
+			err = tree.AddLeaf(leafIndex(j), &priv.PublicKey, &cred)
+			assertNotError(t, err, "add leaf")
+			tree.Encap(leafIndex(j), []byte{}, tv.LeafSecrets[j])
+			tc.Trees = append(tc.Trees, treeToTreeNode(tree))
+		}
+
+		// blank out the even numbered leaves
+		for j := 0; j < leaves; j += 2 {
+			err := tree.BlankPath(leafIndex(j), true)
+			assertNotError(t, err, "blank path")
+			tc.Trees = append(tc.Trees, treeToTreeNode(tree))
+		}
+
+		tv.Cases = append(tv.Cases, tc)
+
+	}
+
+	vec, err := syntax.Marshal(tv)
+	assertNotError(t, err, "Error marshaling test vectors")
+	return vec
+}
+
+func assertTreeEq(t *testing.T, tn []TreeNode, tree *RatchetTree) bool {
+	nodes := tree.Nodes
+	assertTrue(t, len(tn) == len(nodes), "nodes size mismatch")
+	for i := 0; i < len(tn); i++ {
+		assertTrue(t, bytes.Equal(tn[i].Hash, nodes[i].Hash), "hash mismatch")
+		if !nodes[i].blank() {
+			assertTrue(t, bytes.Equal(tn[i].PubKey, nodes[i].Node.PublicKey.Data), "pubkey mismatch")
+		} else {
+			assertTrue(t, len(tn[i].PubKey) == 0, "blank node mismatch")
+		}
+	}
+	return false
+}
+func verifyRatchetTreeVectors(t *testing.T, data []byte) {
+	var tv RatchetTreeVectors
+	_, err := syntax.Unmarshal(data, &tv)
+	assertNotError(t, err, "Malformed test vectors")
+
+	for _, tc := range tv.Cases {
+		suite := tc.CipherSuite
+		tree := newRatchetTree(suite)
+		var tci = 0
+		for i := 0; i < len(tv.LeafSecrets); i++ {
+			priv, err := suite.hpke().Derive(tv.LeafSecrets[i])
+			assertNotError(t, err, "derive hpke")
+			err = tree.AddLeaf(leafIndex(i), &priv.PublicKey, &tc.Credentials[i])
+			assertNotError(t, err, "add leaf")
+			tree.Encap(leafIndex(i), []byte{}, tv.LeafSecrets[i])
+			assertTreeEq(t, tc.Trees[tci], tree)
+			tci += 1
+		}
+
+		// blank even numbered leaves
+		for j := 0; j < len(tv.LeafSecrets); j += 2 {
+			err := tree.BlankPath(leafIndex(j), true)
+			assertNotError(t, err, "blank path")
+			assertTreeEq(t, tc.Trees[tci], tree)
+			tci += 1
+		}
+	}
 }
