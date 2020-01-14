@@ -283,13 +283,11 @@ func generateMessageVectors(t *testing.T) []byte {
 	}
 
 	suites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
-	//schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
+	schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
 
 	for i := range suites {
 		suite := suites[i]
-		// today just this scheme is supported
-		scheme := Ed25519
-
+		scheme := schemes[i]
 		// hpke
 		priv, err := suite.hpke().Derive(tv.DHSeed)
 		assertNotError(t, err, "priv key failure")
