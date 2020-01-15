@@ -59,6 +59,12 @@ var testVectorCases = map[string]TestVectorCase{
 		Verify:   verifyKeyScheduleVectors,
 	},
 
+	"ratchet_tree": {
+		Filename: "tree.bin",
+		Generate: generateRatchetTreeVectors,
+		Verify:   verifyRatchetTreeVectors,
+	},
+
 	// TODO continue
 }
 

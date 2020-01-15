@@ -404,7 +404,7 @@ func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) error {
 		return nil
 	}
 
-	nc := t.nodeSize()
+	lc := t.size()
 	r := t.rootIndex()
 	first := true
 
@@ -418,7 +418,7 @@ func (t *RatchetTree) BlankPath(index leafIndex, includeLeaf bool) error {
 		if !skip {
 			t.Nodes[curr].Node = nil
 		}
-		curr = parent(curr, leafCount(nc))
+		curr = parent(curr, lc)
 	}
 
 	t.Nodes[r].Node = nil
