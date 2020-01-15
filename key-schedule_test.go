@@ -126,14 +126,15 @@ type KsTestVectors struct {
 /// Gen and Verify
 func generateKeyScheduleVectors(t *testing.T) []byte {
 	var tv KsTestVectors
-	suites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
-	basaGrpCtx := GroupContext{
+	suites := []CipherSuite{P256_SHA256_AES128GCM}
+	baseGrpCtx := GroupContext{
 		GroupID:                 []byte{0xA0, 0xA0, 0xA0, 0xA0},
 		Epoch:                   0,
 		TreeHash:                bytes.Repeat([]byte{0xA1}, 32),
 		ConfirmedTranscriptHash: bytes.Repeat([]byte{0xA2}, 32),
 	}
-	encCtx, err := syntax.Marshal(basaGrpCtx)
+
+	encCtx, err := syntax.Marshal(baseGrpCtx)
 	assertNotError(t, err, "grp context marshal")
 	tv.NumEpochs = 50
 	tv.TargetGeneration = 3
@@ -144,7 +145,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 		var tc KsTestCase
 		tc.CipherSuite = suite
 		// start with the base context for epoch0
-		grpCtx := basaGrpCtx
+		grpCtx := baseGrpCtx
 		updateSecret := bytes.Repeat([]byte{0x0}, suite.constants().SecretSize)
 		minMembers := 5
 		maxMembers := 20
@@ -158,26 +159,28 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 			epoch = epoch.Next(leafCount(nMembers), updateSecret, ctx)
 			var handshakeKeys []keyAndNonce
 			var applicationKeys []keyAndNonce
+			appSecret := make([]byte, len(epoch.ApplicationSecret))
+			copy(appSecret, epoch.ApplicationSecret)
 			for j := 0; j < nMembers; j++ {
 				hs, _ := epoch.HandshakeKeys.Get(leafIndex(j), tv.TargetGeneration)
 				handshakeKeys = append(handshakeKeys, hs)
 				as, _ := epoch.ApplicationKeys.Get(leafIndex(j), tv.TargetGeneration)
 				applicationKeys = append(applicationKeys, as)
 			}
-
 			kse := KsEpoch{
 				NumMembers:       leafCount(nMembers),
-				UpdateSecret:     updateSecret,
+				UpdateSecret:     make([]byte, len(updateSecret)),
 				EpochSecret:      epoch.EpochSecret,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
 				HandshakeSecret:  epoch.HandshakeSecret,
 				HandshakeKeys:    handshakeKeys,
-				AppSecret:        epoch.ApplicationSecret,
+				AppSecret:        appSecret,
 				AppKeys:          applicationKeys,
 				ConfirmationKey:  epoch.ConfirmationKey,
 				InitSecret:       epoch.InitSecret,
 			}
+			copy(kse.UpdateSecret, updateSecret)
 
 			tc.Epochs = append(tc.Epochs, kse)
 			for idx, val := range updateSecret {
@@ -210,15 +213,12 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 		for _, epoch := range tc.Epochs {
 			ctx, _ := syntax.Marshal(grpCtx)
 			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.UpdateSecret, ctx)
-
 			// check the secrets
 			assertByteEquals(t, myEpoch.EpochSecret, epoch.EpochSecret)
 			assertByteEquals(t, myEpoch.SenderDataSecret, epoch.SenderDataSecret)
 			assertByteEquals(t, myEpoch.SenderDataKey, epoch.SenderDataKey)
-
 			assertByteEquals(t, myEpoch.HandshakeSecret, epoch.HandshakeSecret)
 			assertByteEquals(t, myEpoch.ApplicationSecret, epoch.AppSecret)
-
 			assertByteEquals(t, myEpoch.ConfirmationKey, epoch.ConfirmationKey)
 			assertByteEquals(t, myEpoch.InitSecret, epoch.InitSecret)
 
