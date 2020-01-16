@@ -39,6 +39,12 @@ func TestWriteStream(t *testing.T) {
 
 	encoded := w.Data()
 	assertByteEquals(t, encoded, streamTestInputs.encoded)
+
+	w = NewWriteStream()
+	err = w.WriteAll(streamTestInputs.val1, streamTestInputs.val2,
+		streamTestInputs.val3, streamTestInputs.val4)
+	assertNotError(t, err, "Error in WriteAll")
+	assertByteEquals(t, w.Data(), streamTestInputs.encoded)
 }
 
 func TestReadStream(t *testing.T) {
@@ -66,5 +72,14 @@ func TestReadStream(t *testing.T) {
 	read, err = r.Read(&val4)
 	assertNotError(t, err, "Error reading from stream")
 	assertEquals(t, read, 4)
+	assertDeepEquals(t, val4, streamTestInputs.val4)
+
+	r = NewReadStream(streamTestInputs.encoded)
+	read, err = r.ReadAll(&val1, &val2, &val3, &val4)
+	assertNotError(t, err, "Error in ReadAll")
+	assertEquals(t, read, 1+2+5+4)
+	assertDeepEquals(t, val1, streamTestInputs.val1)
+	assertDeepEquals(t, val2, streamTestInputs.val2)
+	assertDeepEquals(t, val3, streamTestInputs.val3)
 	assertDeepEquals(t, val4, streamTestInputs.val4)
 }

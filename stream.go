@@ -31,11 +31,10 @@ func (s *WriteStream) Write(val interface{}) error {
 
 func (s *WriteStream) WriteAll(vals ...interface{}) error {
 	for _, val := range vals {
-		enc, err := syntax.Marshal(val)
+		err := s.Write(val)
 		if err != nil {
 			return err
 		}
-		s.buffer = append(s.buffer, enc...)
 	}
 	return nil
 }
@@ -66,6 +65,18 @@ func (s *ReadStream) Read(val interface{}) (int, error) {
 
 	s.cursor += read
 	return read, nil
+}
+
+func (s *ReadStream) ReadAll(vals ...interface{}) (int, error) {
+	totalRead := 0
+	for _, val := range vals {
+		read, err := s.Read(val)
+		if err != nil {
+			return 0, err
+		}
+		totalRead += read
+	}
+	return totalRead, nil
 }
 
 func (s *ReadStream) Position() int {
