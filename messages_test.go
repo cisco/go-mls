@@ -48,8 +48,8 @@ var (
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
-		Extensions:       extListValidIn,
-		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
+		//Extensions:       extListValidIn,
+		Signature: Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -523,7 +523,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		gi.Confirmation = tv.Random
 		gi.Signature = tv.Random
 		var giWire GroupInfo
-		syntax.Unmarshal(tc.GroupInfo, &giWire)
+		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
+		assertNotError(t, err, "groupInfo unmarshal")
 		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{

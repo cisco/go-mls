@@ -207,8 +207,8 @@ func (n *OptionalRatchetNode) hasPrivate() bool {
 /// Ratchet Tree
 ///
 type RatchetTree struct {
-	Nodes       []OptionalRatchetNode `tls:"head=2"`
-	CipherSuite CipherSuite
+	Nodes       []OptionalRatchetNode `tls:"head=4"`
+	CipherSuite CipherSuite           `tls:"omit"`
 }
 
 func newRatchetTree(cs CipherSuite) *RatchetTree {

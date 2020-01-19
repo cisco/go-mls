@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -64,7 +65,6 @@ var testVectorCases = map[string]TestVectorCase{
 		Generate: generateRatchetTreeVectors,
 		Verify:   verifyRatchetTreeVectors,
 	},
-
 	// TODO continue
 }
 
@@ -97,6 +97,7 @@ func vectorVerify(c TestVectorCase, testDir string) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Read test vectors
 		file := filepath.Join(testDir, c.Filename)
+		fmt.Printf("Test File %v\n", file)
 		vec, err := ioutil.ReadFile(file)
 		assertNotError(t, err, "Error reading test vectors")
 
