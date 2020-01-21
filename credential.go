@@ -42,6 +42,17 @@ type Credential struct {
 	privateKey *SignaturePrivateKey
 }
 
+func newBasicCredential(scheme SignatureScheme, identity []byte, priv *SignaturePrivateKey) *Credential {
+	return &Credential{
+		Basic: &BasicCredential{
+			Identity:           identity,
+			SignatureScheme:    scheme,
+			SignaturePublicKey: priv.PublicKey,
+		},
+		privateKey: priv,
+	}
+}
+
 // compare the public aspects
 func (c Credential) Equals(o Credential) bool {
 	switch {

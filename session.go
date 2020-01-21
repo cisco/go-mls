@@ -13,7 +13,7 @@ type Session struct {
 	OutboundStateCache   *State
 }
 
-func StartNewSession(groupID []byte, myCIKs, otherCIKs []ClientInitKey, initialSecret []byte) (*Welcome, *Session, error) {
+func StartSession(groupID []byte, myCIKs, otherCIKs []ClientInitKey, initialSecret []byte) (*Session, *Welcome, error) {
 	welcome, state, err := negotiateWithPeer(groupID, myCIKs, otherCIKs, initialSecret)
 	if err != nil {
 		return nil, nil, err
@@ -23,10 +23,10 @@ func StartNewSession(groupID []byte, myCIKs, otherCIKs []ClientInitKey, initialS
 		State:        map[Epoch]*State{state.Epoch: state},
 		CurrentEpoch: state.Epoch,
 	}
-	return welcome, session, nil
+	return session, welcome, nil
 }
 
-func JoinNewSession(myCIKs []ClientInitKey, welcome Welcome) (*Session, error) {
+func JoinSession(myCIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 	state, err := newJoinedState(myCIKs, welcome)
 	if err != nil {
 		return nil, err
@@ -39,6 +39,29 @@ func JoinNewSession(myCIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 	return session, nil
 }
 
+func (s Session) Equals(other *Session) bool {
+	if s.EncryptHandshake != other.EncryptHandshake {
+		return false
+	}
+
+	if s.CurrentEpoch != other.CurrentEpoch {
+		return false
+	}
+
+	for epoch, state := range s.State {
+		otherState, ok := other.State[epoch]
+		if !ok {
+			continue
+		}
+
+		if !state.Equals(*otherState) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (s *Session) addState(priorEpoch Epoch, state *State) {
 	s.State[state.Epoch] = state
 	if priorEpoch == s.CurrentEpoch {
@@ -48,6 +71,10 @@ func (s *Session) addState(priorEpoch Epoch, state *State) {
 
 func (s Session) currentState() *State {
 	return s.State[s.CurrentEpoch]
+}
+
+func (s Session) Index() leafIndex {
+	return s.currentState().Index
 }
 
 func (s *Session) commitAndCache(commitSecret []byte, proposal *MLSPlaintext) (*Welcome, []byte, error) {
@@ -125,15 +152,19 @@ func (s *Session) Handle(message []byte) error {
 
 		commit, err = state.decrypt(encCommit)
 		if err != nil {
+			panic(err)
 			return err
 		}
 	} else {
 		proposal = new(MLSPlaintext)
 		commit = new(MLSPlaintext)
-		_, err := r.ReadAll(proposal, commit)
+		_, err := r.ReadAll(proposal)
 		if err != nil {
+			panic(err)
 			return err
 		}
+
+		panic("breaker")
 	}
 
 	if proposal.Sender == state.Index {
