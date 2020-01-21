@@ -2,6 +2,7 @@ package mls
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/bifurcation/mint/syntax"
 	"testing"
 )
@@ -306,11 +307,11 @@ func generateMessageVectors(t *testing.T) []byte {
 		cred := Credential{Basic: bc}
 
 		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
-			[]Credential{cred, cred, cred, cred})
+			[][]byte{tv.Random},
+			[]Credential{cred})
 
-		err = ratchetTree.BlankPath(leafIndex(2), true)
-		assertNotError(t, err, "rtree blank path")
+		//err = ratchetTree.BlankPath(leafIndex(2), true)
+		//assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -338,6 +339,7 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		giM, err := syntax.Marshal(gi)
 		assertNotError(t, err, "grpInfo marshal")
+		fmt.Printf("Gen GroupInfo %x\n", giM)
 
 		kp := KeyPackage{
 			InitSecret: tv.Random,
@@ -494,11 +496,11 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		cred := Credential{Basic: bc}
 
 		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
-			[]Credential{cred, cred, cred, cred})
+			[][]byte{tv.Random},
+			[]Credential{cred})
 
-		err = ratchetTree.BlankPath(leafIndex(2), true)
-		assertNotError(t, err, "rtree blank path")
+		//err = ratchetTree.BlankPath(leafIndex(2), true)
+		//assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -522,9 +524,12 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random
 		gi.Signature = tv.Random
+		fmt.Printf("Verify GroupInfo %x\n", tc.GroupInfo)
+
 		var giWire GroupInfo
-		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
+		_, err = giWire.UnmarshalTLS(tc.GroupInfo)
 		assertNotError(t, err, "groupInfo unmarshal")
+
 		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{

@@ -457,6 +457,32 @@ type GroupInfo struct {
 	Signature                    []byte `tls:"head=2"`
 }
 
+type GId struct {
+	Data []byte `tls:"head=1"`
+}
+
+func (gi GroupInfo) UnmarshalTLS(data []byte) (int, error) {
+	var gid GId
+	s := NewReadStream(data)
+	_, err := s.Read(&gid)
+	if err != nil {
+		return 0, fmt.Errorf("gid: %v", err)
+	}
+	var epoch Epoch
+	_, err = s.Read(&epoch)
+	if err != nil {
+		return 0, fmt.Errorf("epoch: %v", err)
+	}
+	fmt.Printf("epoch %x", epoch)
+	var t RatchetTree
+	_, err = s.Read(&t)
+	if err != nil {
+		return 0, fmt.Errorf("tree: %v", err)
+	}
+
+	return 0, nil
+}
+
 func (gi GroupInfo) dump() {
 	fmt.Printf("\n+++++ groupInfo +++++\n")
 	fmt.Printf("\tGroupId %x, Epoch %x\n", gi.GroupId, gi.Epoch)

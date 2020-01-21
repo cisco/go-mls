@@ -38,7 +38,7 @@ type RatchetTreeNode struct {
 	Credential     *Credential `tls:"optional"`
 	PublicKey      *HPKEPublicKey
 	PrivateKey     *HPKEPrivateKey `tls:"omit"`
-	UnmergedLeaves []leafIndex     `tls:"head=2"`
+	UnmergedLeaves []leafIndex     `tls:"head=4"`
 }
 
 // Compare the public aspects of two nodes
