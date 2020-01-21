@@ -131,7 +131,8 @@ func (cs CipherSuite) hkdfExpand(secret, info []byte, size int) []byte {
 	infoAndCounter := append(info, 0x01)
 	mac := cs.newHMAC(secret)
 	mac.Write(infoAndCounter)
-	return mac.Sum(nil)[:size]
+	val := mac.Sum(nil)[:size]
+	return val
 }
 
 type hkdfLabel struct {
@@ -146,7 +147,6 @@ func (cs CipherSuite) hkdfExpandLabel(secret []byte, label string, context []byt
 	if err != nil {
 		panic(fmt.Errorf("Error marshaling HKDF label: %v", err))
 	}
-
 	return cs.hkdfExpand(secret, labelData, length)
 }
 

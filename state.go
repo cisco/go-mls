@@ -851,7 +851,7 @@ func (s State) clone() *State {
 	// reference copies.
 	clone := &State{
 		CipherSuite:             s.CipherSuite,
-		GroupID:                 make([]byte, len(s.GroupID)),
+		GroupID:                 s.GroupID,
 		Epoch:                   s.Epoch,
 		Tree:                    *s.Tree.clone(),
 		ConfirmedTranscriptHash: nil,

@@ -284,7 +284,7 @@ type keyScheduleEpoch struct {
 func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context []byte) keyScheduleEpoch {
 	senderDataSecret := suite.deriveSecret(epochSecret, "sender data", context)
 	handshakeSecret := suite.deriveSecret(epochSecret, "handshake", context)
-	applicationSecret := suite.deriveSecret(epochSecret, "application", context)
+	applicationSecret := suite.deriveSecret(epochSecret, "app", context)
 	confirmationKey := suite.deriveSecret(epochSecret, "confirm", context)
 	initSecret := suite.deriveSecret(epochSecret, "init", context)
 
