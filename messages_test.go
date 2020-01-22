@@ -2,7 +2,6 @@ package mls
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/bifurcation/mint/syntax"
 	"testing"
 )
@@ -268,6 +267,13 @@ func groupInfoMatch(t *testing.T, l, r GroupInfo) {
 	assertByteEquals(t, l.Signature, r.Signature)
 }
 
+func commitMatch(t *testing.T, l, r Commit) {
+	assertDeepEquals(t, l.Adds, r.Adds)
+	assertDeepEquals(t, l.Removes, r.Removes)
+	assertDeepEquals(t, l.Updates, r.Updates)
+	assertDeepEquals(t, l.Ignored, r.Ignored)
+}
+
 /// Gen and Verify
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
@@ -307,11 +313,11 @@ func generateMessageVectors(t *testing.T) []byte {
 		cred := Credential{Basic: bc}
 
 		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random},
-			[]Credential{cred})
+			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
+			[]Credential{cred, cred, cred, cred})
 
-		//err = ratchetTree.BlankPath(leafIndex(2), true)
-		//assertNotError(t, err, "rtree blank path")
+		err = ratchetTree.BlankPath(leafIndex(2), true)
+		assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -339,7 +345,6 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		giM, err := syntax.Marshal(gi)
 		assertNotError(t, err, "grpInfo marshal")
-		fmt.Printf("Gen GroupInfo %x\n", giM)
 
 		kp := KeyPackage{
 			InitSecret: tv.Random,
@@ -496,11 +501,11 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		cred := Credential{Basic: bc}
 
 		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random},
-			[]Credential{cred})
+			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
+			[]Credential{cred, cred, cred, cred})
 
-		//err = ratchetTree.BlankPath(leafIndex(2), true)
-		//assertNotError(t, err, "rtree blank path")
+		err = ratchetTree.BlankPath(leafIndex(2), true)
+		assertNotError(t, err, "rtree blank path")
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -524,10 +529,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random
 		gi.Signature = tv.Random
-		fmt.Printf("Verify GroupInfo %x\n", tc.GroupInfo)
 
 		var giWire GroupInfo
-		_, err = giWire.UnmarshalTLS(tc.GroupInfo)
+		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
 		assertNotError(t, err, "groupInfo unmarshal")
 
 		groupInfoMatch(t, *gi, giWire)
@@ -629,10 +633,14 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Removes: proposal,
 			Adds:    proposal,
 			Ignored: proposal,
+			Path:    *dp,
 		}
-		commitM, err := syntax.Marshal(commit)
+
+		var commitWire Commit
+		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		assertNotError(t, err, "commit marshal")
-		assertByteEquals(t, commitM, tc.Commit)
+		commitMatch(t, commit, commitWire)
+		//assertByteEquals(t, commitM, tc.Commit)
 
 		//MlsCiphertext
 		ct := MLSCiphertext{

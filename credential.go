@@ -132,7 +132,6 @@ func (c *Credential) UnmarshalTLS(data []byte) (int, error) {
 
 	switch credentialType {
 	case CredentialTypeBasic:
-		fmt.Println("unmarshal basic credential")
 		c.Basic = new(BasicCredential)
 		_, err = s.Read(c.Basic)
 	case CredentialTypeX509:

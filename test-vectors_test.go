@@ -36,43 +36,35 @@ type TestVectorCase struct {
 }
 
 var testVectorCases = map[string]TestVectorCase{
-	/*
-		"tree_math": {
-			Filename: "tree_math.bin",
-			Generate: generateTreeMathVectors,
-			Verify:   verifyTreeMathVectors,
-		},
+	"tree_math": {
+		Filename: "tree_math.bin",
+		Generate: generateTreeMathVectors,
+		Verify:   verifyTreeMathVectors,
+	},
 
-		"crypto": {
-			Filename: "crypto.bin",
-			Generate: generateCryptoVectors,
-			Verify:   verifyCryptoVectors,
-		},
+	"crypto": {
+		Filename: "crypto.bin",
+		Generate: generateCryptoVectors,
+		Verify:   verifyCryptoVectors,
+	},
 
-		"messages": {
-			Filename: "messages.bin",
-			Generate: generateMessageVectors,
-			Verify:   verifyMessageVectors,
-		},
-
-		"key_schedule": {
-			Filename: "key_schedule.bin",
-			Generate: generateKeyScheduleVectors,
-			Verify:   verifyKeyScheduleVectors,
-		},
-
-		"ratchet_tree": {
-			Filename: "tree.bin",
-			Generate: generateRatchetTreeVectors,
-			Verify:   verifyRatchetTreeVectors,
-		},
-	*/
 	"messages": {
 		Filename: "messages.bin",
 		Generate: generateMessageVectors,
 		Verify:   verifyMessageVectors,
 	},
 
+	"key_schedule": {
+		Filename: "key_schedule.bin",
+		Generate: generateKeyScheduleVectors,
+		Verify:   verifyKeyScheduleVectors,
+	},
+
+	"ratchet_tree": {
+		Filename: "tree.bin",
+		Generate: generateRatchetTreeVectors,
+		Verify:   verifyRatchetTreeVectors,
+	},
 	// TODO continue
 }
 

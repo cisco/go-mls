@@ -207,7 +207,7 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 /// Commit
 ///
 type ProposalID struct {
-	Hash []byte `tls:"head=1"`
+	Hash []byte `tls:"head=2"`
 }
 
 func (pid ProposalID) String() string {
@@ -455,32 +455,6 @@ type GroupInfo struct {
 	Confirmation                 []byte `tls:"head=1"`
 	SignerIndex                  leafIndex
 	Signature                    []byte `tls:"head=2"`
-}
-
-type GId struct {
-	Data []byte `tls:"head=1"`
-}
-
-func (gi GroupInfo) UnmarshalTLS(data []byte) (int, error) {
-	var gid GId
-	s := NewReadStream(data)
-	_, err := s.Read(&gid)
-	if err != nil {
-		return 0, fmt.Errorf("gid: %v", err)
-	}
-	var epoch Epoch
-	_, err = s.Read(&epoch)
-	if err != nil {
-		return 0, fmt.Errorf("epoch: %v", err)
-	}
-	fmt.Printf("epoch %x", epoch)
-	var t RatchetTree
-	_, err = s.Read(&t)
-	if err != nil {
-		return 0, fmt.Errorf("tree: %v", err)
-	}
-
-	return 0, nil
 }
 
 func (gi GroupInfo) dump() {
