@@ -207,7 +207,7 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 /// Commit
 ///
 type ProposalID struct {
-	Hash []byte `tls:"head=2"`
+	Hash []byte `tls:"head=1"`
 }
 
 func (pid ProposalID) String() string {

@@ -635,12 +635,10 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Ignored: proposal,
 			Path:    *dp,
 		}
-
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		assertNotError(t, err, "commit marshal")
 		commitMatch(t, commit, commitWire)
-		//assertByteEquals(t, commitM, tc.Commit)
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
@@ -656,5 +654,4 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		assertNotError(t, err, "MLSCiphertext marshal")
 		assertByteEquals(t, ctM, tc.MLSCiphertext)
 	}
-
 }
