@@ -156,7 +156,7 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 		p := n.Node.PublicKey
 		c := n.Node.Credential
 		if c == nil {
-			panic(fmt.Errorf("mls.rtn: Leaf node not provisioned with a credentialp"))
+			panic(fmt.Errorf("mls.rtn: Leaf node not provisioned with a credential"))
 		}
 		lhi.Info = &LeafNodeInfo{
 			PublicKey:  *p,
@@ -209,6 +209,7 @@ func (n *OptionalRatchetNode) hasPrivate() bool {
 type OptionalRatchetTreeNodeList struct {
 	Data []OptionalRatchetNode `tls:"head=4"`
 }
+
 type RatchetTree struct {
 	Nodes       []OptionalRatchetNode `tls:"head=4"`
 	CipherSuite CipherSuite           `tls:"omit"`
@@ -584,9 +585,7 @@ func (t *RatchetTree) setHash(index nodeIndex) {
 	}
 	l := left(index)
 	r := right(index, t.size())
-	if !t.Nodes[index].blank() {
-		t.Nodes[index].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
-	}
+	t.Nodes[index].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
 }
 
 func (t *RatchetTree) setHashPath(index leafIndex) {
@@ -621,7 +620,6 @@ func (t *RatchetTree) setHashAll(index nodeIndex) {
 	t.setHashAll(l)
 	t.setHashAll(r)
 	t.setHash(index)
-
 }
 
 func (t RatchetTree) clone() *RatchetTree {

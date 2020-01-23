@@ -74,7 +74,7 @@ func vectorGenerate(c TestVectorCase, testDir string) func(t *testing.T) {
 		vec := c.Generate(t)
 
 		// Verify that vectors pass
-		// sc.Verify(t, vec)
+		c.Verify(t, vec)
 
 		// Write the vectors to file if required
 		if len(testDir) != 0 {
