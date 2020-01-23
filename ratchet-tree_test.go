@@ -196,10 +196,9 @@ func TestRatchetTreeByExtension(t *testing.T) {
 func TestRatchetTreeBySerialization(t *testing.T) {
 	before := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
 	after := newRatchetTree(supportedSuites[0])
-	enc, err := syntax.Marshal(before)
+	enc, err := before.MarshalTLS()
 	assertNotError(t, err, "Tree marshal error")
-
-	_, err = syntax.Unmarshal(enc, after)
+	_, err = after.UnmarshalTLS(enc)
 	assertTrue(t, before.Equals(after), "Tree mismatch")
 }
 
