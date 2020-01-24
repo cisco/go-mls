@@ -1,6 +1,4 @@
 language: go
-go:
-  - tip
 before_install:
   - go get github.com/mattn/goveralls
 script:
