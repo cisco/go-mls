@@ -35,9 +35,9 @@ type ClientInitKey struct {
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
-	Extensions       ExtensionList
-	Signature        Signature
-	privateKey       *HPKEPrivateKey `tls:"omit"`
+	//Extensions       ExtensionList
+	Signature  Signature
+	privateKey *HPKEPrivateKey `tls:"omit"`
 }
 
 func (cik ClientInitKey) toBeSigned() ([]byte, error) {
@@ -46,13 +46,13 @@ func (cik ClientInitKey) toBeSigned() ([]byte, error) {
 		CipherSuite CipherSuite
 		InitKey     HPKEPublicKey
 		Credential  Credential
-		Extensions  ExtensionList
+		//Extensions  ExtensionList
 	}{
 		Version:     cik.SupportedVersion,
 		CipherSuite: cik.CipherSuite,
 		InitKey:     cik.InitKey,
 		Credential:  cik.Credential,
-		Extensions:  cik.Extensions,
+		//Extensions:  cik.Extensions,
 	})
 
 	if err != nil {
@@ -251,7 +251,7 @@ type Commit struct {
 ///
 /// MLSPlaintext and MLSCiphertext
 ///
-type Epoch uint32
+type Epoch uint64
 
 type ContentType uint8
 

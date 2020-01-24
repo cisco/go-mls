@@ -35,10 +35,10 @@ type LeafNodeHashInput struct {
 /// RatchetTreeNode
 ///
 type RatchetTreeNode struct {
-	Credential     *Credential `tls:"optional"`
 	PublicKey      *HPKEPublicKey
+	UnmergedLeaves []leafIndex     `tls:"head=4"`
+	Credential     *Credential     `tls:"optional"`
 	PrivateKey     *HPKEPrivateKey `tls:"omit"`
-	UnmergedLeaves []leafIndex     `tls:"head=2"`
 }
 
 // Compare the public aspects of two nodes
@@ -96,7 +96,7 @@ func (n *RatchetTreeNode) AddUnmerged(l leafIndex) {
 ///
 type OptionalRatchetNode struct {
 	Node *RatchetTreeNode `tls:"optional"`
-	Hash []byte           `tls:"head=1"`
+	Hash []byte           `tls:"omit"`
 }
 
 func newLeafNode(key *HPKEPublicKey, cred *Credential) OptionalRatchetNode {
@@ -156,7 +156,7 @@ func (n *OptionalRatchetNode) setLeafHash(cs CipherSuite) {
 		p := n.Node.PublicKey
 		c := n.Node.Credential
 		if c == nil {
-			panic(fmt.Errorf("mls.rtn: Leaf node not provisioned with a credentialp"))
+			panic(fmt.Errorf("mls.rtn: Leaf node not provisioned with a credential"))
 		}
 		lhi.Info = &LeafNodeInfo{
 			PublicKey:  *p,
@@ -206,9 +206,36 @@ func (n *OptionalRatchetNode) hasPrivate() bool {
 ///
 /// Ratchet Tree
 ///
+type OptionalRatchetTreeNodeList struct {
+	Data []OptionalRatchetNode `tls:"head=4"`
+}
+
 type RatchetTree struct {
-	Nodes       []OptionalRatchetNode `tls:"head=2"`
-	CipherSuite CipherSuite
+	Nodes       []OptionalRatchetNode `tls:"head=4"`
+	CipherSuite CipherSuite           `tls:"omit"`
+}
+
+func (t RatchetTree) MarshalTLS() ([]byte, error) {
+	enc, err := syntax.Marshal(struct {
+		Nodes []OptionalRatchetNode `tls:"head=4"`
+	}{
+		Nodes: t.Nodes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mls.ratchet-tree: Marshal failed: %v", err)
+	}
+	return enc, nil
+}
+
+func (t *RatchetTree) UnmarshalTLS(data []byte) (int, error) {
+	var ortnList OptionalRatchetTreeNodeList
+	read, err := syntax.Unmarshal(data, &ortnList)
+	if err != nil {
+		return 0, fmt.Errorf("mls.ratchet-tree: Unmarshal failed: %v", err)
+	}
+	t.Nodes = ortnList.Data
+	t.setHashAll(t.rootIndex())
+	return read, nil
 }
 
 func newRatchetTree(cs CipherSuite) *RatchetTree {
@@ -551,6 +578,16 @@ func (t *RatchetTree) resolve(index nodeIndex) []nodeIndex {
 	return l
 }
 
+func (t *RatchetTree) setHash(index nodeIndex) {
+	if level(index) == 0 {
+		t.Nodes[index].setLeafHash(t.CipherSuite)
+		return
+	}
+	l := left(index)
+	r := right(index, t.size())
+	t.Nodes[index].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
+}
+
 func (t *RatchetTree) setHashPath(index leafIndex) {
 	curr := toNodeIndex(index)
 	t.Nodes[curr].setLeafHash(t.CipherSuite)
@@ -566,6 +603,23 @@ func (t *RatchetTree) setHashPath(index leafIndex) {
 		r := right(curr, size)
 		t.Nodes[curr].setParentHash(t.CipherSuite, t.Nodes[l], t.Nodes[r])
 	}
+}
+
+func (t *RatchetTree) setHashAll(index nodeIndex) {
+	if len(t.Nodes) == 0 {
+		return
+	}
+
+	if level(index) == 0 {
+		t.setHash(index)
+		return
+	}
+
+	l := left(index)
+	r := right(index, t.size())
+	t.setHashAll(l)
+	t.setHashAll(r)
+	t.setHash(index)
 }
 
 func (t RatchetTree) clone() *RatchetTree {

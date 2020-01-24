@@ -48,8 +48,8 @@ var (
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
-		Extensions:       extListValidIn,
-		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
+		//Extensions:       extListValidIn,
+		Signature: Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -127,11 +127,14 @@ var (
 
 	ortnRtnNilCred = &OptionalRatchetNode{
 		Node: rtnNilCredential,
-		Hash: []byte{},
+	}
+
+	ortnRtnCred = &OptionalRatchetNode{
+		Node: rtnWithCredential,
 	}
 
 	ratchetTree = &RatchetTree{
-		Nodes:       []OptionalRatchetNode{*ortnRtnNilCred},
+		Nodes:       []OptionalRatchetNode{*ortnRtnCred},
 		CipherSuite: supportedSuites[0],
 	}
 
@@ -171,7 +174,6 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
 	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
 	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
-	t.Run("RatchetTree", roundTrip(ratchetTree, new(RatchetTree)))
 	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
 	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
 }
@@ -265,6 +267,13 @@ func groupInfoMatch(t *testing.T, l, r GroupInfo) {
 	assertByteEquals(t, l.Confirmation, r.Confirmation)
 	assertEquals(t, l.SignerIndex, r.SignerIndex)
 	assertByteEquals(t, l.Signature, r.Signature)
+}
+
+func commitMatch(t *testing.T, l, r Commit) {
+	assertDeepEquals(t, l.Adds, r.Adds)
+	assertDeepEquals(t, l.Removes, r.Removes)
+	assertDeepEquals(t, l.Updates, r.Updates)
+	assertDeepEquals(t, l.Ignored, r.Ignored)
 }
 
 /// Gen and Verify
@@ -522,8 +531,11 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random
 		gi.Signature = tv.Random
+
 		var giWire GroupInfo
-		syntax.Unmarshal(tc.GroupInfo, &giWire)
+		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
+		assertNotError(t, err, "groupInfo unmarshal")
+
 		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{
@@ -623,10 +635,12 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Removes: proposal,
 			Adds:    proposal,
 			Ignored: proposal,
+			Path:    *dp,
 		}
-		commitM, err := syntax.Marshal(commit)
+		var commitWire Commit
+		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		assertNotError(t, err, "commit marshal")
-		assertByteEquals(t, commitM, tc.Commit)
+		commitMatch(t, commit, commitWire)
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
@@ -642,5 +656,4 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		assertNotError(t, err, "MLSCiphertext marshal")
 		assertByteEquals(t, ctM, tc.MLSCiphertext)
 	}
-
 }

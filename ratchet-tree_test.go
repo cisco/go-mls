@@ -196,10 +196,9 @@ func TestRatchetTreeByExtension(t *testing.T) {
 func TestRatchetTreeBySerialization(t *testing.T) {
 	before := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
 	after := newRatchetTree(supportedSuites[0])
-	enc, err := syntax.Marshal(before)
+	enc, err := before.MarshalTLS()
 	assertNotError(t, err, "Tree marshal error")
-
-	_, err = syntax.Unmarshal(enc, after)
+	_, err = after.UnmarshalTLS(enc)
 	assertTrue(t, before.Equals(after), "Tree mismatch")
 }
 
@@ -277,9 +276,13 @@ func TestRatchetTree_Clone(t *testing.T) {
 /// Test Vectors
 ///
 
+type OptionalPublicKey struct {
+	Data []byte `tls:"head=1"`
+}
+
 type TreeNode struct {
-	PubKey []byte `tls:"head=1"`
-	Hash   []byte `tls:"head=1"`
+	PubKey *OptionalPublicKey `tls:"optional"`
+	Hash   []byte             `tls:"head=1"`
 }
 
 type RatchetTreeCase struct {
@@ -290,8 +293,12 @@ type RatchetTreeCase struct {
 	Trees       [][]TreeNode `tls:"head=4"`
 }
 
+type testSecret struct {
+	Data []byte `tls:"head=1"`
+}
+
 type RatchetTreeVectors struct {
-	LeafSecrets [][]byte          `tls:"head=4"`
+	LeafSecrets []testSecret      `tls:"head=4"`
 	Credentials []Credential      `tls:"head=4"`
 	Cases       []RatchetTreeCase `tls:"head=4"`
 }
@@ -303,7 +310,10 @@ func treeToTreeNode(tree *RatchetTree) []TreeNode {
 	for i := 0; i < len(nodes); i++ {
 		tc[i].Hash = nodes[i].Hash
 		if !nodes[i].blank() {
-			tc[i].PubKey = nodes[i].Node.PublicKey.Data
+			tc[i].PubKey = &OptionalPublicKey{
+				Data: []byte{},
+			}
+			tc[i].PubKey.Data = nodes[i].Node.PublicKey.Data
 		}
 	}
 	return tc
@@ -315,9 +325,10 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 	schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
 	var leaves = 10
 
-	tv.LeafSecrets = [][]byte{}
+	tv.LeafSecrets = []testSecret{}
 	for i := 0; i < leaves; i++ {
-		tv.LeafSecrets = append(tv.LeafSecrets, []byte{byte(i)})
+		ts := testSecret{Data: []byte{byte(i)}}
+		tv.LeafSecrets = append(tv.LeafSecrets, ts)
 	}
 
 	for i := range suites {
@@ -341,11 +352,11 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 			}
 			cred := Credential{Basic: bc}
 			tc.Credentials = append(tc.Credentials, cred)
-			priv, err := suite.hpke().Derive(tv.LeafSecrets[j])
+			priv, err := suite.hpke().Derive(tv.LeafSecrets[j].Data)
 			assertNotError(t, err, "hpke error")
 			err = tree.AddLeaf(leafIndex(j), &priv.PublicKey, &cred)
 			assertNotError(t, err, "add leaf")
-			tree.Encap(leafIndex(j), []byte{}, tv.LeafSecrets[j])
+			tree.Encap(leafIndex(j), []byte{}, tv.LeafSecrets[j].Data)
 			tc.Trees = append(tc.Trees, treeToTreeNode(tree))
 		}
 
@@ -371,12 +382,12 @@ func assertTreeEq(t *testing.T, tn []TreeNode, tree *RatchetTree) bool {
 	for i := 0; i < len(tn); i++ {
 		assertTrue(t, bytes.Equal(tn[i].Hash, nodes[i].Hash), "hash mismatch")
 		if !nodes[i].blank() {
-			assertTrue(t, bytes.Equal(tn[i].PubKey, nodes[i].Node.PublicKey.Data), "pubkey mismatch")
+			assertTrue(t, bytes.Equal(tn[i].PubKey.Data, nodes[i].Node.PublicKey.Data), "pubkey mismatch")
 		} else {
-			assertTrue(t, len(tn[i].PubKey) == 0, "blank node mismatch")
+			assertTrue(t, tn[i].PubKey == nil, "blank node mismatch")
 		}
 	}
-	return false
+	return true
 }
 func verifyRatchetTreeVectors(t *testing.T, data []byte) {
 	var tv RatchetTreeVectors
@@ -388,12 +399,12 @@ func verifyRatchetTreeVectors(t *testing.T, data []byte) {
 		tree := newRatchetTree(suite)
 		var tci = 0
 		for i := 0; i < len(tv.LeafSecrets); i++ {
-			priv, err := suite.hpke().Derive(tv.LeafSecrets[i])
+			priv, err := suite.hpke().Derive(tv.LeafSecrets[i].Data)
 			assertNotError(t, err, "derive hpke")
 			err = tree.AddLeaf(leafIndex(i), &priv.PublicKey, &tc.Credentials[i])
 			assertNotError(t, err, "add leaf")
-			tree.Encap(leafIndex(i), []byte{}, tv.LeafSecrets[i])
-			assertTreeEq(t, tc.Trees[tci], tree)
+			tree.Encap(leafIndex(i), []byte{}, tv.LeafSecrets[i].Data)
+			assertTrue(t, assertTreeEq(t, tc.Trees[tci], tree), "tree unequal")
 			tci += 1
 		}
 
