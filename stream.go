@@ -79,6 +79,6 @@ func (s *ReadStream) ReadAll(vals ...interface{}) (int, error) {
 	return totalRead, nil
 }
 
-func (s *ReadStream) Position() int {
+func (s *ReadStream) Consumed() int {
 	return s.cursor
 }

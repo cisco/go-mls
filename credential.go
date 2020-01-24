@@ -155,5 +155,5 @@ func (c *Credential) UnmarshalTLS(data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return s.Position(), nil
+	return s.Consumed(), nil
 }

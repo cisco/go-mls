@@ -536,7 +536,7 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 
 func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	if !bytes.Equal(pt.GroupID, s.GroupID) {
-		return nil, fmt.Errorf("mls.state: groupId mismatch")
+		return nil, fmt.Errorf("mls.state: groupID mismatch %x != %x", pt.GroupID, s.GroupID)
 	}
 
 	if pt.Epoch != s.Epoch {

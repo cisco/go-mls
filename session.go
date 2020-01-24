@@ -163,8 +163,6 @@ func (s *Session) Handle(message []byte) error {
 			panic(err)
 			return err
 		}
-
-		panic("breaker")
 	}
 
 	if proposal.Sender == state.Index {
