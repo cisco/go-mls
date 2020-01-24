@@ -4,4 +4,4 @@ go:
 before_install:
   - go get github.com/mattn/goveralls
 script:
-  - $GOPATH/bin/goveralls -service=travis-ci
+  - $HOME/gopath/bin/goveralls -v -service=travis-ci
