@@ -8,9 +8,14 @@ import (
 type CredentialType uint8
 
 const (
-	CredentialTypeBasic = 0
-	CredentialTypeX509  = 1
+	CredentialTypeInvalid CredentialType = 0xff
+	CredentialTypeBasic   CredentialType = 0
+	CredentialTypeX509    CredentialType = 1
 )
+
+func (ct CredentialType) ValidForTLS() error {
+	return validateEnum(ct, CredentialTypeBasic)
+}
 
 // struct {
 //     opaque identity<0..2^16-1>;
@@ -37,51 +42,45 @@ type X509Credential struct {
 //		};
 //} Credential;
 type Credential struct {
+	// TODO(#35) X509       *X509Credential
 	Basic      *BasicCredential
-	X509       *X509Credential
 	privateKey *SignaturePrivateKey
+}
+
+func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePrivateKey) *Credential {
+	basicCredential := &BasicCredential{
+		Identity:           userId,
+		SignatureScheme:    scheme,
+		SignaturePublicKey: priv.PublicKey,
+	}
+	return &Credential{Basic: basicCredential, privateKey: priv}
 }
 
 // compare the public aspects
 func (c Credential) Equals(o Credential) bool {
 	switch {
+	// TODO(#35) case c.X509 != nil:
 	case c.Basic != nil:
 		return reflect.DeepEqual(c.Basic, o.Basic)
-	case c.X509 != nil:
-		return reflect.DeepEqual(c.X509, o.X509)
 	}
 	return false
 }
 
-func (c Credential) dump() {
-	fmt.Printf("Type %v\n", c.Type())
-	switch c.Type() {
-	case CredentialTypeBasic:
-		fmt.Printf("\tIdentity %x\n \tSigScheme %v\n \tSigPubKey %x\n",
-			c.Basic.Identity, c.Basic.SignatureScheme, c.Basic.SignaturePublicKey)
-	case CredentialTypeX509:
-		fmt.Printf("X509 PubKey %x", c.X509.CertData)
-	}
-}
-
 func (c Credential) Type() CredentialType {
 	switch {
+	// TODO(#35) case c.X509 != nil:
 	case c.Basic != nil:
 		return CredentialTypeBasic
-	case c.X509 != nil:
-		return CredentialTypeX509
 	default:
-		panic("Malformed credential")
+		return CredentialTypeInvalid
 	}
 }
 
 func (c Credential) PublicKey() *SignaturePublicKey {
 	switch {
+	// TODO(#35) case c.X509 != nil:
 	case c.Basic != nil:
 		return &c.Basic.SignaturePublicKey
-	case c.X509 != nil:
-		// TODO
-		fallthrough
 	default:
 		panic("mls.credential: Can't retrieve PublicKey")
 	}
@@ -89,11 +88,9 @@ func (c Credential) PublicKey() *SignaturePublicKey {
 
 func (c Credential) Scheme() SignatureScheme {
 	switch {
+	// TODO(#35) case c.X509 != nil:
 	case c.Basic != nil:
 		return c.Basic.SignatureScheme
-	case c.X509 != nil:
-		// TODO
-		fallthrough
 	default:
 		panic("mls.credential: Can't retrieve SignatureScheme")
 	}
@@ -104,19 +101,18 @@ func (c Credential) MarshalTLS() ([]byte, error) {
 	credentialType := c.Type()
 	err := s.Write(credentialType)
 	if err != nil {
-		return nil, fmt.Errorf("mls.credential: Marshal failed for CredentialType")
+		return nil, err
 	}
 	switch credentialType {
+	// TODO(#35) case CredentialTypeX509
 	case CredentialTypeBasic:
 		err = s.Write(c.Basic)
-	case CredentialTypeX509:
-		err = s.Write(c.X509)
 	default:
 		err = fmt.Errorf("mls.credential: CredentialType type not allowed")
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("mls.credential: Marshal failed")
+		return nil, err
 	}
 
 	return s.Data(), nil
@@ -127,16 +123,14 @@ func (c *Credential) UnmarshalTLS(data []byte) (int, error) {
 	var credentialType CredentialType
 	_, err := s.Read(&credentialType)
 	if err != nil {
-		return 0, fmt.Errorf("mls.credential: CredentialType Unmarshal failed %v", err)
+		return 0, err
 	}
 
 	switch credentialType {
+	// TODO(#35) case CredentialTypeX509
 	case CredentialTypeBasic:
 		c.Basic = new(BasicCredential)
 		_, err = s.Read(c.Basic)
-	case CredentialTypeX509:
-		c.X509 = new(X509Credential)
-		_, err = s.Read(c.X509)
 	default:
 		err = fmt.Errorf("mls.credential: CredentialType type not allowed %v", err)
 	}
