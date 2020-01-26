@@ -9,6 +9,24 @@ import (
 	"testing"
 )
 
+type TestEnum uint8
+
+var (
+	TestEnumInvalid TestEnum = 0xFF
+	TestEnumVal0    TestEnum = 0
+	TestEnumVal1    TestEnum = 1
+)
+
+func TestValidateEnum(t *testing.T) {
+	err := validateEnum(TestEnumVal0, TestEnumVal0, TestEnumVal1)
+	assertNotError(t, err, "Failed to recognize known enum value")
+
+	err = validateEnum(TestEnumInvalid, TestEnumVal0, TestEnumVal1)
+	assertError(t, err, "Failed to flag invalid enum value")
+}
+
+//////////
+
 func unhex(h string) []byte {
 	b, err := hex.DecodeString(h)
 	if err != nil {
@@ -16,6 +34,8 @@ func unhex(h string) []byte {
 	}
 	return b
 }
+
+//////////
 
 func assertTrue(t *testing.T, test bool, msg string) {
 	t.Helper()
@@ -43,6 +63,16 @@ func assertNotError(t *testing.T, err error, msg string) {
 		msg += ": " + err.Error()
 	}
 	assertTrue(t, err == nil, msg)
+}
+
+func assertPanic(t *testing.T, f func(), msg string) {
+	defer func() {
+		if r := recover(); r == nil {
+			assertTrue(t, false, msg)
+		}
+	}()
+
+	f()
 }
 
 func assertNil(t *testing.T, x interface{}, msg string) {
