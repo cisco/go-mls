@@ -4,39 +4,27 @@ import (
 	"testing"
 )
 
-const certPEM = `
------BEGIN CERTIFICATE-----
-MIIDujCCAqKgAwIBAgIIE31FZVaPXTUwDQYJKoZIhvcNAQEFBQAwSTELMAkGA1UE
-BhMCVVMxEzARBgNVBAoTCkdvb2dsZSBJbmMxJTAjBgNVBAMTHEdvb2dsZSBJbnRl
-cm5ldCBBdXRob3JpdHkgRzIwHhcNMTQwMTI5MTMyNzQzWhcNMTQwNTI5MDAwMDAw
-WjBpMQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwN
-TW91bnRhaW4gVmlldzETMBEGA1UECgwKR29vZ2xlIEluYzEYMBYGA1UEAwwPbWFp
-bC5nb29nbGUuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfRrObuSW5T7q
-5CnSEqefEmtH4CCv6+5EckuriNr1CjfVvqzwfAhopXkLrq45EQm8vkmf7W96XJhC
-7ZM0dYi1/qOCAU8wggFLMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcDAjAa
-BgNVHREEEzARgg9tYWlsLmdvb2dsZS5jb20wCwYDVR0PBAQDAgeAMGgGCCsGAQUF
-BwEBBFwwWjArBggrBgEFBQcwAoYfaHR0cDovL3BraS5nb29nbGUuY29tL0dJQUcy
-LmNydDArBggrBgEFBQcwAYYfaHR0cDovL2NsaWVudHMxLmdvb2dsZS5jb20vb2Nz
-cDAdBgNVHQ4EFgQUiJxtimAuTfwb+aUtBn5UYKreKvMwDAYDVR0TAQH/BAIwADAf
-BgNVHSMEGDAWgBRK3QYWG7z2aLV29YG2u2IaulqBLzAXBgNVHSAEEDAOMAwGCisG
-AQQB1nkCBQEwMAYDVR0fBCkwJzAloCOgIYYfaHR0cDovL3BraS5nb29nbGUuY29t
-L0dJQUcyLmNybDANBgkqhkiG9w0BAQUFAAOCAQEAH6RYHxHdcGpMpFE3oxDoFnP+
-gtuBCHan2yE2GRbJ2Cw8Lw0MmuKqHlf9RSeYfd3BXeKkj1qO6TVKwCh+0HdZk283
-TZZyzmEOyclm3UGFYe82P/iDFt+CeQ3NpmBg+GoaVCuWAARJN/KfglbLyyYygcQq
-0SgeDh8dRKUiaW3HQSoYvTvdTuqzwK4CXsr3b5/dAOY8uMuG/IAR3FgwTbZ1dtoW
-RvOTa8hYiU6A475WuZKyEHcwnGYe57u2I2KbMgcKjPniocj4QzgYsVAVKW3IwaOh
-yE+vPxsiUkvQHdO2fojCkY8jg70jxM+gu59tPDNbw3Uh/2Ij310FgTHsnGQMyA==
------END CERTIFICATE-----`
+func TestBasicCredential(t *testing.T) {
+	identity := []byte("res ipsa")
+	scheme := Ed25519
+	priv, err := scheme.Generate()
+	assertNotError(t, err, "Error generating private key")
 
-func TestCredentialMarshalUnMarshal(t *testing.T) {
-	// Todo: snk: support x509 key generation
-	var credentialX509 = Credential{
-		X509: &X509Credential{
-			CertData: []byte(certPEM),
-		},
-	}
+	cred := NewBasicCredential(identity, scheme, &priv)
+	assertTrue(t, cred.Equals(*cred), "Credential not equal to self")
+	assertEquals(t, cred.Type(), CredentialTypeBasic)
+	assertEquals(t, cred.Scheme(), scheme)
+	assertDeepEquals(t, *cred.PublicKey(), priv.PublicKey)
+}
 
-	t.Run("BasicCredential", roundTrip(&credentialBasic, new(Credential)))
-	t.Run("X509Credential", roundTrip(&credentialX509, new(Credential)))
+func TestCredentialErrorCases(t *testing.T) {
+	cred0 := Credential{nil, nil}
 
+	assertTrue(t, !cred0.Equals(cred0), "Bad credentials should not be equal")
+	assertEquals(t, cred0.Type(), CredentialTypeInvalid)
+	assertPanic(t, func() { cred0.PublicKey() }, "Public key for bad credential")
+	assertPanic(t, func() { cred0.Scheme() }, "Scheme for bad credential")
+
+	_, err := cred0.MarshalTLS()
+	assertError(t, err, "Marshal for bad credential")
 }

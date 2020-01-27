@@ -110,11 +110,15 @@ func newClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, erro
 type ProposalType uint8
 
 const (
-	ProposalTypeInvalid = 0
-	ProposalTypeAdd     = 1
-	ProposalTypeUpdate  = 2
-	ProposalTypeRemove  = 3
+	ProposalTypeInvalid ProposalType = 0
+	ProposalTypeAdd     ProposalType = 1
+	ProposalTypeUpdate  ProposalType = 2
+	ProposalTypeRemove  ProposalType = 3
 )
+
+func (pt ProposalType) ValidForTLS() error {
+	return validateEnum(pt, ProposalTypeAdd, ProposalTypeUpdate, ProposalTypeRemove)
+}
 
 type AddProposal struct {
 	ClientInitKey ClientInitKey
@@ -261,6 +265,10 @@ const (
 	ContentTypeProposal    ContentType = 2
 	ContentTypeCommit      ContentType = 3
 )
+
+func (ct ContentType) ValidForTLS() error {
+	return validateEnum(ct, ContentTypeApplication, ContentTypeProposal, ContentTypeCommit)
+}
 
 type ApplicationData struct {
 	Data []byte `tls:"head=4"`

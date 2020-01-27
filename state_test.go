@@ -15,17 +15,6 @@ var (
 	testMessage = unhex("1112131415")
 )
 
-func newBasicCredential(userId []byte, scheme SignatureScheme) Credential {
-	sigPriv, _ := scheme.Generate()
-	basicCredential = &BasicCredential{
-		Identity:           userId,
-		SignatureScheme:    scheme,
-		SignaturePublicKey: sigPriv.PublicKey,
-	}
-	credentialBasic = Credential{Basic: basicCredential, privateKey: &sigPriv}
-	return credentialBasic
-}
-
 type StateTest struct {
 	identityPrivs  []SignaturePrivateKey
 	credentials    []Credential
@@ -40,13 +29,14 @@ func setup(t *testing.T) StateTest {
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
-		credentialBasic = newBasicCredential(userId, scheme)
+		sigPriv, _ := scheme.Generate()
+		cred := NewBasicCredential(userId, scheme, &sigPriv)
 		//cik gen
-		cik, err := newClientInitKey(suite, &credentialBasic)
+		cik, err := newClientInitKey(suite, cred)
 		assertNotError(t, err, "newClientInitKey error")
 		// save all the materials
-		stateTest.identityPrivs = append(stateTest.identityPrivs, *credentialBasic.privateKey)
-		stateTest.credentials = append(stateTest.credentials, credentialBasic)
+		stateTest.identityPrivs = append(stateTest.identityPrivs, sigPriv)
+		stateTest.credentials = append(stateTest.credentials, *cred)
 		stateTest.initPrivs = append(stateTest.initPrivs, ikPriv)
 		stateTest.clientInitKeys[i] = *cik
 		cik = nil

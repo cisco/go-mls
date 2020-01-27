@@ -164,6 +164,7 @@ func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
 }
 
 func TestMessagesMarshalUnmarshal(t *testing.T) {
+	t.Run("BasicCredential", roundTrip(&credentialBasic, new(Credential)))
 	t.Run("ClientInitKey", roundTrip(clientInitKey, new(ClientInitKey)))
 	t.Run("AddProposal", roundTrip(addProposal, new(Proposal)))
 	t.Run("RemoveProposal", roundTrip(removeProposal, new(Proposal)))
