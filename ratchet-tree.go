@@ -286,6 +286,23 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 	return nil
 }
 
+func (t *RatchetTree) PathSecrets(start nodeIndex, pathSecret []byte) map[nodeIndex][]byte {
+	secrets := map[nodeIndex][]byte{}
+
+	curr := start
+	next := parent(curr, t.size())
+	secrets[curr] = make([]byte, len(pathSecret))
+	copy(secrets[curr], pathSecret)
+
+	for curr != t.rootIndex() {
+		secrets[next] = t.pathStep(secrets[curr])
+		curr = next
+		next = parent(curr, t.size())
+	}
+
+	return secrets
+}
+
 func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*DirectPath, []byte) {
 	// list of updated nodes - output
 	dp := &DirectPath{}
@@ -300,10 +317,11 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		*t.Nodes[leafNode].Node.PublicKey,
 		[]HPKECiphertext{}})
 
-	pathSecret := leafSecret
+	// generate the necessary path secrets
+	secrets := t.PathSecrets(toNodeIndex(from), leafSecret)
+
 	cp := copath(leafNode, t.size())
 	for _, v := range cp {
-		pathSecret = t.pathStep(pathSecret)
 		parent := parent(v, t.size())
 		if parent == leafNode {
 			continue
@@ -311,6 +329,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 
 		// update the non-updated child's parent with the newly
 		// computed path-secret
+		pathSecret := secrets[parent]
 		n = t.newNode(pathSecret)
 		t.Nodes[parent].Node = n
 
@@ -332,7 +351,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	}
 
 	t.setHashPath(from)
-	return dp, pathSecret
+	return dp, secrets[t.rootIndex()]
 }
 
 func (t *RatchetTree) ImplantFrom(from, to leafIndex, pathSecret []byte) ([]byte, error) {
@@ -340,12 +359,9 @@ func (t *RatchetTree) ImplantFrom(from, to leafIndex, pathSecret []byte) ([]byte
 }
 
 func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error) {
-	secret := make([]byte, len(pathSecret))
-	copy(secret, pathSecret)
+	secrets := t.PathSecrets(start, pathSecret)
 
-	curr := start
-	rootIx := t.rootIndex()
-	for curr != rootIx {
+	for curr, secret := range secrets {
 		node := t.newNode(secret)
 		if t.Nodes[curr].blank() {
 			return nil, fmt.Errorf("Attempt to implant blank node %v", curr)
@@ -356,12 +372,10 @@ func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error
 		}
 
 		t.Nodes[curr].mergePrivate(node.PrivateKey)
-		curr = parent(curr, t.size())
-		secret = t.pathStep(secret)
 	}
 
 	// XXX(rlb): Set root secret?
-	return secret, nil
+	return secrets[t.rootIndex()], nil
 }
 
 func (t *RatchetTree) decryptPathSecret(from leafIndex, context []byte, path *DirectPath) (nodeIndex, []byte, error) {
