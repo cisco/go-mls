@@ -29,10 +29,8 @@ func TestKeySchedule(t *testing.T) {
 	keySize := suite.constants().KeySize
 	nonceSize := suite.constants().NonceSize
 
-	initSecret := unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-
 	size1 := leafCount(5)
-	commitSecret1 := unhex("202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f")
+	epochSecret1 := unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 	context1 := []byte("first")
 
 	size2 := leafCount(11)
@@ -40,16 +38,6 @@ func TestKeySchedule(t *testing.T) {
 	context2 := []byte("second")
 
 	targetGeneration := uint32(3)
-
-	epoch0 := newFirstEpoch(suite, initSecret)
-	ok0 := (epoch0.Suite == suite) &&
-		bytes.Equal(epoch0.InitSecret, initSecret) &&
-		(len(epoch0.GroupInfoSecret) == secretSize) &&
-		(len(epoch0.GroupInfoKey) == keySize) &&
-		(len(epoch0.GroupInfoNonce) == nonceSize)
-	if !ok0 {
-		t.Fatalf("Malformed first epoch")
-	}
 
 	checkEpoch := func(epoch keyScheduleEpoch, size leafCount) {
 		ok := (epoch.Suite == suite) &&
@@ -85,7 +73,7 @@ func TestKeySchedule(t *testing.T) {
 		}
 	}
 
-	epoch1 := epoch0.Next(size1, commitSecret1, context1)
+	epoch1 := newKeyScheduleEpoch(suite, size1, epochSecret1, context1)
 	checkEpoch(epoch1, size1)
 
 	epoch2 := epoch1.Next(size2, commitSecret2, context2)

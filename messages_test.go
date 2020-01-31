@@ -191,7 +191,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	dp, _ := treeAB.Encap(leafIndex(0), []byte{}, secret)
 
 	// setup things needed to welcome c
-	initSecret := []byte("we welcome you c")
+	epochSecret := []byte("we welcome you c")
 	gi := &GroupInfo{
 		GroupId:                      unhex("0007"),
 		Epoch:                        121,
@@ -205,9 +205,9 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 		Signature:                    []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, initSecret, gi, []ClientInitKey{*clientInitKey})
+	w1 := newWelcome(cs, epochSecret, gi, []ClientInitKey{*clientInitKey})
 	// doing this so that test can omit this field when matching w1, w2
-	w1.initSecret = nil
+	w1.epochSecret = nil
 	w2 := new(Welcome)
 	t.Run("WelcomeOneMember", roundTrip(w1, w2))
 
@@ -220,7 +220,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	w2kp := new(KeyPackage)
 	_, err = syntax.Unmarshal(pt, w2kp)
 	assertNotError(t, err, "unmarshal failure for decrypted KeyPackage")
-	assertByteEquals(t, initSecret, w2kp.InitSecret)
+	assertByteEquals(t, epochSecret, w2kp.EpochSecret)
 }
 
 ///
@@ -350,7 +350,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		assertNotError(t, err, "grpInfo marshal")
 
 		kp := KeyPackage{
-			InitSecret: tv.Random,
+			EpochSecret: tv.Random,
 		}
 
 		kpM, err := syntax.Marshal(kp)
@@ -540,7 +540,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{
-			InitSecret: tv.Random,
+			EpochSecret: tv.Random,
 		}
 
 		kpM, err := syntax.Marshal(kp)

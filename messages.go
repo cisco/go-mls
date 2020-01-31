@@ -555,7 +555,7 @@ func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byt
 /// KeyPackage
 ///
 type KeyPackage struct {
-	InitSecret []byte `tls:"head=1"`
+	EpochSecret []byte `tls:"head=1"`
 }
 
 ///
@@ -575,22 +575,7 @@ type Welcome struct {
 	CipherSuite          CipherSuite
 	EncryptedKeyPackages []EncryptedKeyPackage `tls:"head=4"`
 	EncryptedGroupInfo   []byte                `tls:"head=4"`
-	initSecret           []byte                `tls:"omit"`
-}
-
-func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
-	secretSize := suite.constants().SecretSize
-	keySize := suite.constants().KeySize
-	nonceSize := suite.constants().NonceSize
-
-	groupInfoSecret := suite.hkdfExpandLabel(initSecret, "group info", []byte{}, secretSize)
-	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
-	groupInfoNonce := suite.hkdfExpandLabel(groupInfoSecret, "nonce", []byte{}, nonceSize)
-
-	return keyAndNonce{
-		Key:   groupInfoKey,
-		Nonce: groupInfoNonce,
-	}
+	epochSecret          []byte                `tls:"omit"`
 }
 
 // XXX(rlb): The pattern we follow here basically locks us into having empty
@@ -603,14 +588,14 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
+func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
 	}
 
-	kn := deriveGroupKeyAndNonce(cs, initSecret)
+	kn := groupInfoKeyAndNonce(cs, epochSecret)
 	aead, err := cs.newAEAD(kn.Key)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: error creating AEAD: %v", err))
@@ -622,7 +607,7 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners
 		Version:            SupportedVersionMLS10,
 		CipherSuite:        cs,
 		EncryptedGroupInfo: ct,
-		initSecret:         initSecret,
+		epochSecret:        epochSecret,
 	}
 
 	for _, joiner := range joiners {
@@ -643,7 +628,7 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 
 	// Encrypt the group init secret to new member's public key
 	kp := KeyPackage{
-		InitSecret: w.initSecret,
+		EpochSecret: w.epochSecret,
 	}
 
 	pt, err := syntax.Marshal(kp)

@@ -236,32 +236,22 @@ func (gks groupKeySource) Erase(sender leafIndex, generation uint32) {
 }
 
 ///
-/// First epoch
+/// GroupInfo keys
 ///
 
-type firstEpoch struct {
-	Suite           CipherSuite
-	InitSecret      []byte
-	GroupInfoSecret []byte
-	GroupInfoKey    []byte
-	GroupInfoNonce  []byte
-}
-
-func newFirstEpoch(suite CipherSuite, initSecret []byte) *firstEpoch {
+func groupInfoKeyAndNonce(suite CipherSuite, epochSecret []byte) keyAndNonce {
 	secretSize := suite.constants().SecretSize
 	keySize := suite.constants().KeySize
 	nonceSize := suite.constants().NonceSize
 
-	groupInfoSecret := suite.hkdfExpandLabel(initSecret, "group info", []byte{}, secretSize)
+	groupInfoSecret := suite.hkdfExpandLabel(epochSecret, "group info", []byte{}, secretSize)
 	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
 	groupInfoNonce := suite.hkdfExpandLabel(groupInfoSecret, "nonce", []byte{}, nonceSize)
 
-	return &firstEpoch{suite, initSecret, groupInfoSecret, groupInfoKey, groupInfoNonce}
-}
-
-func (fe firstEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {
-	epochSecret := fe.Suite.hkdfExtract(fe.InitSecret, updateSecret)
-	return newKeyScheduleEpoch(fe.Suite, size, epochSecret, context)
+	return keyAndNonce{
+		Key:   groupInfoKey,
+		Nonce: groupInfoNonce,
+	}
 }
 
 ///

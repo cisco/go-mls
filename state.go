@@ -127,15 +127,14 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: keyPkg unmarshal failure %v", err)
 	}
 
-	// init the epoch with initSecret in the key package
-	fe := newFirstEpoch(suite, kp.InitSecret)
-
 	// decrypt the groupInfo
-	aead, err := suite.newAEAD(fe.GroupInfoKey)
+	gikn := groupInfoKeyAndNonce(suite, kp.EpochSecret)
+
+	aead, err := suite.newAEAD(gikn.Key)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: error creating AEAD: %v", err)
 	}
-	data, err := aead.Open(nil, fe.GroupInfoNonce, welcome.EncryptedGroupInfo, []byte{})
+	data, err := aead.Open(nil, gikn.Nonce, welcome.EncryptedGroupInfo, []byte{})
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to decrypt groupInfo: %v", err)
 	}
@@ -184,7 +183,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: groupCtx marshal failure %v", err)
 	}
 
-	s.Keys = fe.Next(leafCount(s.Tree.size()), updateSecret, encGrpCtx)
+	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), kp.EpochSecret, encGrpCtx)
 
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
@@ -301,7 +300,6 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	next.PendingProposals = nil
 
 	// Start a GroupInfo with the prepared state
-	prevInitSecret := s.Keys.InitSecret
 	gi := newGroupInfo(next.GroupID, next.Epoch+1, next.Tree, s.ConfirmedTranscriptHash)
 
 	ctx, err := syntax.Marshal(GroupContext{
@@ -334,7 +332,7 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
 	}
 
-	welcome := newWelcome(s.CipherSuite, prevInitSecret, gi, joiners)
+	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi, joiners)
 	return pt, welcome, next, nil
 }
 
