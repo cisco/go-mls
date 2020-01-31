@@ -149,7 +149,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 
 	// parse group info context
 	s.Epoch = gi.Epoch
-	s.GroupID = gi.GroupId
+	s.GroupID = gi.GroupID
 	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
@@ -291,9 +291,6 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	// reset after commit the proposals
 	next.PendingProposals = nil
 
-	// Start a GroupInfo with the prepared state
-	gi := newGroupInfo(next.GroupID, next.Epoch+1, s.ConfirmedTranscriptHash)
-
 	// KEM new entropy to the new group
 	ctx, err := syntax.Marshal(next.groupContext())
 	if err != nil {
@@ -310,10 +307,14 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// Complete the GroupInfo and form the Welcome
-	gi.Tree = next.Tree
-	gi.ConfirmedTranscriptHash = next.ConfirmedTranscriptHash
-	gi.InterimTranscriptHash = next.InterimTranscriptHash
-	gi.Confirmation = pt.Content.Commit.Confirmation.Data
+	gi := &GroupInfo{
+		GroupID:                 next.GroupID,
+		Epoch:                   next.Epoch,
+		Tree:                    next.Tree,
+		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
+		InterimTranscriptHash:   next.InterimTranscriptHash,
+		Confirmation:            pt.Content.Commit.Confirmation.Data,
+	}
 	err = gi.sign(s.Index, &s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
@@ -805,12 +806,12 @@ func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
 	s := NewWriteStream()
 	err := s.Write(struct {
-		GroupId         []byte `tls:"head=1"`
+		GroupID         []byte `tls:"head=1"`
 		Epoch           Epoch
 		ContentType     ContentType
 		SenderDataNonce []byte `tls:"head=1"`
 	}{
-		GroupId:         gid,
+		GroupID:         gid,
 		Epoch:           epoch,
 		ContentType:     contentType,
 		SenderDataNonce: nonce,
@@ -829,14 +830,14 @@ func contentAAD(gid []byte, epoch Epoch,
 
 	s := NewWriteStream()
 	err := s.Write(struct {
-		GroupId             []byte `tls:"head=1"`
+		GroupID             []byte `tls:"head=1"`
 		Epoch               Epoch
 		ContentType         ContentType
 		AuthenticatedData   []byte `tls:"head=4"`
 		SenderDataNonce     []byte `tls:"head=1"`
 		EncryptedSenderData []byte `tls:"head=1"`
 	}{
-		GroupId:             gid,
+		GroupID:             gid,
 		Epoch:               epoch,
 		ContentType:         contentType,
 		AuthenticatedData:   authenticatedData,

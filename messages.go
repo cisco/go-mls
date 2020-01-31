@@ -453,25 +453,22 @@ type MLSCiphertext struct {
 ///
 
 type GroupInfo struct {
-	GroupId                      []byte `tls:"head=1"`
-	Epoch                        Epoch
-	Tree                         RatchetTree
-	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
-	ConfirmedTranscriptHash      []byte `tls:"head=1"`
-	InterimTranscriptHash        []byte `tls:"head=1"`
-	Path                         DirectPath
-	Confirmation                 []byte `tls:"head=1"`
-	SignerIndex                  leafIndex
-	Signature                    []byte `tls:"head=2"`
+	GroupID                 []byte `tls:"head=1"`
+	Epoch                   Epoch
+	Tree                    RatchetTree
+	ConfirmedTranscriptHash []byte `tls:"head=1"`
+	InterimTranscriptHash   []byte `tls:"head=1"`
+	Confirmation            []byte `tls:"head=1"`
+	SignerIndex             leafIndex
+	Signature               []byte `tls:"head=2"`
 }
 
 func (gi GroupInfo) dump() {
 	fmt.Printf("\n+++++ groupInfo +++++\n")
-	fmt.Printf("\tGroupId %x, Epoch %x\n", gi.GroupId, gi.Epoch)
+	fmt.Printf("\tGroupID %x, Epoch %x\n", gi.GroupID, gi.Epoch)
 	gi.Tree.Dump("Tree")
-	fmt.Printf("\tPriorConfirmedTranscriptHash %x, ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
-		gi.PriorConfirmedTranscriptHash, gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
-	gi.Path.dump()
+	fmt.Printf("ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
+		gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
 	fmt.Printf("\tConfirmation %x, SignerIndex %x\n", gi.Confirmation, gi.SignerIndex)
 	fmt.Printf("\tSignature %x\n", gi.Signature)
 	fmt.Printf("\n+++++ groupInfo +++++\n")
@@ -479,21 +476,19 @@ func (gi GroupInfo) dump() {
 
 func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
-		GroupId                 []byte `tls:"head=1"`
+		GroupID                 []byte `tls:"head=1"`
 		Epoch                   Epoch
 		Tree                    RatchetTree
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
-		Path                    DirectPath
 		Confirmation            []byte `tls:"head=1"`
 		SignerIndex             leafIndex
 	}{
-		GroupId:                 gi.GroupId,
+		GroupID:                 gi.GroupID,
 		Epoch:                   gi.Epoch,
 		Tree:                    gi.Tree,
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   gi.InterimTranscriptHash,
-		Path:                    gi.Path,
 		Confirmation:            gi.Confirmation,
 		SignerIndex:             gi.SignerIndex,
 	})
@@ -540,14 +535,6 @@ func (gi GroupInfo) verify() error {
 	}
 
 	return nil
-}
-
-func newGroupInfo(gid []byte, epoch Epoch, transriptHash []byte) *GroupInfo {
-	gi := new(GroupInfo)
-	gi.GroupId = gid
-	gi.Epoch = epoch
-	gi.PriorConfirmedTranscriptHash = transriptHash
-	return gi
 }
 
 ///
