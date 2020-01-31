@@ -433,7 +433,13 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) ([
 		return nil, err
 	}
 
-	return t.Implant(overlap, pathSecret)
+	rootSecret, err := t.Implant(overlap, pathSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	t.setHashPath(from)
+	return rootSecret, nil
 }
 
 func (t *RatchetTree) Merge(index leafIndex, secret []byte) error {
