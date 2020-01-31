@@ -195,17 +195,18 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	gi := &GroupInfo{
 		GroupId:                      unhex("0007"),
 		Epoch:                        121,
-		Tree:                         treeAB,
+		Tree:                         *treeAB,
 		PriorConfirmedTranscriptHash: []byte{0x00, 0x01, 0x02, 0x03},
 		ConfirmedTranscriptHash:      []byte{0x03, 0x04, 0x05, 0x06},
 		InterimTranscriptHash:        []byte{0x02, 0x03, 0x04, 0x05},
-		Path:                         dp,
+		Path:                         *dp,
 		SignerIndex:                  0,
 		Confirmation:                 []byte{0x00, 0x00, 0x00, 0x00},
 		Signature:                    []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, epochSecret, gi, []ClientInitKey{*clientInitKey})
+	w1 := newWelcome(cs, epochSecret, gi)
+	w1.EncryptTo(*clientInitKey, secret)
 	// doing this so that test can omit this field when matching w1, w2
 	w1.epochSecret = nil
 	w2 := new(Welcome)
@@ -261,7 +262,7 @@ type MessageTestVectors struct {
 func groupInfoMatch(t *testing.T, l, r GroupInfo) {
 	assertByteEquals(t, l.GroupId, r.GroupId)
 	assertEquals(t, l.Epoch, r.Epoch)
-	assertTrue(t, l.Tree.Equals(r.Tree), "tree unequal")
+	assertTrue(t, l.Tree.Equals(&r.Tree), "tree unequal")
 	assertByteEquals(t, l.PriorConfirmedTranscriptHash, r.PriorConfirmedTranscriptHash)
 	assertByteEquals(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
 	assertByteEquals(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
@@ -338,9 +339,10 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		// Welcome
 
-		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
+		gi := newGroupInfo(tv.GroupId, tv.Epoch, tv.Random)
+		gi.Tree = *ratchetTree
 		gi.SignerIndex = tv.SingerIndex
-		gi.Path = dp
+		gi.Path = *dp
 		gi.ConfirmedTranscriptHash = tv.Random
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random
@@ -525,9 +527,10 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		assertByteEquals(t, cikM, tc.ClientInitKey)
 
 		// Welcome
-		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
+		gi := newGroupInfo(tv.GroupId, tv.Epoch, tv.Random)
+		gi.Tree = *ratchetTree
 		gi.SignerIndex = tv.SingerIndex
-		gi.Path = dp
+		gi.Path = *dp
 		gi.ConfirmedTranscriptHash = tv.Random
 		gi.InterimTranscriptHash = tv.Random
 		gi.Confirmation = tv.Random

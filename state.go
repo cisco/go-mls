@@ -166,17 +166,9 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, err
 	}
 
-	decapCtx, err := syntax.Marshal(GroupContext{
-		gi.GroupId,
-		gi.Epoch,
-		gi.Tree.RootHash(),
-		gi.PriorConfirmedTranscriptHash,
-	})
-
-	_, err = s.Tree.Decap(gi.SignerIndex, decapCtx, gi.Path)
-	if err != nil {
-		return nil, err
-	}
+	// implant the provided path secrets in the tree
+	commonAncestor := ancestor(s.Index, gi.SignerIndex)
+	_, err = s.Tree.Implant(commonAncestor, kp.PathSecret)
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
 	if err != nil {
@@ -300,19 +292,14 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	next.PendingProposals = nil
 
 	// Start a GroupInfo with the prepared state
-	gi := newGroupInfo(next.GroupID, next.Epoch+1, next.Tree, s.ConfirmedTranscriptHash)
+	gi := newGroupInfo(next.GroupID, next.Epoch+1, s.ConfirmedTranscriptHash)
 
-	ctx, err := syntax.Marshal(GroupContext{
-		GroupID:                 gi.GroupId,
-		Epoch:                   gi.Epoch,
-		TreeHash:                gi.Tree.RootHash(),
-		ConfirmedTranscriptHash: gi.PriorConfirmedTranscriptHash,
-	})
+	// KEM new entropy to the new group
+	ctx, err := syntax.Marshal(next.groupContext())
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("mls.state: grpCtx marshal failure %v", err)
+		return nil, nil, nil, err
 	}
 
-	// KEM new entropy to the group and the new joiners
 	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
 	commit.Path = *path
 
@@ -323,16 +310,32 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// Complete the GroupInfo and form the Welcome
+	gi.Tree = next.Tree
 	gi.ConfirmedTranscriptHash = next.ConfirmedTranscriptHash
 	gi.InterimTranscriptHash = next.InterimTranscriptHash
-	gi.Path = path
 	gi.Confirmation = pt.Content.Commit.Confirmation.Data
 	err = gi.sign(s.Index, &s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
 	}
 
-	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi, joiners)
+	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi)
+	pathSecrets := next.Tree.PathSecrets(toNodeIndex(next.Index), leafSecret)
+	for _, cik := range joiners {
+		leaf, ok := next.Tree.Find(cik)
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("mls.state: New joiner not in tree")
+		}
+
+		commonAncestor := ancestor(leaf, next.Index)
+		pathSecret, ok := pathSecrets[commonAncestor]
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
+		}
+
+		welcome.EncryptTo(cik, pathSecret)
+	}
+
 	return pt, welcome, next, nil
 }
 
@@ -572,7 +575,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	// apply the direct path
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch + 1,
+		Epoch:                   next.Epoch,
 		TreeHash:                next.Tree.RootHash(),
 		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
 	})
@@ -872,10 +875,12 @@ func (s State) clone() *State {
 
 // Compare the public aspects of two nodes
 func (s State) Equals(o State) bool {
+	suite := s.CipherSuite == o.CipherSuite
+	groupID := bytes.Equal(s.GroupID, o.GroupID)
+	epoch := s.Epoch == o.Epoch
+	tree := s.Tree.Equals(&o.Tree)
+	cth := bytes.Equal(s.ConfirmedTranscriptHash, o.ConfirmedTranscriptHash)
+	ith := bytes.Equal(s.InterimTranscriptHash, o.InterimTranscriptHash)
 
-	if s.Epoch != o.Epoch || !bytes.Equal(s.GroupID, o.GroupID) || s.CipherSuite != o.CipherSuite {
-		return false
-	}
-
-	return s.Tree.Equals(&o.Tree)
+	return suite && groupID && epoch && tree && cth && ith
 }

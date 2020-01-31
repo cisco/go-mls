@@ -455,11 +455,11 @@ type MLSCiphertext struct {
 type GroupInfo struct {
 	GroupId                      []byte `tls:"head=1"`
 	Epoch                        Epoch
-	Tree                         *RatchetTree
+	Tree                         RatchetTree
 	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
 	ConfirmedTranscriptHash      []byte `tls:"head=1"`
 	InterimTranscriptHash        []byte `tls:"head=1"`
-	Path                         *DirectPath
+	Path                         DirectPath
 	Confirmation                 []byte `tls:"head=1"`
 	SignerIndex                  leafIndex
 	Signature                    []byte `tls:"head=2"`
@@ -481,10 +481,10 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
 		GroupId                 []byte `tls:"head=1"`
 		Epoch                   Epoch
-		Tree                    *RatchetTree
+		Tree                    RatchetTree
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
-		Path                    *DirectPath
+		Path                    DirectPath
 		Confirmation            []byte `tls:"head=1"`
 		SignerIndex             leafIndex
 	}{
@@ -542,11 +542,10 @@ func (gi GroupInfo) verify() error {
 	return nil
 }
 
-func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byte) *GroupInfo {
+func newGroupInfo(gid []byte, epoch Epoch, transriptHash []byte) *GroupInfo {
 	gi := new(GroupInfo)
 	gi.GroupId = gid
 	gi.Epoch = epoch
-	gi.Tree = tree.clone()
 	gi.PriorConfirmedTranscriptHash = transriptHash
 	return gi
 }
@@ -556,6 +555,7 @@ func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byt
 ///
 type KeyPackage struct {
 	EpochSecret []byte `tls:"head=1"`
+	PathSecret  []byte `tls:"head=1"`
 }
 
 ///
@@ -588,7 +588,7 @@ type Welcome struct {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
+func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
@@ -603,21 +603,15 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo, joiner
 	ct := aead.Seal(nil, kn.Nonce, pt, []byte{})
 
 	// Assemble the Welcome
-	w := &Welcome{
+	return &Welcome{
 		Version:            SupportedVersionMLS10,
 		CipherSuite:        cs,
 		EncryptedGroupInfo: ct,
 		epochSecret:        epochSecret,
 	}
-
-	for _, joiner := range joiners {
-		w.encrypt(joiner)
-	}
-
-	return w
 }
 
-func (w *Welcome) encrypt(cik ClientInitKey) {
+func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
 	// Compute the hash of the CIK
 	data, err := syntax.Marshal(cik)
 	if err != nil {
@@ -629,6 +623,7 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 	// Encrypt the group init secret to new member's public key
 	kp := KeyPackage{
 		EpochSecret: w.epochSecret,
+		PathSecret:  pathSecret,
 	}
 
 	pt, err := syntax.Marshal(kp)
