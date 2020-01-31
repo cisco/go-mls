@@ -163,3 +163,16 @@ func copath(x nodeIndex, n leafCount) []nodeIndex {
 
 	return c
 }
+
+// Common ancestor of two leaves
+func ancestor(l, r leafIndex) nodeIndex {
+	ln, rn := toNodeIndex(l), toNodeIndex(r)
+
+	k := uint(0)
+	for ln != rn {
+		ln, rn = ln>>1, rn>>1
+		k += 1
+	}
+
+	return (ln << k) + (1 << (k - 1)) - 1
+}

@@ -7,7 +7,7 @@ import (
 	"github.com/bifurcation/mint/syntax"
 )
 
-// Precomputed answers for the tree on ten elements:
+// Precomputed answers for the tree on eleven elements:
 //
 //                                              X
 //                      X
@@ -73,6 +73,19 @@ var (
 		{0x07},
 		{0x11, 0x07},
 	}
+
+	aAncestor = [][]nodeIndex{
+		{0x01, 0x03, 0x03, 0x07, 0x07, 0x07, 0x07, 0x0f, 0x0f, 0x0f},
+		{0x03, 0x03, 0x07, 0x07, 0x07, 0x07, 0x0f, 0x0f, 0x0f},
+		{0x05, 0x07, 0x07, 0x07, 0x07, 0x0f, 0x0f, 0x0f},
+		{0x07, 0x07, 0x07, 0x07, 0x0f, 0x0f, 0x0f},
+		{0x09, 0x0b, 0x0b, 0x0f, 0x0f, 0x0f},
+		{0x0b, 0x0b, 0x0f, 0x0f, 0x0f},
+		{0x0d, 0x0f, 0x0f, 0x0f},
+		{0x0f, 0x0f, 0x0f},
+		{0x11, 0x13},
+		{0x13},
+	}
 )
 
 func TestSizeProperties(t *testing.T) {
@@ -111,6 +124,24 @@ func TestPaths(t *testing.T) {
 
 	run("dirpath", dirpath, aDirpath)
 	run("copath", copath, aCopath)
+}
+
+func TestAncestor(t *testing.T) {
+	for l := leafIndex(0); l < leafIndex(aN-1); l += 1 {
+		for r := l + 1; r < leafIndex(aN); r += 1 {
+			answer := aAncestor[l][r-l-1]
+			lr := ancestor(l, r)
+			rl := ancestor(r, l)
+
+			if lr != answer {
+				t.Fatalf("Incorrect ancestor: %d %d => %d != %d", l, r, lr, answer)
+			}
+
+			if lr != answer {
+				t.Fatalf("Asymmetric ancestor: %d %d => %d != %d", l, r, rl, lr)
+			}
+		}
+	}
 }
 
 ///
