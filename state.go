@@ -173,9 +173,9 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		gi.PriorConfirmedTranscriptHash,
 	})
 
-	updateSecret := s.Tree.Decap(gi.SignerIndex, decapCtx, gi.Path)
-	if updateSecret == nil {
-		return nil, fmt.Errorf("mls.state: decrypting root secret got nil value")
+	_, err = s.Tree.Decap(gi.SignerIndex, decapCtx, gi.Path)
+	if err != nil {
+		return nil, err
 	}
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
@@ -580,7 +580,10 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	updateSecret := next.Tree.Decap(pt.Sender, ctx, &commitData.Commit.Path)
+	updateSecret, err := next.Tree.Decap(pt.Sender, ctx, &commitData.Commit.Path)
+	if err != nil {
+		return nil, err
+	}
 
 	// Update the transcripts and advance the key schedule
 	digest := next.CipherSuite.newDigest()

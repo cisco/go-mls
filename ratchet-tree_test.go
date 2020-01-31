@@ -251,7 +251,9 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 			if i == j {
 				continue
 			}
-			decryptedSecret := dstTree.Decap(leafIndex(i), []byte{}, path)
+
+			decryptedSecret, err := dstTree.Decap(leafIndex(i), []byte{}, path)
+			assertNotError(t, err, "Error in decap()")
 			assertByteEquals(t, rootSecret, decryptedSecret)
 			assertTrue(t, srcTree.Equals(dstTree), "Failed update on decap()")
 		}
