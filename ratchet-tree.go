@@ -302,6 +302,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		pathSecret := secrets[parent]
 		n = t.newNode(pathSecret)
 		t.Nodes[parent].Node = n
+		t.setPrivate(parent, *n.PrivateKey)
 
 		//update nodes on the direct path to share it with others
 		pathNode := DirectPathNode{PublicKey: t.getPublic(parent)}
@@ -570,16 +571,20 @@ func (t *RatchetTree) getPublic(n nodeIndex) HPKEPublicKey {
 }
 
 func (t *RatchetTree) setPrivate(n nodeIndex, priv HPKEPrivateKey) {
-	t.Nodes[n].Node.PrivateKey = &priv
+	t.Secrets.PrivateKeys[n] = priv
+	// t.Nodes[n].Node.PrivateKey = &priv
 	t.setPublic(n, priv.PublicKey)
 }
 
 func (t *RatchetTree) getPrivate(n nodeIndex) HPKEPrivateKey {
-	return *t.Nodes[n].Node.PrivateKey
+	return t.Secrets.PrivateKeys[n]
+	//return *t.Nodes[n].Node.PrivateKey
 }
 
 func (t *RatchetTree) hasPrivate(n nodeIndex) bool {
-	return t.Nodes[n].Node != nil && t.Nodes[n].Node.PrivateKey != nil
+	_, ok := t.Secrets.PrivateKeys[n]
+	return ok
+	//return t.Nodes[n].Node != nil && t.Nodes[n].Node.PrivateKey != nil
 }
 
 func (t *RatchetTree) rootIndex() nodeIndex {
