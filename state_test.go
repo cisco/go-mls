@@ -70,6 +70,14 @@ func setupGroup(t *testing.T) StateTest {
 		states = append(states, *s)
 	}
 	stateTest.states = states
+
+	// Verify that the states are all equivalent
+	for _, lhs := range stateTest.states {
+		for _, rhs := range stateTest.states {
+			assertTrue(t, lhs.Equals(rhs), "State mismatch")
+		}
+	}
+
 	return stateTest
 }
 
@@ -80,7 +88,7 @@ func dump(ciks []ClientInitKey) {
 	}
 }
 
-func TestState_TwoPerson(t *testing.T) {
+func TestStateTwoPerson(t *testing.T) {
 	stateTest := setup(t)
 	// creator's state
 	// dump(clientInitKeys)
@@ -96,20 +104,21 @@ func TestState_TwoPerson(t *testing.T) {
 	assertNotError(t, err, "state_test. commit failed")
 
 	// Initialize the second participant from the Welcome
-	second0, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
+	second1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
 	assertNotError(t, err, "state_test: state creation using Welcome failed")
 
-	//assertByteEquals(t, *first1, *second0)
+	// Verify that the two states are equivalent
+	assertTrue(t, first1.Equals(*second1), "State mismatch")
 
 	/// Verify that they can exchange protected messages
 	ct, err := first1.protect(testMessage)
 	assertNotError(t, err, "protect error")
-	pt, err := second0.unprotect(ct)
+	pt, err := second1.unprotect(ct)
 	assertNotError(t, err, "unprotect failure")
 	assertByteEquals(t, pt, testMessage)
 }
 
-func TestState_Multi(t *testing.T) {
+func TestStateMulti(t *testing.T) {
 	stateTest := setup(t)
 	// start with the group creator
 	stateTest.states = append(stateTest.states, *newEmptyState(groupId, suite, stateTest.initPrivs[0],
@@ -134,6 +143,14 @@ func TestState_Multi(t *testing.T) {
 		stateTest.states = append(stateTest.states, *s)
 	}
 
+	// Verify that the states are all equivalent
+	for _, lhs := range stateTest.states {
+		for _, rhs := range stateTest.states {
+			assertTrue(t, lhs.Equals(rhs), "State mismatch")
+		}
+	}
+
+	// verify that everyone can send and be received
 	for i, s := range stateTest.states {
 		ct, _ := s.protect(testMessage)
 		for j, o := range stateTest.states {
@@ -146,7 +163,7 @@ func TestState_Multi(t *testing.T) {
 	}
 }
 
-func TestState_CipherNegotiation(t *testing.T) {
+func TestStateCipherNegotiation(t *testing.T) {
 	// Alice supports P-256 and X25519
 	alicePriv, _ := scheme.Generate()
 	aliceBc := &BasicCredential{
@@ -191,22 +208,25 @@ func TestState_CipherNegotiation(t *testing.T) {
 	assertTrue(t, aliceState.Equals(*bobState), "states are unequal")
 }
 
-func TestState_Update(t *testing.T) {
+func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
-	for i := 0; i < groupSize; i++ {
+	for i, state := range stateTest.states {
 		leafSecret, _ := getRandomBytes(32)
-		update := stateTest.states[i].update(leafSecret)
-		stateTest.states[i].handle(update)
-		commit, _, next, err := stateTest.states[i].commit(leafSecret)
+		update := state.update(leafSecret)
+		state.handle(update)
+		commit, _, next, err := state.commit(leafSecret)
 		assertNotError(t, err, "creator commit error")
-		for idx, state := range stateTest.states {
-			if idx == i {
+
+		for j, other := range stateTest.states {
+			if j == i {
 				state = *next
 			} else {
-				state.handle(update)
-				newState, err := state.handle(commit)
-				assertNotError(t, err, "new joinee commit fail")
-				state = *newState
+				_, err := other.handle(update)
+				assertNotError(t, err, "Update recipient proposal fail")
+
+				newState, err := other.handle(commit)
+				assertNotError(t, err, "Update recipient commit fail")
+				other = *newState
 			}
 		}
 
@@ -216,7 +236,7 @@ func TestState_Update(t *testing.T) {
 	}
 }
 
-func TestState_Remove(t *testing.T) {
+func TestStateRemove(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i := groupSize - 2; i > 0; i-- {
 		remove := stateTest.states[i].remove(leafIndex(i + 1))

@@ -286,6 +286,23 @@ func (t *RatchetTree) AddLeaf(index leafIndex, key *HPKEPublicKey, credential *C
 	return nil
 }
 
+func (t *RatchetTree) PathSecrets(start nodeIndex, pathSecret []byte) map[nodeIndex][]byte {
+	secrets := map[nodeIndex][]byte{}
+
+	curr := start
+	next := parent(curr, t.size())
+	secrets[curr] = make([]byte, len(pathSecret))
+	copy(secrets[curr], pathSecret)
+
+	for curr != t.rootIndex() {
+		secrets[next] = t.pathStep(secrets[curr])
+		curr = next
+		next = parent(curr, t.size())
+	}
+
+	return secrets
+}
+
 func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*DirectPath, []byte) {
 	// list of updated nodes - output
 	dp := &DirectPath{}
@@ -300,10 +317,11 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 		*t.Nodes[leafNode].Node.PublicKey,
 		[]HPKECiphertext{}})
 
-	pathSecret := leafSecret
+	// generate the necessary path secrets
+	secrets := t.PathSecrets(toNodeIndex(from), leafSecret)
+
 	cp := copath(leafNode, t.size())
 	for _, v := range cp {
-		pathSecret = t.pathStep(pathSecret)
 		parent := parent(v, t.size())
 		if parent == leafNode {
 			continue
@@ -311,6 +329,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 
 		// update the non-updated child's parent with the newly
 		// computed path-secret
+		pathSecret := secrets[parent]
 		n = t.newNode(pathSecret)
 		t.Nodes[parent].Node = n
 
@@ -332,65 +351,95 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 	}
 
 	t.setHashPath(from)
-	return dp, pathSecret
+	return dp, secrets[t.rootIndex()]
 }
 
-func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) []byte {
+func (t *RatchetTree) ImplantFrom(from, to leafIndex, pathSecret []byte) ([]byte, error) {
+	return t.Implant(ancestor(from, to), pathSecret)
+}
+
+func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error) {
+	secrets := t.PathSecrets(start, pathSecret)
+
+	for curr, secret := range secrets {
+		node := t.newNode(secret)
+		if t.Nodes[curr].blank() {
+			return nil, fmt.Errorf("Attempt to implant blank node %v", curr)
+		}
+
+		if !t.Nodes[curr].Node.PublicKey.equals(node.PublicKey) {
+			return nil, fmt.Errorf("Incorrect secret for existing public key")
+		}
+
+		t.Nodes[curr].mergePrivate(node.PrivateKey)
+	}
+
+	// XXX(rlb): Set root secret?
+	return secrets[t.rootIndex()], nil
+}
+
+func (t *RatchetTree) decryptPathSecret(from leafIndex, context []byte, path *DirectPath) (nodeIndex, []byte, error) {
 	cp := copath(toNodeIndex(from), t.size())
 	if len(path.Nodes) != len(cp)+1 {
-		panic(fmt.Errorf("mls.rtn:Decap Malformed Directpath"))
+		return 0, nil, fmt.Errorf("mls.rtn: Malformed (cp) DirectPath %d %d %v", len(path.Nodes), len(cp)+1, cp)
 	}
 
-	dp := dirpath(toNodeIndex(from), t.size())
-
-	// leaf
 	if len(path.Nodes[0].EncryptedPathSecrets) != 0 {
-		panic(fmt.Errorf("mls.rtn:Decap Malformed leaf node"))
+		return 0, nil, fmt.Errorf("mls.rtn: Malformed initial DirectPath node")
 	}
 
-	leafNode := toNodeIndex(from)
-	t.Nodes[leafNode].mergePublic(&path.Nodes[0].PublicKey)
-
-	// handle rest of the path now
-	var pathSecret []byte
-	var err error
-	haveSecret := false
-	for i := 0; i < len(cp); i++ {
-		curr := cp[i]
+	for i, curr := range cp {
+		res := t.resolve(curr)
 		pathNode := path.Nodes[i+1]
-		if !haveSecret {
-			res := t.resolve(curr)
-			if len(pathNode.EncryptedPathSecrets) != len(res) {
-				panic(fmt.Errorf("mls.rtn: Malformed Ratchet Node"))
-			}
-			for idx, v := range res {
-				if !t.Nodes[v].hasPrivate() {
-					continue
-				}
-				encryptedSecret := pathNode.EncryptedPathSecrets[idx]
-				priv := t.Nodes[v].Node.PrivateKey
-				pathSecret, err = t.CipherSuite.hpke().Decrypt(*priv, context, encryptedSecret)
-				if err != nil {
-					panic(fmt.Errorf("mls:rtn: Ratchet node %v Decryption failure %v", v, err))
-				}
-				haveSecret = true
-			}
-		} else {
-			pathSecret = t.pathStep(pathSecret)
+
+		if len(pathNode.EncryptedPathSecrets) != len(res) {
+			return 0, nil, fmt.Errorf("mls.rtn: Malformed Ratchet Node")
 		}
 
-		if haveSecret {
-			temp := t.newNode(pathSecret)
-			if !temp.PublicKey.equals(&pathNode.PublicKey) {
-				panic(fmt.Errorf("mls:rtn: incorrect public key"))
+		for idx, v := range res {
+			if !t.Nodes[v].hasPrivate() {
+				continue
 			}
-			t.Nodes[dp[i+1]].mergePrivate(temp.PrivateKey)
-		} else {
-			t.Nodes[dp[i+1]].mergePublic(&pathNode.PublicKey)
+
+			encryptedSecret := pathNode.EncryptedPathSecrets[idx]
+			priv := t.Nodes[v].Node.PrivateKey
+			pathSecret, err := t.CipherSuite.hpke().Decrypt(*priv, context, encryptedSecret)
+			if err != nil {
+				return 0, nil, fmt.Errorf("mls:rtn: Ratchet node %v Decryption failure %v", v, err)
+			}
+
+			parentNode := parent(curr, t.size())
+			return parentNode, pathSecret, nil
 		}
 	}
+
+	return 0, nil, fmt.Errorf("mls:rtn: No private key available for decrypt")
+}
+
+func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) ([]byte, error) {
+	// Set public keys
+	dp := dirpath(toNodeIndex(from), t.size())
+	if len(path.Nodes) != len(dp) {
+		return nil, fmt.Errorf("mls.rtn: Malformed (dp) DirectPath %d %d", len(path.Nodes), len(dp)+1)
+	}
+
+	for i, node := range dp {
+		t.Nodes[node].mergePublic(&path.Nodes[i].PublicKey)
+	}
+
+	// Decrypt and implant path secret
+	overlap, pathSecret, err := t.decryptPathSecret(from, context, path)
+	if err != nil {
+		return nil, err
+	}
+
+	rootSecret, err := t.Implant(overlap, pathSecret)
+	if err != nil {
+		return nil, err
+	}
+
 	t.setHashPath(from)
-	return pathSecret
+	return rootSecret, nil
 }
 
 func (t *RatchetTree) Merge(index leafIndex, secret []byte) error {

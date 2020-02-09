@@ -453,25 +453,22 @@ type MLSCiphertext struct {
 ///
 
 type GroupInfo struct {
-	GroupId                      []byte `tls:"head=1"`
-	Epoch                        Epoch
-	Tree                         *RatchetTree
-	PriorConfirmedTranscriptHash []byte `tls:"head=1"`
-	ConfirmedTranscriptHash      []byte `tls:"head=1"`
-	InterimTranscriptHash        []byte `tls:"head=1"`
-	Path                         *DirectPath
-	Confirmation                 []byte `tls:"head=1"`
-	SignerIndex                  leafIndex
-	Signature                    []byte `tls:"head=2"`
+	GroupID                 []byte `tls:"head=1"`
+	Epoch                   Epoch
+	Tree                    RatchetTree
+	ConfirmedTranscriptHash []byte `tls:"head=1"`
+	InterimTranscriptHash   []byte `tls:"head=1"`
+	Confirmation            []byte `tls:"head=1"`
+	SignerIndex             leafIndex
+	Signature               []byte `tls:"head=2"`
 }
 
 func (gi GroupInfo) dump() {
 	fmt.Printf("\n+++++ groupInfo +++++\n")
-	fmt.Printf("\tGroupId %x, Epoch %x\n", gi.GroupId, gi.Epoch)
+	fmt.Printf("\tGroupID %x, Epoch %x\n", gi.GroupID, gi.Epoch)
 	gi.Tree.Dump("Tree")
-	fmt.Printf("\tPriorConfirmedTranscriptHash %x, ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
-		gi.PriorConfirmedTranscriptHash, gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
-	gi.Path.dump()
+	fmt.Printf("ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
+		gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
 	fmt.Printf("\tConfirmation %x, SignerIndex %x\n", gi.Confirmation, gi.SignerIndex)
 	fmt.Printf("\tSignature %x\n", gi.Signature)
 	fmt.Printf("\n+++++ groupInfo +++++\n")
@@ -479,21 +476,19 @@ func (gi GroupInfo) dump() {
 
 func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
-		GroupId                 []byte `tls:"head=1"`
+		GroupID                 []byte `tls:"head=1"`
 		Epoch                   Epoch
-		Tree                    *RatchetTree
+		Tree                    RatchetTree
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
-		Path                    *DirectPath
 		Confirmation            []byte `tls:"head=1"`
 		SignerIndex             leafIndex
 	}{
-		GroupId:                 gi.GroupId,
+		GroupID:                 gi.GroupID,
 		Epoch:                   gi.Epoch,
 		Tree:                    gi.Tree,
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   gi.InterimTranscriptHash,
-		Path:                    gi.Path,
 		Confirmation:            gi.Confirmation,
 		SignerIndex:             gi.SignerIndex,
 	})
@@ -542,20 +537,12 @@ func (gi GroupInfo) verify() error {
 	return nil
 }
 
-func newGroupInfo(gid []byte, epoch Epoch, tree RatchetTree, transriptHash []byte) *GroupInfo {
-	gi := new(GroupInfo)
-	gi.GroupId = gid
-	gi.Epoch = epoch
-	gi.Tree = tree.clone()
-	gi.PriorConfirmedTranscriptHash = transriptHash
-	return gi
-}
-
 ///
 /// KeyPackage
 ///
 type KeyPackage struct {
-	InitSecret []byte `tls:"head=1"`
+	EpochSecret []byte `tls:"head=1"`
+	PathSecret  []byte `tls:"head=1"`
 }
 
 ///
@@ -575,22 +562,7 @@ type Welcome struct {
 	CipherSuite          CipherSuite
 	EncryptedKeyPackages []EncryptedKeyPackage `tls:"head=4"`
 	EncryptedGroupInfo   []byte                `tls:"head=4"`
-	initSecret           []byte                `tls:"omit"`
-}
-
-func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
-	secretSize := suite.constants().SecretSize
-	keySize := suite.constants().KeySize
-	nonceSize := suite.constants().NonceSize
-
-	groupInfoSecret := suite.hkdfExpandLabel(initSecret, "group info", []byte{}, secretSize)
-	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
-	groupInfoNonce := suite.hkdfExpandLabel(groupInfoSecret, "nonce", []byte{}, nonceSize)
-
-	return keyAndNonce{
-		Key:   groupInfoKey,
-		Nonce: groupInfoNonce,
-	}
+	epochSecret          []byte                `tls:"omit"`
 }
 
 // XXX(rlb): The pattern we follow here basically locks us into having empty
@@ -603,14 +575,14 @@ func deriveGroupKeyAndNonce(suite CipherSuite, initSecret []byte) keyAndNonce {
 // * finalize() - computes AAD and encrypts GroupInfo
 //
 // This will also probably require a helper method for decryption.
-func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners []ClientInitKey) *Welcome {
+func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welcome {
 	// Encrypt the GroupInfo
 	pt, err := syntax.Marshal(groupInfo)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: GroupInfo marshal failure %v", err))
 	}
 
-	kn := deriveGroupKeyAndNonce(cs, initSecret)
+	kn := groupInfoKeyAndNonce(cs, epochSecret)
 	aead, err := cs.newAEAD(kn.Key)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: error creating AEAD: %v", err))
@@ -618,21 +590,15 @@ func newWelcome(cs CipherSuite, initSecret []byte, groupInfo *GroupInfo, joiners
 	ct := aead.Seal(nil, kn.Nonce, pt, []byte{})
 
 	// Assemble the Welcome
-	w := &Welcome{
+	return &Welcome{
 		Version:            SupportedVersionMLS10,
 		CipherSuite:        cs,
 		EncryptedGroupInfo: ct,
-		initSecret:         initSecret,
+		epochSecret:        epochSecret,
 	}
-
-	for _, joiner := range joiners {
-		w.encrypt(joiner)
-	}
-
-	return w
 }
 
-func (w *Welcome) encrypt(cik ClientInitKey) {
+func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
 	// Compute the hash of the CIK
 	data, err := syntax.Marshal(cik)
 	if err != nil {
@@ -643,7 +609,8 @@ func (w *Welcome) encrypt(cik ClientInitKey) {
 
 	// Encrypt the group init secret to new member's public key
 	kp := KeyPackage{
-		InitSecret: w.initSecret,
+		EpochSecret: w.epochSecret,
+		PathSecret:  pathSecret,
 	}
 
 	pt, err := syntax.Marshal(kp)

@@ -188,26 +188,24 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 
 	cs := supportedSuites[0]
 	secret, _ := getRandomBytes(32)
-	dp, _ := treeAB.Encap(leafIndex(0), []byte{}, secret)
 
 	// setup things needed to welcome c
-	initSecret := []byte("we welcome you c")
+	epochSecret := []byte("we welcome you c")
 	gi := &GroupInfo{
-		GroupId:                      unhex("0007"),
-		Epoch:                        121,
-		Tree:                         treeAB,
-		PriorConfirmedTranscriptHash: []byte{0x00, 0x01, 0x02, 0x03},
-		ConfirmedTranscriptHash:      []byte{0x03, 0x04, 0x05, 0x06},
-		InterimTranscriptHash:        []byte{0x02, 0x03, 0x04, 0x05},
-		Path:                         dp,
-		SignerIndex:                  0,
-		Confirmation:                 []byte{0x00, 0x00, 0x00, 0x00},
-		Signature:                    []byte{0xAA, 0xBB, 0xCC},
+		GroupID:                 unhex("0007"),
+		Epoch:                   121,
+		Tree:                    *treeAB,
+		ConfirmedTranscriptHash: []byte{0x03, 0x04, 0x05, 0x06},
+		InterimTranscriptHash:   []byte{0x02, 0x03, 0x04, 0x05},
+		SignerIndex:             0,
+		Confirmation:            []byte{0x00, 0x00, 0x00, 0x00},
+		Signature:               []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, initSecret, gi, []ClientInitKey{*clientInitKey})
+	w1 := newWelcome(cs, epochSecret, gi)
+	w1.EncryptTo(*clientInitKey, secret)
 	// doing this so that test can omit this field when matching w1, w2
-	w1.initSecret = nil
+	w1.epochSecret = nil
 	w2 := new(Welcome)
 	t.Run("WelcomeOneMember", roundTrip(w1, w2))
 
@@ -220,7 +218,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	w2kp := new(KeyPackage)
 	_, err = syntax.Unmarshal(pt, w2kp)
 	assertNotError(t, err, "unmarshal failure for decrypted KeyPackage")
-	assertByteEquals(t, initSecret, w2kp.InitSecret)
+	assertByteEquals(t, epochSecret, w2kp.EpochSecret)
 }
 
 ///
@@ -245,10 +243,10 @@ type MessageTestCase struct {
 
 type MessageTestVectors struct {
 	Epoch           Epoch
-	SingerIndex     leafIndex
+	SignerIndex     leafIndex
 	Removed         leafIndex
 	UserId          []byte            `tls:"head=1"`
-	GroupId         []byte            `tls:"head=1"`
+	GroupID         []byte            `tls:"head=1"`
 	ClientInitKeyId []byte            `tls:"head=1"`
 	DHSeed          []byte            `tls:"head=1"`
 	SigSeed         []byte            `tls:"head=1"`
@@ -259,10 +257,9 @@ type MessageTestVectors struct {
 //helpers
 
 func groupInfoMatch(t *testing.T, l, r GroupInfo) {
-	assertByteEquals(t, l.GroupId, r.GroupId)
+	assertByteEquals(t, l.GroupID, r.GroupID)
 	assertEquals(t, l.Epoch, r.Epoch)
-	assertTrue(t, l.Tree.Equals(r.Tree), "tree unequal")
-	assertByteEquals(t, l.PriorConfirmedTranscriptHash, r.PriorConfirmedTranscriptHash)
+	assertTrue(t, l.Tree.Equals(&r.Tree), "tree unequal")
 	assertByteEquals(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
 	assertByteEquals(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
 	assertByteEquals(t, l.Confirmation, r.Confirmation)
@@ -281,10 +278,10 @@ func commitMatch(t *testing.T, l, r Commit) {
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
 		Epoch:           0xA0A1A2A3,
-		SingerIndex:     leafIndex(0xB0B1B2B3),
+		SignerIndex:     leafIndex(0xB0B1B2B3),
 		Removed:         leafIndex(0xC0C1C2C3),
 		UserId:          bytes.Repeat([]byte{0xD1}, 16),
-		GroupId:         bytes.Repeat([]byte{0xD2}, 16),
+		GroupID:         bytes.Repeat([]byte{0xD2}, 16),
 		ClientInitKeyId: bytes.Repeat([]byte{0xD3}, 16),
 		DHSeed:          bytes.Repeat([]byte{0xD4}, 32),
 		SigSeed:         bytes.Repeat([]byte{0xD5}, 32),
@@ -338,19 +335,22 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		// Welcome
 
-		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
-		gi.SignerIndex = tv.SingerIndex
-		gi.Path = dp
-		gi.ConfirmedTranscriptHash = tv.Random
-		gi.InterimTranscriptHash = tv.Random
-		gi.Confirmation = tv.Random
-		gi.Signature = tv.Random
+		gi := &GroupInfo{
+			GroupID:                 tv.GroupID,
+			Epoch:                   tv.Epoch,
+			Tree:                    *ratchetTree,
+			ConfirmedTranscriptHash: tv.Random,
+			InterimTranscriptHash:   tv.Random,
+			Confirmation:            tv.Random,
+			SignerIndex:             tv.SignerIndex,
+			Signature:               tv.Random,
+		}
 
 		giM, err := syntax.Marshal(gi)
 		assertNotError(t, err, "grpInfo marshal")
 
 		kp := KeyPackage{
-			InitSecret: tv.Random,
+			EpochSecret: tv.Random,
 		}
 
 		kpM, err := syntax.Marshal(kp)
@@ -383,9 +383,9 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		addHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -402,9 +402,9 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		updateHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -416,14 +416,14 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
-				Removed: tv.SingerIndex,
+				Removed: tv.SignerIndex,
 			},
 		}
 
 		removeHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -440,6 +440,7 @@ func generateMessageVectors(t *testing.T) []byte {
 			Removes: proposal,
 			Adds:    proposal,
 			Ignored: proposal,
+			Path:    *dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -447,7 +448,7 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
-			GroupID:             tv.GroupId,
+			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
 			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
@@ -525,13 +526,16 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		assertByteEquals(t, cikM, tc.ClientInitKey)
 
 		// Welcome
-		gi := newGroupInfo(tv.GroupId, tv.Epoch, *ratchetTree, tv.Random)
-		gi.SignerIndex = tv.SingerIndex
-		gi.Path = dp
-		gi.ConfirmedTranscriptHash = tv.Random
-		gi.InterimTranscriptHash = tv.Random
-		gi.Confirmation = tv.Random
-		gi.Signature = tv.Random
+		gi := &GroupInfo{
+			GroupID:                 tv.GroupID,
+			Epoch:                   tv.Epoch,
+			Tree:                    *ratchetTree,
+			ConfirmedTranscriptHash: tv.Random,
+			InterimTranscriptHash:   tv.Random,
+			Confirmation:            tv.Random,
+			SignerIndex:             tv.SignerIndex,
+			Signature:               tv.Random,
+		}
 
 		var giWire GroupInfo
 		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
@@ -540,7 +544,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		groupInfoMatch(t, *gi, giWire)
 
 		kp := KeyPackage{
-			InitSecret: tv.Random,
+			EpochSecret: tv.Random,
 		}
 
 		kpM, err := syntax.Marshal(kp)
@@ -577,9 +581,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		addHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -597,9 +601,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		updateHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -612,14 +616,14 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
-				Removed: tv.SingerIndex,
+				Removed: tv.SignerIndex,
 			},
 		}
 
 		removeHs := MLSPlaintext{
-			GroupID: tv.GroupId,
+			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SingerIndex,
+			Sender:  tv.SignerIndex,
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -645,7 +649,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
-			GroupID:             tv.GroupId,
+			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
 			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
