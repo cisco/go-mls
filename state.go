@@ -178,9 +178,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), kp.EpochSecret, encGrpCtx)
 
 	// confirmation verification
-	fmt.Printf("---J---\n")
-	fmt.Printf("ck  [%x]\n", s.Keys.ConfirmationKey)
-	fmt.Printf("cth [%x]\n", s.ConfirmedTranscriptHash)
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)
@@ -272,7 +269,6 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	for _, pp := range s.PendingProposals {
 		pid := s.proposalId(pp)
-		fmt.Printf("--> %s\n", pid)
 		proposal := pp.Content.Proposal
 		switch proposal.Type() {
 		case ProposalTypeAdd:
@@ -522,14 +518,8 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	digest.Write(pt.commitContent())
 	s.ConfirmedTranscriptHash = digest.Sum(nil)
 
-	fmt.Printf("---RaS---\n")
-	fmt.Printf("ith [%x]\n", s.InterimTranscriptHash)
-	fmt.Printf("cc  [%x]\n", pt.commitContent())
-	fmt.Printf("cth [%x]\n", s.ConfirmedTranscriptHash)
-
 	// Advance the key schedule
 	s.Epoch += 1
-	fmt.Printf("pck [%x]\n", s.Keys.ConfirmationKey)
 	s.updateEpochSecrets(updateSecret)
 
 	// generate the confirmation based on the new keys
@@ -537,10 +527,6 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	commit.Confirmation.Data = hmac.Sum(nil)
-
-	fmt.Printf("---RaS---\n")
-	fmt.Printf("ck  [%x]\n", s.Keys.ConfirmationKey)
-	fmt.Printf("cth [%x]\n", s.ConfirmedTranscriptHash)
 
 	// sign the MLSPlainText and update state hashes
 	// as a result of ratcheting.
@@ -555,11 +541,6 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	digest.Write(s.ConfirmedTranscriptHash)
 	digest.Write(authData)
 	s.InterimTranscriptHash = digest.Sum(nil)
-
-	fmt.Printf("---RaS---\n")
-	fmt.Printf("cth [%x]\n", s.ConfirmedTranscriptHash)
-	fmt.Printf("aud [%x]\n", authData)
-	fmt.Printf("ith [%x]\n", s.InterimTranscriptHash)
 
 	return pt, nil
 }
@@ -625,19 +606,11 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	digest.Write(pt.commitContent())
 	next.ConfirmedTranscriptHash = digest.Sum(nil)
 
-	fmt.Printf("---H---\n")
-	fmt.Printf("ith [%x]\n", next.InterimTranscriptHash)
-	fmt.Printf("cc  [%x]\n", pt.commitContent())
-	fmt.Printf("cth [%x]\n", next.ConfirmedTranscriptHash)
-
 	// Advance the key schedule
 	next.Epoch += 1
 	next.updateEpochSecrets(updateSecret)
 
 	// Verify confirmation MAC
-	fmt.Printf("---H---\n")
-	fmt.Printf("ck  [%x]\n", next.Keys.ConfirmationKey)
-	fmt.Printf("cth [%x]\n", next.ConfirmedTranscriptHash)
 	if !next.verifyConfirmation(commitData.Confirmation.Data) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
@@ -652,11 +625,6 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 	digest.Write(next.ConfirmedTranscriptHash)
 	digest.Write(authData)
 	next.InterimTranscriptHash = digest.Sum(nil)
-
-	fmt.Printf("---H---\n")
-	fmt.Printf("cth [%x]\n", next.ConfirmedTranscriptHash)
-	fmt.Printf("aud [%x]\n", authData)
-	fmt.Printf("ith [%x]\n", next.InterimTranscriptHash)
 
 	return next, nil
 }
@@ -931,9 +899,6 @@ func (s State) Equals(o State) bool {
 	tree := s.Tree.Equals(&o.Tree)
 	cth := bytes.Equal(s.ConfirmedTranscriptHash, o.ConfirmedTranscriptHash)
 	ith := bytes.Equal(s.InterimTranscriptHash, o.InterimTranscriptHash)
-
-	fmt.Printf("%v %v %v %v %v %v\n", suite, groupID, epoch, tree, cth, ith)
-	fmt.Printf("[%x] =?= [%x]\n", s.InterimTranscriptHash, o.InterimTranscriptHash)
 
 	return suite && groupID && epoch && tree && cth && ith
 }

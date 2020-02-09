@@ -211,24 +211,18 @@ func TestStateCipherNegotiation(t *testing.T) {
 func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
-		fmt.Printf("=== UPDATE(%d) ===\n", i)
 		leafSecret, _ := getRandomBytes(32)
 		update := state.update(leafSecret)
-		fmt.Printf("pid [%s]\n", state.proposalId(*update))
 		state.handle(update)
-		fmt.Printf("pid [%s]\n", state.proposalId(*update))
 		commit, _, next, err := state.commit(leafSecret)
 		assertNotError(t, err, "creator commit error")
 
 		for j, other := range stateTest.states {
-			fmt.Printf("=== UPDATE(%d -> %d) ===\n", i, j)
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
-				fmt.Printf("pid [%s]\n", other.proposalId(*update))
 				_, err := other.handle(update)
 				assertNotError(t, err, "Update recipient proposal fail")
-				fmt.Printf("pid [%s]\n", other.proposalId(*update))
 
 				newState, err := other.handle(commit)
 				assertNotError(t, err, "Update recipient commit fail")
@@ -236,8 +230,7 @@ func TestStateUpdate(t *testing.T) {
 			}
 		}
 
-		for j, s := range stateTest.states {
-			fmt.Printf("=== UPDATE(%d =?= %d) ===\n", i, j)
+		for _, s := range stateTest.states {
 			assertTrue(t, stateTest.states[0].Equals(s), "states unequal")
 		}
 	}
