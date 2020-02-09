@@ -48,7 +48,7 @@ func (t *RatchetTree) checkInvariant(from leafIndex) bool {
 	dp = append(dp, t.rootIndex())
 	for _, nidx := range dp {
 		inDirPath[int(nidx)] = true
-		if t.Nodes[nidx].Node != nil && !t.Nodes[nidx].hasPrivate() {
+		if t.Nodes[nidx].Node != nil && !t.hasPrivate(nidx) {
 			return false
 		}
 	}
@@ -58,7 +58,7 @@ func (t *RatchetTree) checkInvariant(from leafIndex) bool {
 		if inDirPath[i] {
 			continue
 		}
-		if t.Nodes[i].hasPrivate() {
+		if t.hasPrivate(nodeIndex(i)) {
 			return false
 		}
 	}
