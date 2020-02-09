@@ -253,14 +253,14 @@ func TestStateRemove(t *testing.T) {
 		assertNotError(t, err, "remove error")
 		stateTest.states = stateTest.states[:len(stateTest.states)-1]
 
-		for idx, state := range stateTest.states {
-			if idx == i {
-				state = *next
+		for j, state := range stateTest.states {
+			if j == i {
+				stateTest.states[j] = *next
 			} else {
 				state.handle(remove)
 				newState, err := state.handle(commit)
 				assertNotError(t, err, "remove processing error by others")
-				state = *newState
+				stateTest.states[j] = *newState
 			}
 		}
 
