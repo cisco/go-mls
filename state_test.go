@@ -219,19 +219,19 @@ func TestStateUpdate(t *testing.T) {
 
 		for j, other := range stateTest.states {
 			if j == i {
-				state = *next
+				stateTest.states[j] = *next
 			} else {
 				_, err := other.handle(update)
 				assertNotError(t, err, "Update recipient proposal fail")
 
 				newState, err := other.handle(commit)
 				assertNotError(t, err, "Update recipient commit fail")
-				other = *newState
+				stateTest.states[j] = *newState
 			}
 		}
 
 		for _, s := range stateTest.states {
-			assertTrue(t, s.Equals(stateTest.states[0]), "states unequal")
+			assertTrue(t, stateTest.states[0].Equals(s), "states unequal")
 		}
 	}
 }
@@ -246,14 +246,14 @@ func TestStateRemove(t *testing.T) {
 		assertNotError(t, err, "remove error")
 		stateTest.states = stateTest.states[:len(stateTest.states)-1]
 
-		for idx, state := range stateTest.states {
-			if idx == i {
-				state = *next
+		for j, state := range stateTest.states {
+			if j == i {
+				stateTest.states[j] = *next
 			} else {
 				state.handle(remove)
 				newState, err := state.handle(commit)
 				assertNotError(t, err, "remove processing error by others")
-				state = *newState
+				stateTest.states[j] = *newState
 			}
 		}
 

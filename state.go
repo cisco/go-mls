@@ -393,7 +393,7 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 	for _, id := range ids {
 		pt, ok := s.findProposal(id)
 		if !ok {
-			return fmt.Errorf("mls.state: commit of unknow proposal type %v", id)
+			return fmt.Errorf("mls.state: commit of unknown proposal %s", id)
 		}
 
 		// we have processed this proposal already
@@ -512,8 +512,14 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 		},
 	}
 
+	// Update the Confirmed Transcript Hash
+	digest := s.CipherSuite.newDigest()
+	digest.Write(s.InterimTranscriptHash)
+	digest.Write(pt.commitContent())
+	s.ConfirmedTranscriptHash = digest.Sum(nil)
+
+	// Advance the key schedule
 	s.Epoch += 1
-	// derive new key schedule based on the update secret
 	s.updateEpochSecrets(updateSecret)
 
 	// generate the confirmation based on the new keys
@@ -526,13 +532,16 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	// as a result of ratcheting.
 	pt.sign(prevGrpCtx, s.IdentityPriv, s.scheme)
 
-	digest := s.CipherSuite.newDigest()
-	digest.Write(s.ConfirmedTranscriptHash)
 	authData, err := pt.commitAuthData()
 	if err != nil {
 		return nil, err
 	}
-	s.InterimTranscriptHash = digest.Sum(authData)
+
+	digest = s.CipherSuite.newDigest()
+	digest.Write(s.ConfirmedTranscriptHash)
+	digest.Write(authData)
+	s.InterimTranscriptHash = digest.Sum(nil)
+
 	return pt, nil
 }
 
@@ -565,13 +574,15 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: handle own commits with caching")
 	}
 
-	// apply the commit
+	// apply the commit and discard any remaining pending proposals
 	commitData := pt.Content.Commit
 	next := s.clone()
 	err := next.apply(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
+
+	next.PendingProposals = next.PendingProposals[:0]
 
 	// apply the direct path
 	ctx, err := syntax.Marshal(GroupContext{
@@ -589,26 +600,32 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 		return nil, err
 	}
 
-	// Update the transcripts and advance the key schedule
+	// Update the confirmed transcript hash
 	digest := next.CipherSuite.newDigest()
 	digest.Write(next.InterimTranscriptHash)
-	s.ConfirmedTranscriptHash = digest.Sum(pt.commitContent())
+	digest.Write(pt.commitContent())
+	next.ConfirmedTranscriptHash = digest.Sum(nil)
 
-	digest = next.CipherSuite.newDigest()
-	digest.Write(next.ConfirmedTranscriptHash)
+	// Advance the key schedule
+	next.Epoch += 1
+	next.updateEpochSecrets(updateSecret)
+
+	// Verify confirmation MAC
+	if !next.verifyConfirmation(commitData.Confirmation.Data) {
+		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
+	}
+
 	authData, err := pt.commitAuthData()
 	if err != nil {
 		return nil, err
 	}
-	s.InterimTranscriptHash = digest.Sum(authData)
 
-	next.Epoch += 1
-	next.updateEpochSecrets(updateSecret)
+	// Update the interim transcript hash
+	digest = next.CipherSuite.newDigest()
+	digest.Write(next.ConfirmedTranscriptHash)
+	digest.Write(authData)
+	next.InterimTranscriptHash = digest.Sum(nil)
 
-	// verify confirmation MAC
-	if !next.verifyConfirmation(commitData.Confirmation.Data) {
-		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
-	}
 	return next, nil
 }
 
