@@ -29,48 +29,60 @@ type State struct {
 	ConfirmedTranscriptHash []byte
 	InterimTranscriptHash   []byte
 
-	// Shared secret state
-	Keys keyScheduleEpoch
-
 	// Per-participant state
-	Index        leafIndex
-	IdentityPriv SignaturePrivateKey
-	scheme       SignatureScheme
+	Index  leafIndex
+	scheme SignatureScheme
 
 	// Cache of proposals and update secrets
 	// XXX: The map key for UpdateSecrets should actually be ProposalID, but that
 	// struct can't be used as a map key because it's not comparable (because
 	// slices are not comparable).  Instead, we use ProposalID.String()
 	PendingProposals []MLSPlaintext
-	UpdateSecrets    map[string][]byte
+
+	// Secret state
+	Secrets *StateSecrets
 }
 
 func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
 	tree := newRatchetTree(cs)
 	tree.AddLeaf(0, &leafPriv.PublicKey, &cred)
-	secret := make([]byte, cs.newDigest().Size())
-	kse := newKeyScheduleEpoch(cs, 1, secret, []byte{})
+
+	zero := make([]byte, cs.newDigest().Size())
+	keys := newKeyScheduleEpoch(cs, 1, zero, []byte{})
+
+	secrets := &StateSecrets{
+		Keys:          keys,
+		IdentityPriv:  *cred.privateKey,
+		Tree:          *tree.Secrets,
+		UpdateSecrets: map[string][]byte{},
+	}
+
 	s := &State{
 		CipherSuite:             cs,
 		GroupID:                 groupID,
 		Epoch:                   0,
 		Tree:                    *tree,
-		Keys:                    kse,
 		Index:                   0,
-		IdentityPriv:            *cred.privateKey,
 		scheme:                  cred.Scheme(),
-		UpdateSecrets:           map[string][]byte{},
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
+		Secrets:                 secrets,
 	}
 	return s
 }
 
 func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	suite := welcome.CipherSuite
-	s := new(State)
-	s.CipherSuite = suite
-	s.Tree = *newRatchetTree(suite)
+	tree := newRatchetTree(suite)
+	secrets := &StateSecrets{
+		Tree:          *tree.Secrets,
+		UpdateSecrets: map[string][]byte{},
+	}
+	s := &State{
+		CipherSuite: suite,
+		Tree:        *tree,
+		Secrets:     secrets,
+	}
 
 	var kp KeyPackage
 	var clientInitKey ClientInitKey
@@ -114,7 +126,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: no signing key for init key")
 	}
 
-	s.IdentityPriv = *clientInitKey.Credential.privateKey
+	s.Secrets.IdentityPriv = *clientInitKey.Credential.privateKey
 	s.scheme = clientInitKey.Credential.Scheme()
 
 	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encKeyPackage.EncryptedPackage)
@@ -153,7 +165,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	s.Tree = *gi.Tree.clone()
 	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
 	s.InterimTranscriptHash = gi.InterimTranscriptHash
-	s.UpdateSecrets = map[string][]byte{}
 
 	// add self to tree
 	index, res := s.Tree.Find(clientInitKey)
@@ -175,10 +186,10 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: groupCtx marshal failure %v", err)
 	}
 
-	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), kp.EpochSecret, encGrpCtx)
+	s.Secrets.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), kp.EpochSecret, encGrpCtx)
 
 	// confirmation verification
-	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := suite.newHMAC(s.Secrets.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)
 	if !bytes.Equal(confirm, gi.Confirmation) {
@@ -250,7 +261,7 @@ func (s State) update(leafSecret []byte) *MLSPlaintext {
 
 	pt := s.sign(updateProposal)
 	pId := s.proposalId(*pt)
-	s.UpdateSecrets[pId.String()] = leafSecret
+	s.Secrets.UpdateSecrets[pId.String()] = leafSecret
 	return pt
 }
 
@@ -315,12 +326,12 @@ func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		InterimTranscriptHash:   next.InterimTranscriptHash,
 		Confirmation:            pt.Content.Commit.Confirmation.Data,
 	}
-	err = gi.sign(s.Index, &s.IdentityPriv)
+	err = gi.sign(s.Index, &s.Secrets.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("mls.state: groupInfo sign failure %v", err)
 	}
 
-	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi)
+	welcome := newWelcome(s.CipherSuite, next.Secrets.Keys.EpochSecret, gi)
 	pathSecrets := next.Tree.PathSecrets(toNodeIndex(next.Index), leafSecret)
 	for _, cik := range joiners {
 		leaf, ok := next.Tree.Find(cik)
@@ -421,10 +432,10 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 				return nil
 			}
 			// handle self-update commit
-			if len(s.UpdateSecrets[id.String()]) == 0 {
+			if len(s.Secrets.UpdateSecrets[id.String()]) == 0 {
 				return fmt.Errorf("mls.state: self-update with no cached secret")
 			}
-			err = s.applyUpdateSecret(pt.Sender, s.UpdateSecrets[id.String()])
+			err = s.applyUpdateSecret(pt.Sender, s.Secrets.UpdateSecrets[id.String()])
 			if err != nil {
 				return err
 			}
@@ -483,7 +494,7 @@ func (s State) sign(p Proposal) *MLSPlaintext {
 		},
 	}
 
-	pt.sign(s.groupContext(), s.IdentityPriv, s.scheme)
+	pt.sign(s.groupContext(), s.Secrets.IdentityPriv, s.scheme)
 	return pt
 }
 
@@ -497,7 +508,7 @@ func (s *State) updateEpochSecrets(secret []byte) {
 	if err != nil {
 		panic(fmt.Errorf("mls.state: update epoch secret failed %v", err))
 	}
-	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
+	s.Secrets.Keys = s.Secrets.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
 }
 
 func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {
@@ -524,13 +535,13 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 
 	// generate the confirmation based on the new keys
 	commit := pt.Content.Commit
-	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := s.CipherSuite.newHMAC(s.Secrets.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	commit.Confirmation.Data = hmac.Sum(nil)
 
 	// sign the MLSPlainText and update state hashes
 	// as a result of ratcheting.
-	pt.sign(prevGrpCtx, s.IdentityPriv, s.scheme)
+	pt.sign(prevGrpCtx, s.Secrets.IdentityPriv, s.scheme)
 
 	authData, err := pt.commitAuthData()
 	if err != nil {
@@ -633,7 +644,7 @@ func (s *State) handle(pt *MLSPlaintext) (*State, error) {
 
 func (s State) verifyConfirmation(confirmation []byte) bool {
 	// confirmation verification
-	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := s.CipherSuite.newHMAC(s.Secrets.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)
 	if !bytes.Equal(confirm, confirmation) {
@@ -647,9 +658,9 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var keys keyAndNonce
 	switch pt.Content.Type() {
 	case ContentTypeApplication:
-		generation, keys = s.Keys.ApplicationKeys.Next(s.Index)
+		generation, keys = s.Secrets.Keys.ApplicationKeys.Next(s.Index)
 	case ContentTypeProposal, ContentTypeCommit:
-		generation, keys = s.Keys.HandshakeKeys.Next(s.Index)
+		generation, keys = s.Secrets.Keys.HandshakeKeys.Next(s.Index)
 	default:
 		return nil, fmt.Errorf("mls.state: encrypt unknown content type")
 	}
@@ -668,7 +679,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	senderDataNonce := make([]byte, s.CipherSuite.constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
-	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
+	sdAead, _ := s.CipherSuite.newAEAD(s.Secrets.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
 	// content data
@@ -712,7 +723,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 	// handle sender data
 	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.SenderDataNonce)
-	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
+	sdAead, _ := s.CipherSuite.newAEAD(s.Secrets.Keys.SenderDataKey)
 	sd, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData decryption failure %v", err)
@@ -738,17 +749,17 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	contentType := ContentType(ct.ContentType)
 	switch contentType {
 	case ContentTypeApplication:
-		keys, err = s.Keys.ApplicationKeys.Get(sender, generation)
+		keys, err = s.Secrets.Keys.ApplicationKeys.Get(sender, generation)
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: application keys extraction failed %v", err)
 		}
-		s.Keys.ApplicationKeys.Erase(sender, generation)
+		s.Secrets.Keys.ApplicationKeys.Erase(sender, generation)
 	case ContentTypeProposal, ContentTypeCommit:
-		keys, err = s.Keys.HandshakeKeys.Get(sender, generation)
+		keys, err = s.Secrets.Keys.HandshakeKeys.Get(sender, generation)
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: handshake keys extraction failed %v", err)
 		}
-		s.Keys.HandshakeKeys.Erase(sender, generation)
+		s.Secrets.Keys.HandshakeKeys.Erase(sender, generation)
 	default:
 		return nil, fmt.Errorf("mls.state: unsupported content type")
 	}
@@ -799,7 +810,7 @@ func (s *State) protect(data []byte) (*MLSCiphertext, error) {
 		},
 	}
 
-	pt.sign(s.groupContext(), s.IdentityPriv, s.scheme)
+	pt.sign(s.groupContext(), s.Secrets.IdentityPriv, s.scheme)
 	return s.encrypt(pt)
 }
 
@@ -878,12 +889,10 @@ func (s State) clone() *State {
 		Tree:                    *s.Tree.clone(),
 		ConfirmedTranscriptHash: nil,
 		InterimTranscriptHash:   make([]byte, len(s.InterimTranscriptHash)),
-		Keys:                    s.Keys,
 		Index:                   s.Index,
-		IdentityPriv:            s.IdentityPriv,
 		scheme:                  s.scheme,
-		UpdateSecrets:           s.UpdateSecrets,
 		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
+		Secrets:                 s.Secrets.Next(),
 	}
 	copy(clone.GroupID, s.GroupID)
 	copy(clone.InterimTranscriptHash, s.InterimTranscriptHash)
