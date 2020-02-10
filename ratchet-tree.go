@@ -36,9 +36,8 @@ type LeafNodeHashInput struct {
 ///
 type RatchetTreeNode struct {
 	PublicKey      *HPKEPublicKey
-	UnmergedLeaves []leafIndex     `tls:"head=4"`
-	Credential     *Credential     `tls:"optional"`
-	PrivateKey     *HPKEPrivateKey `tls:"omit"`
+	UnmergedLeaves []leafIndex `tls:"head=4"`
+	Credential     *Credential `tls:"optional"`
 }
 
 // Compare the public aspects of two nodes
@@ -61,7 +60,6 @@ func (n RatchetTreeNode) Clone() RatchetTreeNode {
 	cloned := RatchetTreeNode{
 		Credential:     n.Credential,
 		PublicKey:      n.PublicKey,
-		PrivateKey:     n.PrivateKey,
 		UnmergedLeaves: make([]leafIndex, len(n.UnmergedLeaves)),
 	}
 	copy(cloned.UnmergedLeaves, n.UnmergedLeaves)
@@ -92,12 +90,6 @@ func newLeafNode(key *HPKEPublicKey, cred *Credential) OptionalRatchetNode {
 
 func (n OptionalRatchetNode) blank() bool {
 	return n.Node == nil
-}
-
-func (n *OptionalRatchetNode) ensureInit() {
-	if n.Node == nil {
-		n.Node = &RatchetTreeNode{UnmergedLeaves: []leafIndex{}}
-	}
 }
 
 // Compare node values, not hashes
@@ -278,8 +270,11 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 
 	// update the current leaf with the new leafSecret
 	leafNode := toNodeIndex(from)
-	n := t.newNode(leafSecret)
-	t.setPrivate(leafNode, *n.PrivateKey)
+	priv, err := t.nodePrivateKey(leafSecret)
+	if err != nil {
+		panic(err)
+	}
+	t.setPrivate(leafNode, priv)
 
 	// add the leaf node's public state to the list of updates
 	dp.addNode(DirectPathNode{
@@ -297,12 +292,14 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 			continue
 		}
 
-		// update the non-updated child's parent with the newly
-		// computed path-secret
+		// update the parent with the newly computed path-secret
 		pathSecret := secrets[parent]
-		n = t.newNode(pathSecret)
-		t.Nodes[parent].Node = n
-		t.setPrivate(parent, *n.PrivateKey)
+		priv, err := t.nodePrivateKey(pathSecret)
+		if err != nil {
+			panic(err)
+		}
+		t.ensureInit(parent)
+		t.setPrivate(parent, priv)
 
 		//update nodes on the direct path to share it with others
 		pathNode := DirectPathNode{PublicKey: t.getPublic(parent)}
@@ -333,18 +330,22 @@ func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error
 	secrets := t.PathSecrets(start, pathSecret)
 
 	for curr, secret := range secrets {
-		node := t.newNode(secret)
+		priv, err := t.nodePrivateKey(secret)
+		if err != nil {
+			return nil, err
+		}
+
 		if t.Nodes[curr].blank() {
 			return nil, fmt.Errorf("Attempt to implant blank node %v", curr)
 		}
 
 		existing := t.getPublic(curr)
-		if !existing.equals(node.PublicKey) {
+		if !existing.equals(&priv.PublicKey) {
 			return nil, fmt.Errorf("Incorrect secret for existing public key")
 		}
 
-		t.Nodes[curr].ensureInit()
-		t.setPrivate(curr, *node.PrivateKey)
+		t.ensureInit(curr)
+		t.setPrivate(curr, priv)
 	}
 
 	// XXX(rlb): Set root secret?
@@ -397,7 +398,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path *DirectPath) ([
 	}
 
 	for i, node := range dp {
-		t.Nodes[node].ensureInit()
+		t.ensureInit(node)
 		t.setPublic(node, path.Nodes[i].PublicKey)
 	}
 
@@ -572,19 +573,22 @@ func (t *RatchetTree) getPublic(n nodeIndex) HPKEPublicKey {
 
 func (t *RatchetTree) setPrivate(n nodeIndex, priv HPKEPrivateKey) {
 	t.Secrets.PrivateKeys[n] = priv
-	// t.Nodes[n].Node.PrivateKey = &priv
 	t.setPublic(n, priv.PublicKey)
 }
 
 func (t *RatchetTree) getPrivate(n nodeIndex) HPKEPrivateKey {
 	return t.Secrets.PrivateKeys[n]
-	//return *t.Nodes[n].Node.PrivateKey
 }
 
 func (t *RatchetTree) hasPrivate(n nodeIndex) bool {
 	_, ok := t.Secrets.PrivateKeys[n]
 	return ok
-	//return t.Nodes[n].Node != nil && t.Nodes[n].Node.PrivateKey != nil
+}
+
+func (t *RatchetTree) ensureInit(n nodeIndex) {
+	if t.Nodes[n].Node == nil {
+		t.Nodes[n].Node = &RatchetTreeNode{UnmergedLeaves: []leafIndex{}}
+	}
 }
 
 func (t *RatchetTree) rootIndex() nodeIndex {
@@ -600,20 +604,9 @@ func (t *RatchetTree) pathStep(pathSecret []byte) []byte {
 	return ps
 }
 
-// TODO eliminate this function?  revise at least
-func (t *RatchetTree) newNode(pathSecret []byte) *RatchetTreeNode {
+func (t *RatchetTree) nodePrivateKey(pathSecret []byte) (HPKEPrivateKey, error) {
 	ns := t.nodeStep(pathSecret)
-
-	priv, err := t.CipherSuite.hpke().Derive(ns)
-	if err != nil {
-		panic(err)
-	}
-
-	return &RatchetTreeNode{
-		UnmergedLeaves: []leafIndex{},
-		PublicKey:      &priv.PublicKey,
-		PrivateKey:     &priv,
-	}
+	return t.CipherSuite.hpke().Derive(ns)
 }
 
 func (t *RatchetTree) resolve(index nodeIndex) []nodeIndex {
@@ -689,15 +682,10 @@ func (t RatchetTree) clone() *RatchetTree {
 		n = append(n, node.Clone())
 	}
 
-	secrets := t.Secrets
-	if secrets == nil {
-		secrets = NewTreeSecrets()
-	}
-
 	cloned := &RatchetTree{
 		Nodes:       n,
 		CipherSuite: t.CipherSuite,
-		Secrets:     secrets,
+		Secrets:     t.Secrets.Clone(),
 	}
 	return cloned
 }
