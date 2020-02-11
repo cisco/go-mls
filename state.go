@@ -856,11 +856,11 @@ func (s State) clone() *State {
 	// reference copies.
 	clone := &State{
 		CipherSuite:             s.CipherSuite,
-		GroupID:                 s.GroupID,
+		GroupID:                 dup(s.GroupID),
 		Epoch:                   s.Epoch,
 		Tree:                    *s.Tree.clone(),
 		ConfirmedTranscriptHash: nil,
-		InterimTranscriptHash:   make([]byte, len(s.InterimTranscriptHash)),
+		InterimTranscriptHash:   dup(s.InterimTranscriptHash),
 		Keys:                    s.Keys,
 		Index:                   s.Index,
 		IdentityPriv:            s.IdentityPriv,
@@ -868,8 +868,6 @@ func (s State) clone() *State {
 		UpdateSecrets:           s.UpdateSecrets,
 		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
 	}
-	copy(clone.GroupID, s.GroupID)
-	copy(clone.InterimTranscriptHash, s.InterimTranscriptHash)
 	copy(clone.PendingProposals, s.PendingProposals)
 	return clone
 }
