@@ -260,6 +260,37 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 	}
 }
 
+func TestRatchetTreeSecrets(t *testing.T) {
+	suite := supportedSuites[0]
+
+	// Form a tree and split out the secret bits
+	tree := newTestRatchetTree(t, suite, allSecrets, allCreds)
+	secrets := tree.GetSecrets()
+
+	// Marshal the private and public parts
+	marshaledPub, err := syntax.Marshal(tree)
+	assertNotError(t, err, "Error in public marshal")
+
+	marshaledPriv, err := syntax.Marshal(secrets)
+	assertNotError(t, err, "Error in private marshal")
+
+	// Unmarshal the private and public parts
+	tree2 := newRatchetTree(suite)
+	secrets2 := TreeSecrets{}
+
+	_, err = syntax.Unmarshal(marshaledPub, tree2)
+	assertNotError(t, err, "Error in public unmarshal")
+
+	_, err = syntax.Unmarshal(marshaledPriv, &secrets2)
+	assertNotError(t, err, "Error in public unmarshal")
+
+	// Reassemble the tree
+	tree2.SetSecrets(secrets2)
+
+	// Compare public and private contents
+	assertDeepEquals(t, tree, tree2)
+}
+
 func TestRatchetTree_Clone(t *testing.T) {
 	tree := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
 	assertTrue(t, tree.size() == 4, "size mismatch")

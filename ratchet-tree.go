@@ -138,7 +138,7 @@ func (n OptionalRatchetNode) Equals(o OptionalRatchetNode) bool {
 func (n OptionalRatchetNode) Clone() OptionalRatchetNode {
 	cloned := OptionalRatchetNode{
 		Node: nil,
-		Hash: make([]byte, len(n.Hash)),
+		Hash: dup(n.Hash),
 	}
 
 	if !n.blank() {
@@ -146,7 +146,6 @@ func (n OptionalRatchetNode) Clone() OptionalRatchetNode {
 		node = n.Node.Clone()
 		cloned.Node = &node
 	}
-	copy(cloned.Hash, n.Hash)
 	return cloned
 }
 
@@ -291,8 +290,7 @@ func (t *RatchetTree) PathSecrets(start nodeIndex, pathSecret []byte) map[nodeIn
 
 	curr := start
 	next := parent(curr, t.size())
-	secrets[curr] = make([]byte, len(pathSecret))
-	copy(secrets[curr], pathSecret)
+	secrets[curr] = dup(pathSecret)
 
 	for curr != t.rootIndex() {
 		secrets[next] = t.pathStep(secrets[curr])
@@ -681,4 +679,32 @@ func (t RatchetTree) clone() *RatchetTree {
 		CipherSuite: t.CipherSuite,
 	}
 	return cloned
+}
+
+// Isolated getters and setters for secret state
+type TreeSecrets struct {
+	PrivateKeys map[nodeIndex]HPKEPrivateKey `tls:"head=4"`
+}
+
+func (t *RatchetTree) SetSecrets(ts TreeSecrets) {
+	for ix := range ts.PrivateKeys {
+		priv := ts.PrivateKeys[ix]
+		t.Nodes[ix].mergePrivate(&priv)
+	}
+}
+
+func (t RatchetTree) GetSecrets() TreeSecrets {
+	ts := TreeSecrets{
+		PrivateKeys: map[nodeIndex]HPKEPrivateKey{},
+	}
+
+	for i, maybeNode := range t.Nodes {
+		if !maybeNode.hasPrivate() {
+			continue
+		}
+
+		ts.PrivateKeys[nodeIndex(i)] = *maybeNode.Node.PrivateKey
+	}
+
+	return ts
 }

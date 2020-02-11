@@ -2,6 +2,8 @@ package mls
 
 import (
 	"fmt"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 type keyAndNonce struct {
@@ -9,14 +11,11 @@ type keyAndNonce struct {
 	Nonce []byte `tls:"head=1"`
 }
 
-func (k keyAndNonce) clone(suite CipherSuite) keyAndNonce {
-	cloned := keyAndNonce{
-		Key:   make([]byte, suite.constants().KeySize),
-		Nonce: make([]byte, suite.constants().NonceSize),
+func (k keyAndNonce) clone() keyAndNonce {
+	return keyAndNonce{
+		Key:   dup(k.Key),
+		Nonce: dup(k.Nonce),
 	}
-	copy(cloned.Key, k.Key)
-	copy(cloned.Nonce, k.Nonce)
-	return cloned
 }
 
 func zeroize(data []byte) {
@@ -32,12 +31,12 @@ func zeroize(data []byte) {
 type hashRatchet struct {
 	Suite          CipherSuite
 	Node           nodeIndex
-	NextSecret     []byte
+	NextSecret     []byte `tls:"head=1"`
 	NextGeneration uint32
-	Cache          map[uint32]keyAndNonce
-	KeySize        int
-	NonceSize      int
-	SecretSize     int
+	Cache          map[uint32]keyAndNonce `tls:"head=4"`
+	KeySize        uint32
+	NonceSize      uint32
+	SecretSize     uint32
 }
 
 func newHashRatchet(suite CipherSuite, node nodeIndex, baseSecret []byte) *hashRatchet {
@@ -47,16 +46,16 @@ func newHashRatchet(suite CipherSuite, node nodeIndex, baseSecret []byte) *hashR
 		NextSecret:     baseSecret,
 		NextGeneration: 0,
 		Cache:          map[uint32]keyAndNonce{},
-		KeySize:        suite.constants().KeySize,
-		NonceSize:      suite.constants().NonceSize,
-		SecretSize:     suite.constants().SecretSize,
+		KeySize:        uint32(suite.constants().KeySize),
+		NonceSize:      uint32(suite.constants().NonceSize),
+		SecretSize:     uint32(suite.constants().SecretSize),
 	}
 }
 
 func (hr *hashRatchet) Next() (uint32, keyAndNonce) {
-	key := hr.Suite.deriveAppSecret(hr.NextSecret, "app-key", hr.Node, hr.NextGeneration, hr.KeySize)
-	nonce := hr.Suite.deriveAppSecret(hr.NextSecret, "app-nonce", hr.Node, hr.NextGeneration, hr.NonceSize)
-	secret := hr.Suite.deriveAppSecret(hr.NextSecret, "app-secret", hr.Node, hr.NextGeneration, hr.SecretSize)
+	key := hr.Suite.deriveAppSecret(hr.NextSecret, "app-key", hr.Node, hr.NextGeneration, int(hr.KeySize))
+	nonce := hr.Suite.deriveAppSecret(hr.NextSecret, "app-nonce", hr.Node, hr.NextGeneration, int(hr.NonceSize))
+	secret := hr.Suite.deriveAppSecret(hr.NextSecret, "app-secret", hr.Node, hr.NextGeneration, int(hr.SecretSize))
 
 	generation := hr.NextGeneration
 
@@ -64,8 +63,9 @@ func (hr *hashRatchet) Next() (uint32, keyAndNonce) {
 	zeroize(hr.NextSecret)
 	hr.NextSecret = secret
 
-	hr.Cache[generation] = keyAndNonce{key, nonce}
-	return generation, hr.Cache[generation].clone(hr.Suite)
+	kn := keyAndNonce{key, nonce}
+	hr.Cache[generation] = kn
+	return generation, kn.clone()
 }
 
 func (hr *hashRatchet) Get(generation uint32) (keyAndNonce, error) {
@@ -106,7 +106,7 @@ type baseKeySource interface {
 
 type noFSBaseKeySource struct {
 	CipherSuite CipherSuite
-	RootSecret  []byte
+	RootSecret  []byte `tls:"head=1"`
 }
 
 func newNoFSBaseKeySource(suite CipherSuite, rootSecret []byte) *noFSBaseKeySource {
@@ -122,21 +122,35 @@ func (nfbks *noFSBaseKeySource) Get(sender leafIndex) []byte {
 	return nfbks.CipherSuite.deriveAppSecret(nfbks.RootSecret, "hs-secret", toNodeIndex(sender), 0, secretSize)
 }
 
+type Bytes1 []byte
+
+func (b Bytes1) MarshalTLS() ([]byte, error) {
+	return syntax.Marshal(struct {
+		Data []byte `tls:"head=1"`
+	}{b})
+}
+
+func (b Bytes1) UnmarshalTLS(data []byte) (int, error) {
+	return syntax.Unmarshal(data, &struct {
+		Data []byte `tls:"head=1"`
+	}{b})
+}
+
 type treeBaseKeySource struct {
 	CipherSuite CipherSuite
-	SecretSize  int
+	SecretSize  uint32
 	Root        nodeIndex
 	Size        leafCount
-	Secrets     map[nodeIndex][]byte
+	Secrets     map[nodeIndex]Bytes1 `tls:"head=4"`
 }
 
 func newTreeBaseKeySource(suite CipherSuite, size leafCount, rootSecret []byte) *treeBaseKeySource {
 	tbks := &treeBaseKeySource{
 		CipherSuite: suite,
-		SecretSize:  suite.constants().SecretSize,
+		SecretSize:  uint32(suite.constants().SecretSize),
 		Root:        root(size),
 		Size:        size,
-		Secrets:     map[nodeIndex][]byte{},
+		Secrets:     map[nodeIndex]Bytes1{},
 	}
 
 	tbks.Secrets[tbks.Root] = rootSecret
@@ -172,18 +186,16 @@ func (tbks *treeBaseKeySource) Get(sender leafIndex) []byte {
 		R := right(node, tbks.Size)
 
 		secret := tbks.Secrets[node]
-		tbks.Secrets[L] = tbks.CipherSuite.deriveAppSecret(secret, "tree", L, 0, tbks.SecretSize)
-		tbks.Secrets[R] = tbks.CipherSuite.deriveAppSecret(secret, "tree", R, 0, tbks.SecretSize)
+		tbks.Secrets[L] = tbks.CipherSuite.deriveAppSecret(secret, "tree", L, 0, int(tbks.SecretSize))
+		tbks.Secrets[R] = tbks.CipherSuite.deriveAppSecret(secret, "tree", R, 0, int(tbks.SecretSize))
 		zeroize(tbks.Secrets[node])
 		delete(tbks.Secrets, node)
 	}
 
 	// Copy and return the leaf
-	out := make([]byte, tbks.SecretSize)
-	copy(out, tbks.Secrets[senderNode])
+	out := dup(tbks.Secrets[senderNode])
 	zeroize(tbks.Secrets[senderNode])
 	delete(tbks.Secrets, senderNode)
-
 	return out
 }
 
@@ -207,10 +219,6 @@ func (tbks *treeBaseKeySource) dump() {
 type groupKeySource struct {
 	Base     baseKeySource
 	Ratchets map[leafIndex]*hashRatchet
-}
-
-func newGroupKeySource(base baseKeySource) *groupKeySource {
-	return &groupKeySource{base, map[leafIndex]*hashRatchet{}}
 }
 
 func (gks groupKeySource) ratchet(sender leafIndex) *hashRatchet {
@@ -260,15 +268,22 @@ func groupInfoKeyAndNonce(suite CipherSuite, epochSecret []byte) keyAndNonce {
 
 type keyScheduleEpoch struct {
 	Suite             CipherSuite
-	EpochSecret       []byte
-	SenderDataSecret  []byte
-	SenderDataKey     []byte
-	HandshakeSecret   []byte
-	HandshakeKeys     *groupKeySource
-	ApplicationSecret []byte
-	ApplicationKeys   *groupKeySource
-	ConfirmationKey   []byte
-	InitSecret        []byte
+	EpochSecret       []byte `tls:"head=1"`
+	SenderDataSecret  []byte `tls:"head=1"`
+	SenderDataKey     []byte `tls:"head=1"`
+	HandshakeSecret   []byte `tls:"head=1"`
+	ApplicationSecret []byte `tls:"head=1"`
+	ConfirmationKey   []byte `tls:"head=1"`
+	InitSecret        []byte `tls:"head=1"`
+
+	HandshakeBaseKeys   *noFSBaseKeySource
+	ApplicationBaseKeys *treeBaseKeySource
+
+	HandshakeRatchets   map[leafIndex]*hashRatchet `tls:"head=4"`
+	ApplicationRatchets map[leafIndex]*hashRatchet `tls:"head=4"`
+
+	ApplicationKeys *groupKeySource `tls:"omit"`
+	HandshakeKeys   *groupKeySource `tls:"omit"`
 }
 
 func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context []byte) keyScheduleEpoch {
@@ -282,18 +297,31 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 	handshakeBaseKeys := newNoFSBaseKeySource(suite, handshakeSecret)
 	applicationBaseKeys := newTreeBaseKeySource(suite, size, applicationSecret)
 
-	return keyScheduleEpoch{
+	kse := keyScheduleEpoch{
 		Suite:             suite,
 		EpochSecret:       epochSecret,
 		SenderDataSecret:  senderDataSecret,
 		SenderDataKey:     senderDataKey,
 		HandshakeSecret:   handshakeSecret,
-		HandshakeKeys:     newGroupKeySource(handshakeBaseKeys),
 		ApplicationSecret: applicationSecret,
-		ApplicationKeys:   newGroupKeySource(applicationBaseKeys),
 		ConfirmationKey:   confirmationKey,
 		InitSecret:        initSecret,
+
+		HandshakeBaseKeys:   handshakeBaseKeys,
+		ApplicationBaseKeys: applicationBaseKeys,
+
+		HandshakeRatchets:   map[leafIndex]*hashRatchet{},
+		ApplicationRatchets: map[leafIndex]*hashRatchet{},
 	}
+
+	kse.enableKeySources()
+	return kse
+}
+
+// Wire up the key sources as logic on top of data owned by the epoch
+func (kse *keyScheduleEpoch) enableKeySources() {
+	kse.HandshakeKeys = &groupKeySource{kse.HandshakeBaseKeys, kse.HandshakeRatchets}
+	kse.ApplicationKeys = &groupKeySource{kse.ApplicationBaseKeys, kse.ApplicationRatchets}
 }
 
 func (kse *keyScheduleEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {

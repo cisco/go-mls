@@ -39,45 +39,81 @@ func TestKeySchedule(t *testing.T) {
 
 	targetGeneration := uint32(3)
 
-	checkEpoch := func(epoch keyScheduleEpoch, size leafCount) {
-		ok := (epoch.Suite == suite) &&
-			(len(epoch.EpochSecret) == secretSize) &&
-			(len(epoch.SenderDataSecret) == secretSize) &&
-			(len(epoch.SenderDataKey) == keySize) &&
-			(len(epoch.HandshakeSecret) == secretSize) &&
-			(epoch.HandshakeKeys != nil) &&
-			(len(epoch.ApplicationSecret) == secretSize) &&
-			(epoch.ApplicationKeys != nil) &&
-			(len(epoch.ConfirmationKey) == secretSize) &&
-			(len(epoch.InitSecret) == secretSize)
-		if !ok {
-			t.Fatalf("Malformed epoch ")
-		}
+	checkEpoch := func(epoch *keyScheduleEpoch, size leafCount) {
+		assertEquals(t, epoch.Suite, suite)
+		assertEquals(t, len(epoch.EpochSecret), secretSize)
+		assertEquals(t, len(epoch.SenderDataSecret), secretSize)
+		assertEquals(t, len(epoch.SenderDataKey), keySize)
+		assertEquals(t, len(epoch.HandshakeSecret), secretSize)
+		assertEquals(t, len(epoch.ApplicationSecret), secretSize)
+		assertEquals(t, len(epoch.ConfirmationKey), secretSize)
+		assertEquals(t, len(epoch.InitSecret), secretSize)
+		assertNotNil(t, epoch.HandshakeKeys, "Missing handshake keys")
+		assertNotNil(t, epoch.HandshakeKeys, "Missing application keys")
 
 		for i := leafIndex(0); i < leafIndex(size); i += 1 {
+			// Test successful generation
 			hs, err := epoch.HandshakeKeys.Get(i, targetGeneration)
-			if len(hs.Key) != keySize || len(hs.Nonce) != nonceSize {
-				if err != nil {
-					t.Fatalf("Error in handshake key generation: %v", err)
-				}
-				t.Fatalf("Malformed handshake key")
-			}
+			assertNotError(t, err, "Error in handshake key generation")
+			assertEquals(t, len(hs.Key), keySize)
+			assertEquals(t, len(hs.Nonce), nonceSize)
 
 			app, err := epoch.ApplicationKeys.Get(i, targetGeneration)
-			if err != nil {
-				t.Fatalf("Error in application key generation: %v", err)
-			}
-			if len(app.Key) != keySize || len(app.Nonce) != nonceSize {
-				t.Fatalf("Malformed application key")
-			}
+			assertNotError(t, err, "Error in handshake key generation")
+			assertEquals(t, len(app.Key), keySize)
+			assertEquals(t, len(app.Nonce), nonceSize)
+
+			epoch.HandshakeKeys.Erase(i, targetGeneration)
+			epoch.ApplicationKeys.Erase(i, targetGeneration)
+
+			// Test forward secrecy
+			_, err = epoch.HandshakeKeys.Get(i, targetGeneration)
+			assertError(t, err, "Reused handshake key")
+
+			_, err = epoch.ApplicationKeys.Get(i, targetGeneration)
+			assertError(t, err, "Reused handshake key")
 		}
 	}
 
 	epoch1 := newKeyScheduleEpoch(suite, size1, epochSecret1, context1)
-	checkEpoch(epoch1, size1)
+	checkEpoch(&epoch1, size1)
 
 	epoch2 := epoch1.Next(size2, commitSecret2, context2)
-	checkEpoch(epoch2, size2)
+	checkEpoch(&epoch2, size2)
+
+	// Check that marshal/unmarshal works
+	epoch2m, err := syntax.Marshal(epoch2)
+	assertNotError(t, err, "Error in key schedule marshal")
+
+	var epoch2u keyScheduleEpoch
+	_, err = syntax.Unmarshal(epoch2m, &epoch2u)
+	assertNotError(t, err, "Error in key schedule unmarshal")
+
+	epoch2u.enableKeySources()
+
+	// Verify that the contents match (not the group key generators)
+	assertDeepEquals(t, epoch2.Suite, epoch2u.Suite)
+	assertDeepEquals(t, epoch2.EpochSecret, epoch2u.EpochSecret)
+	assertDeepEquals(t, epoch2.SenderDataSecret, epoch2u.SenderDataSecret)
+	assertDeepEquals(t, epoch2.SenderDataKey, epoch2u.SenderDataKey)
+	assertDeepEquals(t, epoch2.HandshakeSecret, epoch2u.HandshakeSecret)
+	assertDeepEquals(t, epoch2.ApplicationSecret, epoch2u.ApplicationSecret)
+	assertDeepEquals(t, epoch2.ConfirmationKey, epoch2u.ConfirmationKey)
+	assertDeepEquals(t, epoch2.InitSecret, epoch2u.InitSecret)
+	assertDeepEquals(t, epoch2.HandshakeBaseKeys, epoch2u.HandshakeBaseKeys)
+	assertDeepEquals(t, epoch2.ApplicationBaseKeys, epoch2u.ApplicationBaseKeys)
+	assertDeepEquals(t, epoch2.HandshakeRatchets, epoch2u.HandshakeRatchets)
+	assertDeepEquals(t, epoch2.ApplicationRatchets, epoch2u.ApplicationRatchets)
+
+	// Verify that we can't get a key for the target generation (because it's
+	// already consumed)
+	_, err = epoch2u.HandshakeKeys.Get(0, targetGeneration)
+	assertError(t, err, "Replayed an already-used key")
+
+	// Verify that we can get one for the next epoch, and it's the same as the
+	// original key schedule would have produced
+	_, err = epoch2u.HandshakeKeys.Get(0, targetGeneration+1)
+	assertNotError(t, err, "Failed to get the next key")
 }
 
 ///
@@ -147,8 +183,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 			epoch = epoch.Next(leafCount(nMembers), updateSecret, ctx)
 			var handshakeKeys []keyAndNonce
 			var applicationKeys []keyAndNonce
-			appSecret := make([]byte, len(epoch.ApplicationSecret))
-			copy(appSecret, epoch.ApplicationSecret)
+			appSecret := dup(epoch.ApplicationSecret)
 			for j := 0; j < nMembers; j++ {
 				hs, _ := epoch.HandshakeKeys.Get(leafIndex(j), tv.TargetGeneration)
 				handshakeKeys = append(handshakeKeys, hs)
@@ -157,7 +192,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 			}
 			kse := KsEpoch{
 				NumMembers:       leafCount(nMembers),
-				UpdateSecret:     make([]byte, len(updateSecret)),
+				UpdateSecret:     dup(updateSecret),
 				EpochSecret:      epoch.EpochSecret,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
@@ -168,7 +203,6 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 				ConfirmationKey:  epoch.ConfirmationKey,
 				InitSecret:       epoch.InitSecret,
 			}
-			copy(kse.UpdateSecret, updateSecret)
 
 			tc.Epochs = append(tc.Epochs, kse)
 			for idx, val := range updateSecret {

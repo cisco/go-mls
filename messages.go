@@ -630,3 +630,29 @@ func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
 	}
 	w.EncryptedKeyPackages = append(w.EncryptedKeyPackages, ekp)
 }
+
+func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, error) {
+	gikn := groupInfoKeyAndNonce(suite, epochSecret)
+
+	aead, err := suite.newAEAD(gikn.Key)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: error creating AEAD: %v", err)
+	}
+
+	data, err := aead.Open(nil, gikn.Nonce, w.EncryptedGroupInfo, []byte{})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: unable to decrypt groupInfo: %v", err)
+	}
+
+	gi := new(GroupInfo)
+	_, err = syntax.Unmarshal(data, gi)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
+	}
+
+	if err = gi.verify(); err != nil {
+		return nil, fmt.Errorf("mls.state: invalid groupInfo")
+	}
+
+	return gi, nil
+}

@@ -3,6 +3,8 @@ package mls
 import (
 	"fmt"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 var (
@@ -114,6 +116,59 @@ func TestStateTwoPerson(t *testing.T) {
 	ct, err := first1.protect(testMessage)
 	assertNotError(t, err, "protect error")
 	pt, err := second1.unprotect(ct)
+	assertNotError(t, err, "unprotect failure")
+	assertByteEquals(t, pt, testMessage)
+}
+
+func TestStateMarshalUnmarshal(t *testing.T) {
+	// Create Alice and have her add Bob to a group
+	stateTest := setup(t)
+	alice0 := newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
+
+	add := alice0.add(stateTest.clientInitKeys[1])
+	_, err := alice0.handle(add)
+	assertNotError(t, err, "Initial add failed")
+
+	secret, _ := getRandomBytes(32)
+	_, welcome1, alice1, err := alice0.commit(secret)
+	assertNotError(t, err, "Initial commit failed")
+
+	// Marshal Alice's secret state
+	alice1priv, err := syntax.Marshal(alice1.GetSecrets())
+	assertNotError(t, err, "Error marshaling Alice private values")
+
+	// Initialize Bob generate an Update+Commit
+	bob1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
+	assertNotError(t, err, "state_test: state creation using Welcome failed")
+	assertTrue(t, alice1.Equals(*bob1), "State mismatch")
+
+	update := bob1.update(secret)
+	_, err = bob1.handle(update)
+	assertNotError(t, err, "Update failed at Bob")
+
+	commit, _, bob2, err := bob1.commit(secret)
+	assertNotError(t, err, "Update commit generation failed")
+
+	// Recreate Alice from Welcome and secrets
+	alice1aPriv := StateSecrets{}
+	_, err = syntax.Unmarshal(alice1priv, &alice1aPriv)
+	assertNotError(t, err, "Error unmarshaling Alice private values")
+
+	alice1a, err := newStateFromWelcomeAndSecrets(*welcome1, alice1aPriv)
+	assertNotError(t, err, "Error importing group info from Welcome")
+
+	// Verify that Alice can process Bob's Update+Commit
+	_, err = alice1a.handle(update)
+	assertNotError(t, err, "Update failed at Alice")
+
+	alice2, err := alice1a.handle(commit)
+	assertNotError(t, err, "Update commit handling failed")
+
+	// Verify that Alice and Bob can exchange protected messages
+	/// Verify that they can exchange protected messages
+	ct, err := alice2.protect(testMessage)
+	assertNotError(t, err, "protect error")
+	pt, err := bob2.unprotect(ct)
 	assertNotError(t, err, "unprotect failure")
 	assertByteEquals(t, pt, testMessage)
 }
