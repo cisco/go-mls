@@ -130,18 +130,15 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Initial add failed")
 
 	secret, _ := getRandomBytes(32)
-	_, welcome, alice1, err := alice0.commit(secret)
+	_, welcome1, alice1, err := alice0.commit(secret)
 	assertNotError(t, err, "Initial commit failed")
 
-	// TODO Marshal Alice
-	alice1pub, err := syntax.Marshal(alice1)
-	assertNotError(t, err, "Error marshaling Alice public values")
-
+	// Marshal Alice's secret state
 	alice1priv, err := syntax.Marshal(alice1.GetSecrets())
 	assertNotError(t, err, "Error marshaling Alice private values")
 
 	// Initialize Bob generate an Update+Commit
-	bob1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
+	bob1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
 	assertNotError(t, err, "state_test: state creation using Welcome failed")
 	assertTrue(t, alice1.Equals(*bob1), "State mismatch")
 
@@ -152,16 +149,13 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	commit, _, bob2, err := bob1.commit(secret)
 	assertNotError(t, err, "Update commit generation failed")
 
-	// TODO Recreate Alice
-	alice1a := new(State)
-	_, err = syntax.Unmarshal(alice1pub, alice1a)
-	assertNotError(t, err, "Error unmarshaling Alice public values")
-
+	// Recreate Alice from Welcome and secrets
 	alice1aPriv := StateSecrets{}
 	_, err = syntax.Unmarshal(alice1priv, &alice1aPriv)
 	assertNotError(t, err, "Error unmarshaling Alice private values")
 
-	alice1a.SetSecrets(alice1aPriv)
+	alice1a, err := newStateFromWelcomeAndSecrets(*welcome1, alice1aPriv)
+	assertNotError(t, err, "Error importing group info from Welcome")
 
 	// Verify that Alice can process Bob's Update+Commit
 	_, err = alice1a.handle(update)

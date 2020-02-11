@@ -72,12 +72,26 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 	return s
 }
 
-func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
-	suite := welcome.CipherSuite
-	s := new(State)
-	s.CipherSuite = suite
-	s.Tree = *newRatchetTree(suite)
+func newStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, leafIndex, []byte, error) {
+	gi, err := welcome.Decrypt(suite, epochSecret)
+	if err != nil {
+		return nil, 0, nil, err
+	}
 
+	s := &State{
+		Epoch:                   gi.Epoch,
+		GroupID:                 gi.GroupID,
+		Tree:                    *gi.Tree.clone(),
+		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
+		InterimTranscriptHash:   gi.InterimTranscriptHash,
+		PendingProposals:        []MLSPlaintext{},
+		UpdateSecrets:           map[ProposalRef]Bytes1{},
+	}
+
+	return s, gi.SignerIndex, gi.Confirmation, nil
+}
+
+func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	var kp KeyPackage
 	var clientInitKey ClientInitKey
 	var encKeyPackage EncryptedKeyPackage
@@ -120,9 +134,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: no signing key for init key")
 	}
 
-	s.IdentityPriv = *clientInitKey.Credential.privateKey
-	s.Scheme = clientInitKey.Credential.Scheme()
-
 	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encKeyPackage.EncryptedPackage)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
@@ -133,33 +144,14 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: keyPkg unmarshal failure %v", err)
 	}
 
-	// decrypt the groupInfo
-	gikn := groupInfoKeyAndNonce(suite, kp.EpochSecret)
-
-	aead, err := suite.newAEAD(gikn.Key)
+	// Construct a new state based on the GroupInfo
+	s, signerIndex, confirmation, err := newStateFromWelcome(suite, kp.EpochSecret, welcome)
 	if err != nil {
-		return nil, fmt.Errorf("mls.state: error creating AEAD: %v", err)
-	}
-	data, err := aead.Open(nil, gikn.Nonce, welcome.EncryptedGroupInfo, []byte{})
-	if err != nil {
-		return nil, fmt.Errorf("mls.state: unable to decrypt groupInfo: %v", err)
-	}
-	var gi GroupInfo
-	_, err = syntax.Unmarshal(data, &gi)
-	if err != nil {
-		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
-	}
-	if err = gi.verify(); err != nil {
-		return nil, fmt.Errorf("mls.state: invalid groupInfo")
+		return nil, err
 	}
 
-	// parse group info context
-	s.Epoch = gi.Epoch
-	s.GroupID = gi.GroupID
-	s.Tree = *gi.Tree.clone()
-	s.ConfirmedTranscriptHash = gi.ConfirmedTranscriptHash
-	s.InterimTranscriptHash = gi.InterimTranscriptHash
-	s.UpdateSecrets = map[ProposalRef]Bytes1{}
+	s.IdentityPriv = *clientInitKey.Credential.privateKey
+	s.Scheme = clientInitKey.Credential.Scheme()
 
 	// add self to tree
 	index, res := s.Tree.Find(clientInitKey)
@@ -173,7 +165,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	}
 
 	// implant the provided path secrets in the tree
-	commonAncestor := ancestor(s.Index, gi.SignerIndex)
+	commonAncestor := ancestor(s.Index, signerIndex)
 	_, err = s.Tree.Implant(commonAncestor, kp.PathSecret)
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
@@ -186,8 +178,8 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
-	confirm := hmac.Sum(nil)
-	if !bytes.Equal(confirm, gi.Confirmation) {
+	localConfirmation := hmac.Sum(nil)
+	if !bytes.Equal(localConfirmation, confirmation) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 
@@ -897,6 +889,8 @@ func (s State) Equals(o State) bool {
 // that the StateSecrets object is temporary, as a carrier for marshaling /
 // unmarshaling.
 type StateSecrets struct {
+	CipherSuite CipherSuite
+
 	// Per-participant non-secret state
 	Index            leafIndex
 	IdentityPriv     SignaturePrivateKey
@@ -909,7 +903,28 @@ type StateSecrets struct {
 	Tree          TreeSecrets
 }
 
+func newStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, error) {
+	// Import the base data using some information from the secrets
+	suite := ss.CipherSuite
+	epochSecret := ss.Keys.EpochSecret
+	s, _, confirmation, err := newStateFromWelcome(suite, epochSecret, welcome)
+	if err != nil {
+		return nil, err
+	}
+
+	// Import the secrets
+	s.SetSecrets(ss)
+
+	// Verify the confirmation
+	if !s.verifyConfirmation(confirmation) {
+		return nil, fmt.Errorf("mls.state: Confirmation failed to verify")
+	}
+
+	return s, nil
+}
+
 func (s *State) SetSecrets(ss StateSecrets) {
+	s.CipherSuite = ss.CipherSuite
 	s.Index = ss.Index
 	s.IdentityPriv = ss.IdentityPriv
 	s.Scheme = ss.Scheme
@@ -921,6 +936,7 @@ func (s *State) SetSecrets(ss StateSecrets) {
 
 func (s State) GetSecrets() StateSecrets {
 	return StateSecrets{
+		CipherSuite:      s.CipherSuite,
 		Index:            s.Index,
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
