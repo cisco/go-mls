@@ -130,7 +130,7 @@ func (b Bytes1) MarshalTLS() ([]byte, error) {
 	}{b})
 }
 
-func (b Bytes1) UnarshalTLS(data []byte) (int, error) {
+func (b Bytes1) UnmarshalTLS(data []byte) (int, error) {
 	return syntax.Unmarshal(data, &struct {
 		Data []byte `tls:"head=1"`
 	}{b})
