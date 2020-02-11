@@ -682,25 +682,20 @@ func (t RatchetTree) clone() *RatchetTree {
 }
 
 // Isolated getters and setters for secret state
-type TreeSecretsEntry struct {
-	Index      nodeIndex
-	PrivateKey HPKEPrivateKey
-}
-
 type TreeSecrets struct {
-	Entries []TreeSecretsEntry `tls:"head=4"`
+	PrivateKeys map[nodeIndex]HPKEPrivateKey `tls:"head=4"`
 }
 
 func (t *RatchetTree) SetSecrets(ts TreeSecrets) {
-	for i, entry := range ts.Entries {
-		priv := &ts.Entries[i].PrivateKey
-		t.Nodes[entry.Index].mergePrivate(priv)
+	for ix := range ts.PrivateKeys {
+		priv := ts.PrivateKeys[ix]
+		t.Nodes[ix].mergePrivate(&priv)
 	}
 }
 
 func (t RatchetTree) GetSecrets() TreeSecrets {
 	ts := TreeSecrets{
-		Entries: []TreeSecretsEntry{},
+		PrivateKeys: map[nodeIndex]HPKEPrivateKey{},
 	}
 
 	for i, maybeNode := range t.Nodes {
@@ -708,8 +703,7 @@ func (t RatchetTree) GetSecrets() TreeSecrets {
 			continue
 		}
 
-		entry := TreeSecretsEntry{nodeIndex(i), *maybeNode.Node.PrivateKey}
-		ts.Entries = append(ts.Entries, entry)
+		ts.PrivateKeys[nodeIndex(i)] = *maybeNode.Node.PrivateKey
 	}
 
 	return ts
