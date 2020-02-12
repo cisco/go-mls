@@ -40,6 +40,10 @@ type ClientInitKey struct {
 	privateKey *HPKEPrivateKey `tls:"omit"`
 }
 
+type ClientInitKeySecrets struct {
+	PrivateKey []byte `tls:"head=2"`
+}
+
 func (cik ClientInitKey) toBeSigned() ([]byte, error) {
 	enc, err := syntax.Marshal(struct {
 		Version     SupportedVersion
@@ -86,7 +90,13 @@ func (cik ClientInitKey) verify() (bool, error) {
 	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data), nil
 }
 
-func newClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
+func (cik ClientInitKey) Secrets() ClientInitKeySecrets {
+	return ClientInitKeySecrets{
+		PrivateKey: cik.privateKey.Data,
+	}
+}
+
+func NewClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
 	priv, err := suite.hpke().Generate()
 	if err != nil {
 		return nil, fmt.Errorf("mls.cik: private key generation failure %v", err)
