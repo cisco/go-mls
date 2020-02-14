@@ -34,8 +34,8 @@ func setup(t *testing.T) StateTest {
 		sigPriv, _ := scheme.Generate()
 		cred := NewBasicCredential(userId, scheme, &sigPriv)
 		//cik gen
-		cik, err := newClientInitKey(suite, cred)
-		assertNotError(t, err, "newClientInitKey error")
+		cik, err := NewClientInitKey(suite, cred)
+		assertNotError(t, err, "NewClientInitKey error")
 		// save all the materials
 		stateTest.identityPrivs = append(stateTest.identityPrivs, sigPriv)
 		stateTest.credentials = append(stateTest.credentials, *cred)
@@ -230,8 +230,8 @@ func TestStateCipherNegotiation(t *testing.T) {
 	aliceSuites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
 	var aliceCiks []ClientInitKey
 	for _, s := range aliceSuites {
-		cik, err := newClientInitKey(s, &aliceCred)
-		assertNotError(t, err, "newClientInitKey error")
+		cik, err := NewClientInitKey(s, &aliceCred)
+		assertNotError(t, err, "NewClientInitKey error")
 		aliceCiks = append(aliceCiks, *cik)
 	}
 
@@ -246,8 +246,8 @@ func TestStateCipherNegotiation(t *testing.T) {
 	bobSuites := []CipherSuite{P256_SHA256_AES128GCM, P521_SHA512_AES256GCM}
 	var bobCiks []ClientInitKey
 	for _, s := range bobSuites {
-		cik, err := newClientInitKey(s, &bobCred)
-		assertNotError(t, err, "newClientInitKey error")
+		cik, err := NewClientInitKey(s, &bobCred)
+		assertNotError(t, err, "NewClientInitKey error")
 		bobCiks = append(bobCiks, *cik)
 	}
 
