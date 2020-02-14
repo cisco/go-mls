@@ -125,6 +125,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	if clientInitKey.CipherSuite != welcome.CipherSuite {
 		return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
 	}
+	suite := welcome.CipherSuite
 
 	if clientInitKey.privateKey == nil {
 		return nil, fmt.Errorf("mls.state: no private key for init key")
