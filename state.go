@@ -96,7 +96,6 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	var clientInitKey ClientInitKey
 	var encKeyPackage EncryptedKeyPackage
 	var found = false
-	suite := welcome.CipherSuite
 	// extract the keyPackage for init secret
 	for idx, cik := range ciks {
 		data, err := syntax.Marshal(cik)
