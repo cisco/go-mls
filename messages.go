@@ -41,11 +41,11 @@ type ClientInitKey struct {
 }
 
 func (cik ClientInitKey) GetPrivateKey() (HPKEPrivateKey, bool) {
-	if cik.HPKEPrivateKey == nil {
+	if cik.privateKey == nil {
 		return HPKEPrivateKey{}, false
 	}
 
-	return *cik.HPKEPrivateKey
+	return *cik.privateKey, true
 }
 
 func (cik *ClientInitKey) SetPrivateKey(priv HPKEPrivateKey) {
