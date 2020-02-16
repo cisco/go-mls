@@ -79,6 +79,7 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	}
 
 	s := &State{
+		CipherSuite:             suite,
 		Epoch:                   gi.Epoch,
 		GroupID:                 gi.GroupID,
 		Tree:                    *gi.Tree.clone(),
