@@ -51,7 +51,7 @@ type State struct {
 	Keys          keyScheduleEpoch       `tls:"omit"`
 }
 
-func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
+func NewEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
 	tree := newRatchetTree(cs)
 	tree.AddLeaf(0, &leafPriv.PublicKey, &cred)
 	secret := make([]byte, cs.newDigest().Size())
@@ -72,7 +72,7 @@ func newEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred
 	return s
 }
 
-func newStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, leafIndex, []byte, error) {
+func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, leafIndex, []byte, error) {
 	gi, err := welcome.Decrypt(suite, epochSecret)
 	if err != nil {
 		return nil, 0, nil, err
@@ -91,7 +91,7 @@ func newStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	return s, gi.SignerIndex, gi.Confirmation, nil
 }
 
-func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
+func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	var kp KeyPackage
 	var clientInitKey ClientInitKey
 	var encKeyPackage EncryptedKeyPackage
@@ -145,7 +145,7 @@ func newJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	}
 
 	// Construct a new state based on the GroupInfo
-	s, signerIndex, confirmation, err := newStateFromWelcome(suite, kp.EpochSecret, welcome)
+	s, signerIndex, confirmation, err := NewStateFromWelcome(suite, kp.EpochSecret, welcome)
 	if err != nil {
 		return nil, err
 	}
@@ -209,15 +209,15 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 	}
 
 	// init our state and add the negotiated peer's cik
-	s := newEmptyState(groupID, mySelectedCik.CipherSuite, *mySelectedCik.privateKey, mySelectedCik.Credential)
-	add := s.add(otherSelectedCik)
+	s := NewEmptyState(groupID, mySelectedCik.CipherSuite, *mySelectedCik.privateKey, mySelectedCik.Credential)
+	add := s.Add(otherSelectedCik)
 	// update tree state
-	_, err := s.handle(add)
+	_, err := s.Handle(add)
 	if err != nil {
 		return nil, nil, err
 	}
 	// commit the add and generate welcome to be sent to the peer
-	_, welcome, newState, err := s.commit(commitSecret)
+	_, welcome, newState, err := s.Commit(commitSecret)
 	if err != nil {
 		panic(fmt.Errorf("mls.state: commit failure"))
 	}
@@ -225,7 +225,7 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 	return welcome, newState, nil
 }
 
-func (s State) add(cik ClientInitKey) *MLSPlaintext {
+func (s State) Add(cik ClientInitKey) *MLSPlaintext {
 	addProposal := Proposal{
 		Add: &AddProposal{
 			ClientInitKey: cik,
@@ -234,7 +234,7 @@ func (s State) add(cik ClientInitKey) *MLSPlaintext {
 	return s.sign(addProposal)
 }
 
-func (s State) update(leafSecret []byte) *MLSPlaintext {
+func (s State) Update(leafSecret []byte) *MLSPlaintext {
 	key, err := s.CipherSuite.hpke().Derive(leafSecret)
 	if err != nil {
 		panic(fmt.Errorf("mls.state: deriving secret for update failure %v", err))
@@ -252,7 +252,7 @@ func (s State) update(leafSecret []byte) *MLSPlaintext {
 	return pt
 }
 
-func (s *State) remove(removed leafIndex) *MLSPlaintext {
+func (s *State) Remove(removed leafIndex) *MLSPlaintext {
 	removeProposal := Proposal{
 		Remove: &RemoveProposal{
 			Removed: removed,
@@ -261,7 +261,7 @@ func (s *State) remove(removed leafIndex) *MLSPlaintext {
 	return s.sign(removeProposal)
 }
 
-func (s *State) commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
+func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
 	commit := Commit{}
 	var joiners []ClientInitKey
 
@@ -544,7 +544,7 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	return pt, nil
 }
 
-func (s *State) handle(pt *MLSPlaintext) (*State, error) {
+func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	if !bytes.Equal(pt.GroupID, s.GroupID) {
 		return nil, fmt.Errorf("mls.state: groupId mismatch")
 	}
@@ -920,11 +920,11 @@ type StateSecrets struct {
 	Tree          TreeSecrets
 }
 
-func newStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, error) {
+func NewStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, error) {
 	// Import the base data using some information from the secrets
 	suite := ss.CipherSuite
 	epochSecret := ss.Keys.EpochSecret
-	s, _, confirmation, err := newStateFromWelcome(suite, epochSecret, welcome)
+	s, _, confirmation, err := NewStateFromWelcome(suite, epochSecret, welcome)
 	if err != nil {
 		return nil, err
 	}

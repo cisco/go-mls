@@ -51,23 +51,23 @@ func setupGroup(t *testing.T) StateTest {
 	stateTest := setup(t)
 	var states []State
 	// start with the group creator
-	states = append(states, *newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0]))
+	states = append(states, *NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0]))
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := states[0].add(stateTest.clientInitKeys[i])
-		_, err := states[0].handle(add)
+		add := states[0].Add(stateTest.clientInitKeys[i])
+		_, err := states[0].Handle(add)
 		assertNotError(t, err, "add failed")
 	}
 
 	// commit the adds
 	secret, _ := getRandomBytes(32)
-	_, welcome, next, err := states[0].commit(secret)
+	_, welcome, next, err := states[0].Commit(secret)
 	assertNotError(t, err, "commit add proposals failed")
 	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
+		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
 		assertNotError(t, err, "initializing the state from welcome failed")
 		states = append(states, *s)
 	}
@@ -94,19 +94,19 @@ func TestStateTwoPerson(t *testing.T) {
 	stateTest := setup(t)
 	// creator's state
 	// dump(clientInitKeys)
-	first0 := newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
+	first0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
 	// add the second participant
-	add := first0.add(stateTest.clientInitKeys[1])
-	_, err := first0.handle(add)
+	add := first0.Add(stateTest.clientInitKeys[1])
+	_, err := first0.Handle(add)
 	assertNotError(t, err, "handle add failed")
 
 	// commit adding the second participant
 	secret, _ := getRandomBytes(32)
-	_, welcome, first1, err := first0.commit(secret)
+	_, welcome, first1, err := first0.Commit(secret)
 	assertNotError(t, err, "state_test. commit failed")
 
 	// Initialize the second participant from the Welcome
-	second1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
+	second1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
 	assertNotError(t, err, "state_test: state creation using Welcome failed")
 
 	// Verify that the two states are equivalent
@@ -123,14 +123,14 @@ func TestStateTwoPerson(t *testing.T) {
 func TestStateMarshalUnmarshal(t *testing.T) {
 	// Create Alice and have her add Bob to a group
 	stateTest := setup(t)
-	alice0 := newEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
+	alice0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
 
-	add := alice0.add(stateTest.clientInitKeys[1])
-	_, err := alice0.handle(add)
+	add := alice0.Add(stateTest.clientInitKeys[1])
+	_, err := alice0.Handle(add)
 	assertNotError(t, err, "Initial add failed")
 
 	secret, _ := getRandomBytes(32)
-	_, welcome1, alice1, err := alice0.commit(secret)
+	_, welcome1, alice1, err := alice0.Commit(secret)
 	assertNotError(t, err, "Initial commit failed")
 
 	// Marshal Alice's secret state
@@ -138,15 +138,15 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	assertNotError(t, err, "Error marshaling Alice private values")
 
 	// Initialize Bob generate an Update+Commit
-	bob1, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
+	bob1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
 	assertNotError(t, err, "state_test: state creation using Welcome failed")
 	assertTrue(t, alice1.Equals(*bob1), "State mismatch")
 
-	update := bob1.update(secret)
-	_, err = bob1.handle(update)
+	update := bob1.Update(secret)
+	_, err = bob1.Handle(update)
 	assertNotError(t, err, "Update failed at Bob")
 
-	commit, _, bob2, err := bob1.commit(secret)
+	commit, _, bob2, err := bob1.Commit(secret)
 	assertNotError(t, err, "Update commit generation failed")
 
 	// Recreate Alice from Welcome and secrets
@@ -154,14 +154,14 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	_, err = syntax.Unmarshal(alice1priv, &alice1aPriv)
 	assertNotError(t, err, "Error unmarshaling Alice private values")
 
-	alice1a, err := newStateFromWelcomeAndSecrets(*welcome1, alice1aPriv)
+	alice1a, err := NewStateFromWelcomeAndSecrets(*welcome1, alice1aPriv)
 	assertNotError(t, err, "Error importing group info from Welcome")
 
 	// Verify that Alice can process Bob's Update+Commit
-	_, err = alice1a.handle(update)
+	_, err = alice1a.Handle(update)
 	assertNotError(t, err, "Update failed at Alice")
 
-	alice2, err := alice1a.handle(commit)
+	alice2, err := alice1a.Handle(commit)
 	assertNotError(t, err, "Update commit handling failed")
 
 	// Verify that Alice and Bob can exchange protected messages
@@ -176,24 +176,24 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 func TestStateMulti(t *testing.T) {
 	stateTest := setup(t)
 	// start with the group creator
-	stateTest.states = append(stateTest.states, *newEmptyState(groupId, suite, stateTest.initPrivs[0],
+	stateTest.states = append(stateTest.states, *NewEmptyState(groupId, suite, stateTest.initPrivs[0],
 		stateTest.credentials[0]))
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := stateTest.states[0].add(stateTest.clientInitKeys[i])
-		_, err := stateTest.states[0].handle(add)
+		add := stateTest.states[0].Add(stateTest.clientInitKeys[i])
+		_, err := stateTest.states[0].Handle(add)
 		assertNotError(t, err, "add failed")
 	}
 
 	// commit the adds
 	secret, _ := getRandomBytes(32)
-	_, welcome, next, err := stateTest.states[0].commit(secret)
+	_, welcome, next, err := stateTest.states[0].Commit(secret)
 	assertNotError(t, err, "commit add proposals failed")
 	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := newJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
+		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
 		assertNotError(t, err, "initializing the state from welcome failed")
 		stateTest.states = append(stateTest.states, *s)
 	}
@@ -257,7 +257,7 @@ func TestStateCipherNegotiation(t *testing.T) {
 	assertNotError(t, err, "state negotiation failed")
 
 	// Alice should also arrive at P-256
-	aliceState, err := newJoinedState(aliceCiks, *welcome)
+	aliceState, err := NewJoinedState(aliceCiks, *welcome)
 	assertNotError(t, err, "state negotiation failed")
 
 	assertTrue(t, aliceState.Equals(*bobState), "states are unequal")
@@ -267,19 +267,19 @@ func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
 		leafSecret, _ := getRandomBytes(32)
-		update := state.update(leafSecret)
-		state.handle(update)
-		commit, _, next, err := state.commit(leafSecret)
+		update := state.Update(leafSecret)
+		state.Handle(update)
+		commit, _, next, err := state.Commit(leafSecret)
 		assertNotError(t, err, "creator commit error")
 
 		for j, other := range stateTest.states {
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
-				_, err := other.handle(update)
+				_, err := other.Handle(update)
 				assertNotError(t, err, "Update recipient proposal fail")
 
-				newState, err := other.handle(commit)
+				newState, err := other.Handle(commit)
 				assertNotError(t, err, "Update recipient commit fail")
 				stateTest.states[j] = *newState
 			}
@@ -294,10 +294,10 @@ func TestStateUpdate(t *testing.T) {
 func TestStateRemove(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i := groupSize - 2; i > 0; i-- {
-		remove := stateTest.states[i].remove(leafIndex(i + 1))
-		stateTest.states[i].handle(remove)
+		remove := stateTest.states[i].Remove(leafIndex(i + 1))
+		stateTest.states[i].Handle(remove)
 		secret, _ := getRandomBytes(32)
-		commit, _, next, err := stateTest.states[i].commit(secret)
+		commit, _, next, err := stateTest.states[i].Commit(secret)
 		assertNotError(t, err, "remove error")
 		stateTest.states = stateTest.states[:len(stateTest.states)-1]
 
@@ -305,8 +305,8 @@ func TestStateRemove(t *testing.T) {
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
-				state.handle(remove)
-				newState, err := state.handle(commit)
+				state.Handle(remove)
+				newState, err := state.Handle(commit)
 				assertNotError(t, err, "remove processing error by others")
 				stateTest.states[j] = *newState
 			}

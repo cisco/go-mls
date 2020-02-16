@@ -76,6 +76,22 @@ func (c Credential) Type() CredentialType {
 	}
 }
 
+func (c *Credential) SetPrivateKey(priv SignaturePrivateKey) {
+	c.privateKey = &priv
+}
+
+func (c *Credential) RemovePrivateKey() {
+	c.privateKey = nil
+}
+
+func (c Credential) PrivateKey() (SignaturePrivateKey, bool) {
+	if c.privateKey == nil {
+		return SignaturePrivateKey{}, false
+	}
+
+	return *c.privateKey, true
+}
+
 func (c Credential) PublicKey() *SignaturePublicKey {
 	switch {
 	// TODO(#35) case c.X509 != nil:

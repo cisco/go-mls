@@ -40,7 +40,7 @@ type ClientInitKey struct {
 	privateKey *HPKEPrivateKey `tls:"omit"`
 }
 
-func (cik ClientInitKey) GetPrivateKey() (HPKEPrivateKey, bool) {
+func (cik ClientInitKey) PrivateKey() (HPKEPrivateKey, bool) {
 	if cik.privateKey == nil {
 		return HPKEPrivateKey{}, false
 	}
@@ -51,6 +51,10 @@ func (cik ClientInitKey) GetPrivateKey() (HPKEPrivateKey, bool) {
 func (cik *ClientInitKey) SetPrivateKey(priv HPKEPrivateKey) {
 	cik.privateKey = &priv
 	cik.InitKey = priv.PublicKey
+}
+
+func (cik *ClientInitKey) RemovePrivateKey() {
+	cik.privateKey = nil
 }
 
 func (cik ClientInitKey) toBeSigned() ([]byte, error) {
