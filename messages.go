@@ -202,17 +202,16 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 		return 0, fmt.Errorf("mls.proposal: Unmarshal failed for ProposalTpe")
 	}
 
-	var read int
 	switch proposalType {
 	case ProposalTypeAdd:
 		p.Add = new(AddProposal)
-		read, err = s.Read(p.Add)
+		_, err = s.Read(p.Add)
 	case ProposalTypeUpdate:
 		p.Update = new(UpdateProposal)
-		read, err = s.Read(p.Update)
+		_, err = s.Read(p.Update)
 	case ProposalTypeRemove:
 		p.Remove = new(RemoveProposal)
-		read, err = s.Read(p.Remove)
+		_, err = s.Read(p.Remove)
 	default:
 		err = fmt.Errorf("mls.proposal: ProposalType type not allowed")
 	}
@@ -221,7 +220,7 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 		return 0, err
 	}
 
-	return read, nil
+	return s.Position(), nil
 }
 
 ///
