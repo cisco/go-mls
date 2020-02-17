@@ -671,5 +671,7 @@ func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, err
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
 
+	gi.Tree.CipherSuite = suite
+
 	return gi, nil
 }
