@@ -3,8 +3,10 @@ package mls
 import (
 	"bytes"
 	"fmt"
-	"github.com/bifurcation/mint/syntax"
 	"math/rand"
+	"reflect"
+
+	"github.com/bifurcation/mint/syntax"
 )
 
 ///
@@ -787,7 +789,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	return pt, nil
 }
 
-func (s *State) protect(data []byte) (*MLSCiphertext, error) {
+func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -803,7 +805,7 @@ func (s *State) protect(data []byte) (*MLSCiphertext, error) {
 	return s.encrypt(pt)
 }
 
-func (s *State) unprotect(ct *MLSCiphertext) ([]byte, error) {
+func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 	pt, err := s.decrypt(ct)
 	if err != nil {
 		return nil, err
@@ -889,7 +891,7 @@ func (s State) clone() *State {
 	return clone
 }
 
-// Compare the public aspects of two nodes
+// Compare the public and shared private aspects of two nodes
 func (s State) Equals(o State) bool {
 	suite := s.CipherSuite == o.CipherSuite
 	groupID := bytes.Equal(s.GroupID, o.GroupID)
@@ -897,8 +899,9 @@ func (s State) Equals(o State) bool {
 	tree := s.Tree.Equals(&o.Tree)
 	cth := bytes.Equal(s.ConfirmedTranscriptHash, o.ConfirmedTranscriptHash)
 	ith := bytes.Equal(s.InterimTranscriptHash, o.InterimTranscriptHash)
+	keys := reflect.DeepEqual(s.Keys, o.Keys)
 
-	return suite && groupID && epoch && tree && cth && ith
+	return suite && groupID && epoch && tree && cth && ith && keys
 }
 
 // Isolated getters and setters for public and secret state
