@@ -250,7 +250,7 @@ func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext
 		return HPKECiphertext{}, err
 	}
 
-	enc, ctx, err := hpke.SetupBaseI(h.Suite, rand.Reader, pkR, nil)
+	enc, ctx, err := hpke.SetupBaseS(h.Suite, rand.Reader, pkR, nil)
 	if err != nil {
 		return HPKECiphertext{}, err
 	}
