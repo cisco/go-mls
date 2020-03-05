@@ -17,7 +17,9 @@ type Session struct {
 	_state             map[Epoch]*State
 }
 
-func (s *Session) start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
+//first attempt in go.  Neet to add error checking and test code
+
+func start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
 
 	welcome, state, err := negotiateWithPeer(groupID, myCIKs, otherCIKs, initSecret)
 	sess := &Session{
@@ -25,12 +27,12 @@ func (s *Session) start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []Clie
 		_encrypt_handshake: false,
 	}
 
-	s.add_state(0, state)
+	sess.add_state(0, state)
 
 	return sess, welcome, err
 }
 
-func (s *Session) join(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
+func join(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 
 	sess := &Session{
 		_current_epoch:     0,
@@ -39,7 +41,7 @@ func (s *Session) join(CIKs []ClientInitKey, welcome Welcome) (*Session, error) 
 
 	next, err := newJoinedState(CIKs, welcome)
 
-	s.add_state(0, next)
+	sess.add_state(0, next)
 
 	return sess, err
 }
