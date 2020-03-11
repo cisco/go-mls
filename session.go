@@ -5,16 +5,22 @@ import (
 	"fmt"
 )
 
+//
+//Tuple type definition
+//
 type Tuple struct {
-	data  []byte
+	data  []byte `tls:"head=1"`
 	state State
 }
 
+//
+//Session type definition
+//
 type Session struct {
-	_current_epoch     Epoch
-	_encrypt_handshake bool
-	_outbound_cache    Tuple
-	_state             map[Epoch]*State
+	CurrentEpoch     Epoch            `tls:"omit"`
+	EncryptHandshake bool             `tls:"omit"`
+	OutboundCache    Tuple            `tls:"omit"`
+	sessionState     map[Epoch]*State `tls:"omit"`
 }
 
 //first attempt in go.  Neet to add error checking and test code
@@ -22,12 +28,18 @@ type Session struct {
 func start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
 
 	welcome, state, err := negotiateWithPeer(groupID, myCIKs, otherCIKs, initSecret)
-	sess := &Session{
-		_current_epoch:     0,
-		_encrypt_handshake: false,
+
+	if err != nil {
+
+		return nil, nil, err
 	}
 
-	sess.add_state(0, state)
+	sess := &Session{
+		CurrentEpoch:     0,
+		EncryptHandshake: false,
+	}
+
+	sess.addState(0, state)
 
 	return sess, welcome, err
 }
@@ -35,26 +47,31 @@ func start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, in
 func join(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 
 	sess := &Session{
-		_current_epoch:     0,
-		_encrypt_handshake: false,
+		CurrentEpoch:     0,
+		EncryptHandshake: false,
 	}
 
 	next, err := newJoinedState(CIKs, welcome)
 
-	sess.add_state(0, next)
+	if err != nil {
+
+		return nil, err
+
+	}
+	sess.addState(0, next)
 
 	return sess, err
 }
 
-func (s *Session) encrypt_handshake(enabled bool) {
-	s._encrypt_handshake = enabled
+func (s *Session) encryptHandshake(enabled bool) {
+	s.EncryptHandshake = enabled
 }
 
 func (s *Session) add(addSecret []byte, CIK ClientInitKey) (*Welcome, []byte) {
 
 	proposal := s.currentState().add(CIK)
 
-	return s.commit_and_cache(addSecret, proposal)
+	return s.commitAndCache(addSecret, proposal)
 
 }
 
@@ -62,7 +79,7 @@ func (s *Session) update(leafSecret []byte) []byte {
 
 	proposal := s.currentState().update(leafSecret)
 
-	_, data := s.commit_and_cache(leafSecret, proposal)
+	_, data := s.commitAndCache(leafSecret, proposal)
 
 	return data
 
@@ -72,7 +89,7 @@ func (s *Session) remove(evictSecret []byte, index uint32) []byte {
 
 	proposal := s.currentState().remove(leafIndex(index))
 
-	_, data := s.commit_and_cache(evictSecret, proposal)
+	_, data := s.commitAndCache(evictSecret, proposal)
 
 	return data
 
@@ -86,15 +103,15 @@ func (s *Session) handle(handshakeData []byte) {
 
 	handShakeDataStream := NewReadStream(handshakeData)
 
-	if s._encrypt_handshake {
+	if s.EncryptHandshake {
 
-		var enc_proposal MLSCiphertext
-		var enc_commit MLSCiphertext
+		var encProposal MLSCiphertext
+		var encCommit MLSCiphertext
 
-		handShakeDataStream.ReadAll(&enc_proposal, &enc_commit)
+		handShakeDataStream.ReadAll(&encProposal, &encCommit)
 
-		proposal, _ = state.decrypt(&enc_proposal)
-		commit, _ = state.decrypt(&enc_commit)
+		proposal, _ = state.decrypt(&encProposal)
+		commit, _ = state.decrypt(&encCommit)
 
 	} else {
 
@@ -104,14 +121,14 @@ func (s *Session) handle(handshakeData []byte) {
 
 	if proposal.Sender == state.Index {
 
-		if s._outbound_cache.data == nil {
+		if s.OutboundCache.data == nil {
 
 			fmt.Printf("%s", fmt.Errorf("Received from self without sending"))
 
 		}
 
-		message := s._outbound_cache.data
-		next_state := s._outbound_cache.state
+		message := s.OutboundCache.data
+		nextsessionState := s.OutboundCache.state
 
 		if bytes.Compare(message, handshakeData) != 0 {
 
@@ -119,8 +136,8 @@ func (s *Session) handle(handshakeData []byte) {
 
 		}
 
-		s.add_state(proposal.Epoch, &next_state)
-		s._outbound_cache.data = nil
+		s.addState(proposal.Epoch, &next_state)
+		s.OutboundCache.data = nil
 
 		return
 	}
@@ -134,7 +151,7 @@ func (s *Session) handle(handshakeData []byte) {
 
 	}
 
-	s.add_state(commit.Epoch, next)
+	s.addState(commit.Epoch, next)
 
 }
 
@@ -155,29 +172,38 @@ func (s *Session) unprotect(ciphertext []byte) []byte {
 
 	if v, cond := s._state[ciphertextObject.Epoch]; !cond {
 
-		fmt.Printf("%s", fmt.Errorf("mls.session: No state available to decrypt ciphertext: %v", v))
+		panic(fmt.Errorf("mls.session: No state available to decrypt ciphertext: %v", v))
 
 	}
 
 	state := s._state[ciphertextObject.Epoch]
-	val, _ := state.unprotect(&ciphertextObject)
+	val, err := state.unprotect(&ciphertextObject)
+
+	if err != nil {
+		return nil, err
+	}
 	return val
 
 }
 
-func (s *Session) commit_and_cache(secret []byte, proposal *MLSPlaintext) (*Welcome, []byte) {
+func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcome, []byte) {
 	state := s.currentState()
 
 	state.handle(proposal)
 
-	commit, welcome, _, _ := state.commit(secret)
+	commit, welcome, _, err := state.commit(secret)
+
+	if err != nil {
+
+		return nil, err
+	}
 
 	w := NewWriteStream()
 
-	if s._encrypt_handshake {
-		enc_proposal, _ := state.encrypt(proposal)
-		enc_commit, _ := state.encrypt(commit)
-		w.WriteAll(enc_proposal, enc_commit)
+	if s.EncryptHandshake {
+		encProposal, _ := state.encrypt(proposal)
+		encCommit, _ := state.encrypt(commit)
+		w.WriteAll(encProposal, encCommit)
 	} else {
 
 		w.WriteAll(proposal, commit)
@@ -186,35 +212,35 @@ func (s *Session) commit_and_cache(secret []byte, proposal *MLSPlaintext) (*Welc
 
 	msg := w.Data()
 
-	s._outbound_cache.data = msg
-	s._outbound_cache.state = *state
+	s.OutboundCache.data = msg
+	s.OutboundCache.state = *state
 
 	return welcome, msg
 
 }
 
-func make_init_key(init_secret []byte) {
+func makeInitKey(initSecret []byte) {
 
 }
 
-func (s *Session) add_state(prior_epoch Epoch, state *State) {
+func (s *Session) addState(priorEpoch Epoch, state *State) {
 
 	s._state[state.Epoch] = state
 
-	if prior_epoch == s._current_epoch || len(s._state) == 1 {
+	if priorEpoch == s.CurrentEpoch || len(s._state) == 1 {
 
-		s._current_epoch = state.Epoch
+		s.CurrentEpoch = state.Epoch
 	}
 
 }
 
 func (s *Session) currentState() *State {
 
-	if v, cond := s._state[s._current_epoch]; !cond {
+	if v, cond := s._state[s.CurrentEpoch]; !cond {
 
 		fmt.Printf("%s", fmt.Errorf("mls.session: No state available for current epoch: %v", v))
 	}
-	val, _ := (s._state[s._current_epoch])
+	val, _ := (s._state[s.CurrentEpoch])
 
 	return val
 
