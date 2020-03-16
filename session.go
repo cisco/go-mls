@@ -3,6 +3,7 @@ package mls
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 )
 
 //
@@ -243,5 +244,30 @@ func (s *Session) currentState() *State {
 	val, _ := (s._state[s.CurrentEpoch])
 
 	return val
+
+}
+
+func (s *Session) evaluateEquals(sess Session) bool {
+	type Tuple struct {
+		data  []byte `tls:"head=1"`
+		state State
+	}
+
+	//
+	//Session type definition
+	//
+	type Session struct {
+		CurrentEpoch     Epoch            `tls:"omit"`
+		EncryptHandshake bool             `tls:"omit"`
+		OutboundCache    Tuple            `tls:"omit"`
+		sessionState     map[Epoch]*State `tls:"omit"`
+	}
+
+	if s.CurrentEpoch == sess.CurrentEpoch && reflect.DeepEqual(s.sessionState, sess.sessionState) && bytes.Compare(s.Tuple.data, sess.Tuple.data) {
+		return true
+	} else {
+
+		return false
+	}
 
 }
