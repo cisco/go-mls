@@ -137,7 +137,7 @@ func (s *Session) handle(handshakeData []byte) {
 
 		}
 
-		s.addState(proposal.Epoch, &next_state)
+		s.addState(proposal.Epoch, &nextsessionState)
 		s.OutboundCache.data = nil
 
 		return
@@ -171,17 +171,17 @@ func (s *Session) unprotect(ciphertext []byte) []byte {
 	ctDataStream := NewReadStream(ciphertext)
 	ctDataStream.Read(&ciphertextObject)
 
-	if v, cond := s._state[ciphertextObject.Epoch]; !cond {
+	if v, cond := s.sessionState[ciphertextObject.Epoch]; !cond {
 
 		panic(fmt.Errorf("mls.session: No state available to decrypt ciphertext: %v", v))
 
 	}
 
-	state := s._state[ciphertextObject.Epoch]
+	state := s.sessionState[ciphertextObject.Epoch]
 	val, err := state.unprotect(&ciphertextObject)
 
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	return val
 
@@ -196,7 +196,7 @@ func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcom
 
 	if err != nil {
 
-		return nil, err
+		return nil, nil
 	}
 
 	w := NewWriteStream()
@@ -226,9 +226,9 @@ func makeInitKey(initSecret []byte) {
 
 func (s *Session) addState(priorEpoch Epoch, state *State) {
 
-	s._state[state.Epoch] = state
+	s.sessionState[state.Epoch] = state
 
-	if priorEpoch == s.CurrentEpoch || len(s._state) == 1 {
+	if priorEpoch == s.CurrentEpoch || len(s.sessionState) == 1 {
 
 		s.CurrentEpoch = state.Epoch
 	}
@@ -237,11 +237,11 @@ func (s *Session) addState(priorEpoch Epoch, state *State) {
 
 func (s *Session) currentState() *State {
 
-	if v, cond := s._state[s.CurrentEpoch]; !cond {
+	if v, cond := s.sessionState[s.CurrentEpoch]; !cond {
 
 		fmt.Printf("%s", fmt.Errorf("mls.session: No state available for current epoch: %v", v))
 	}
-	val, _ := (s._state[s.CurrentEpoch])
+	val, _ := (s.sessionState[s.CurrentEpoch])
 
 	return val
 
@@ -263,11 +263,11 @@ func (s *Session) evaluateEquals(sess Session) bool {
 		sessionState     map[Epoch]*State `tls:"omit"`
 	}
 
-	if s.CurrentEpoch == sess.CurrentEpoch && reflect.DeepEqual(s.sessionState, sess.sessionState) && bytes.Compare(s.Tuple.data, sess.Tuple.data) {
-		return true
+	if s.CurrentEpoch != sess.CurrentEpoch || !reflect.DeepEqual(s.sessionState, sess.sessionState) || bytes.Compare(s.OutboundCache.data, sess.OutboundCache.data) != 0 {
+		return false
 	} else {
 
-		return false
+		return true
 	}
 
 }

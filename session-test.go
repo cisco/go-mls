@@ -1,6 +1,9 @@
 package mls
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 const noExcept int = 0xffffffff
 
@@ -25,87 +28,96 @@ type SessionTest struct {
 	states         []State
 }
 
-func newIdentityKey() (SignaturePrivateKey, error) {
+func setupSessionTest(t *testing.T) *SessionTest {
+	sessionTest := SessionTest{}
 
-	return scheme.Generate()
+	sessionTest.CipherSuite = P256_SHA256_AES128GCM
+	sessionTest.Scheme = Ed25519
+	sessionTest.GroupSize = 5
+	sessionTest.SecretSize = 32
+	sessionTest.GroupID = []byte{0x01, 0x02, 0x03, 0x04}
+	sessionTest.UserID = []byte{0x04, 0x05, 0x06, 0x07}
+	sessionTest.numSessions = 1
+	sessionTest.testing = t
+
+	return &sessionTest
+
+}
+func (s *SessionTest) newIdentityKey() (SignaturePrivateKey, error) {
+
+	return s.Scheme.Generate()
 }
 
-func freshSecret() ([]byte, error) {
-
-	return getRandomBytes(secretSize)
+func (s *SessionTest) freshSecret() ([]byte, error) {
+	freshVal := make([]byte, s.SecretSize)
+	rand.Read(freshVal)
+	return freshVal, nil
 }
 
-func broadcast(message []bytes) {
-
-	broadcast(message, noExcept)
-}
-
-func (s *SessionTest) broadcast(message []bytes, except int) {
+func (s *SessionTest) broadcast(message []byte, except int) {
 
 	initEpoch := s.Sessions[0].CurrentEpoch
 
-	for i, sess := range s.Sessions {
-		if except != noExcept && i == leafIndex(except) {
+	for _, sess := range s.Sessions {
+		if except != noExcept && sess.currentState().Index == leafIndex(except) {
 
 			continue
 		}
 
-		session.handle(message)
+		sess.handle(message)
 	}
-	check(initEpoch, except)
+	s.check(initEpoch, except)
 }
 
-func (s *SessionTest) broadcastAdd() {
-
-	size := len(s.Sessions)
-
-	broadcastAdd(size-1, size)
-
-}
 func (s *SessionTest) broadcastAdd(from int, index int) {
-	initSecret := freshSecret()
-	idPriv := newIdentityKey()
-	cred := NewBasicCredential(s.UserID,s.Scheme,&idPriv)
-	initKey,err = := NewClientInitKey(s.CipherSuite, cred)
-	assertNotError(t, err, "NewClientInitKey error")
+
+	//initSecret, err1 := s.freshSecret()
+	//assertNotError(s.testing, err1, "initSecret error")
+
+	idPriv, err2 := s.newIdentityKey()
+	assertNotError(s.testing, err2, "New ID KEY error")
+	cred := NewBasicCredential(s.UserID, s.Scheme, &idPriv)
+	initKey, err := NewClientInitKey(s.CipherSuite, cred)
+	assertNotError(s.testing, err, "NewClientInitKey error")
 	initKeys := []ClientInitKey{*initKey}
 
-	if (len(s.Sessions) == 0){
-		myInitSecret := freshSecret()
-		myIdPriv := newIdentityKey()
-		myCred := NewBasicCredential(s.UserID,s.Scheme,&myIdPriv)
-		myInitKey,err := NewClientInitKey(s.CipherSuite, myCred)
-		assertNotError(t, err, "NewClientInitKey error")
-		myInitKeys := []ClientInitKey{*initKey}
+	if len(s.Sessions) == 0 {
+		//myInitSecret, err3 := s.freshSecret()
+		myIDPriv, err4 := s.newIdentityKey()
+		assertNotError(s.testing, err4, "New ID KEY error")
 
-		commitSecret := freshSecret()
-		creator,welcome,err := start(s.GroupID, myInitKey , myInitKeys, commitSecret)
-		assertNotError(t, err, "Error starting session")
+		myCred := NewBasicCredential(s.UserID, s.Scheme, &myIDPriv)
+		myInitKey, err := NewClientInitKey(s.CipherSuite, myCred)
+		assertNotError(s.testing, err, "NewClientInitKey error")
 
-		joiner,err := join(myInitKeys,*welcome)
-		assertNotError(t, err, "Error joining session")
+		commitSecret, err := s.freshSecret()
+		creator, welcome, err := start(s.GroupID, []ClientInitKey{*myInitKey}, initKeys, commitSecret)
+		assertNotError(s.testing, err, "Error starting session")
 
-		s.Sessions = append(s.Sessions,creator)
-		s.Sessions = append(s.Sessions,joiner)
+		joiner, err := join([]ClientInitKey{*myInitKey}, *welcome)
+		assertNotError(s.testing, err, "Error joining session")
+
+		s.Sessions = append(s.Sessions, *creator)
+		s.Sessions = append(s.Sessions, *joiner)
 		return
 
 	}
 
-	initEpoch = s.Sessions[0].CurrentEpoch()
-	addSecret = freshSecret()
-	welcome,add,err := s.Sessions[from].add(addSecret,*initKey)
-	assertNotError(t, err, "Error adding participant")
+	//initEpoch := s.Sessions[0].CurrentEpoch
+	addSecret, err := s.freshSecret()
+	welcome, add := s.Sessions[from].add(addSecret, *initKey)
+	assertNotError(s.testing, err, "Error adding participant")
 
-	next,err = join(initKeys,welcome)
-	assertNotError(t, err, "Error joining new participant")
+	next, err := join(initKeys, *welcome)
+	assertNotError(s.testing, err, "Error joining new participant")
 
-	broadcast(add,index)
+	s.broadcast(add, index)
 
-	if(index == len(s.Sessions)){
-		s.Sessions = append(s.Sessions,next)
+	if index == len(s.Sessions) {
+		s.Sessions = append(s.Sessions, *next)
 	} else if index < len(s.Sessions) {
 
-		s.Sessions[index] = next
+		s.Sessions[index] = *next
 	} else {
 
 		s.testing.Fatalf("Index too large for group")
@@ -127,14 +139,8 @@ func setupSession(t *testing.T) *SessionTest {
 
 	return &sessionTest
 
-	//start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
-
 }
 
-func (s *SessionTest) check(initEpoch Epoch) {
-
-	check(initEpoch, noExcept)
-}
 func (s *SessionTest) check(initEpoch Epoch, except int) {
 
 	ref := 0
@@ -144,33 +150,50 @@ func (s *SessionTest) check(initEpoch Epoch, except int) {
 		ref = 1
 	}
 
-	for i, sess := range s.Sessions {
+	for _, sess := range s.Sessions {
 
-		if except != noExcept && i == leafIndex(except) {
+		if except != noExcept && sess.currentState().Index == leafIndex(except) {
 
 			continue
 		}
 
-		assert.Equal(s.testing, sess.evaluateEquals(s.Sessions[ref]), true)
+		assertEquals(s.testing, sess.evaluateEquals(s.Sessions[ref]), true)
 
 		pt := []byte{0, 1, 2, 3}
 		ct := sess.protect(pt)
 
-		for j, otherSess := range s.Sessions {
+		for _, otherSess := range s.Sessions {
 
-			if except != noExcept && i == leafIndex(except) {
+			if except != noExcept && sess.currentState().Index == leafIndex(except) {
 
 				continue
 			}
 
 			decryptedPT := otherSess.unprotect(ct)
-			assert.Equal(s.testing, pt, decryptedPT)
+			assertEquals(s.testing, pt, decryptedPT)
 		}
 
-		assert.NotEqual(s.testing, s.Sessions[ref].CurrentEpoch, initEpoch)
+		assertTrue(s.testing, !(s.Sessions[ref].CurrentEpoch == initEpoch), "Differnt Epochs")
 
 	}
 
 }
 
+func execTwoPeopleTest(t *testing.T) {
 
+	test := setupSessionTest(t)
+	size := len(test.Sessions)
+	test.broadcastAdd(size-1, size)
+}
+
+func execFullGroupTest(t *testing.T) {
+	test := setupSessionTest(t)
+
+	for len(test.Sessions) < test.GroupSize {
+
+		size := len(test.Sessions)
+		test.broadcastAdd(size-1, size)
+
+	}
+
+}
