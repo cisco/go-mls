@@ -170,14 +170,14 @@ func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node nodeInde
 	return cs.hkdfExpandLabel(secret, label, ctx, length)
 }
 
-func (cs CipherSuite) hpke() hpkeInstance {
+func (cs CipherSuite) hpke() HPKEInstance {
 	cc := cs.constants()
 	suite, err := hpke.AssembleCipherSuite(cc.HPKEKEM, cc.HPKEKDF, cc.HPKEAEAD)
 	if err != nil {
 		panic("Unable to construct HPKE ciphersuite")
 	}
 
-	return hpkeInstance{cs, suite}
+	return HPKEInstance{cs, suite}
 }
 
 ///
@@ -202,12 +202,12 @@ type HPKECiphertext struct {
 	Ciphertext []byte `tls:"head=4"`
 }
 
-type hpkeInstance struct {
+type HPKEInstance struct {
 	BaseSuite CipherSuite
 	Suite     hpke.CipherSuite
 }
 
-func (h hpkeInstance) Generate() (HPKEPrivateKey, error) {
+func (h HPKEInstance) Generate() (HPKEPrivateKey, error) {
 	priv, pub, err := h.Suite.KEM.GenerateKeyPair(rand.Reader)
 	if err != nil {
 		return HPKEPrivateKey{}, err
@@ -220,7 +220,7 @@ func (h hpkeInstance) Generate() (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (h hpkeInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
+func (h HPKEInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
 	digest := h.BaseSuite.digest(seed)
 
 	var priv hpke.KEMPrivateKey
@@ -244,13 +244,13 @@ func (h hpkeInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext, error) {
+func (h HPKEInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext, error) {
 	pkR, err := h.Suite.KEM.Unmarshal(pub.Data)
 	if err != nil {
 		return HPKECiphertext{}, err
 	}
 
-	enc, ctx, err := hpke.SetupBaseI(h.Suite, rand.Reader, pkR, nil)
+	enc, ctx, err := hpke.SetupBaseS(h.Suite, rand.Reader, pkR, nil)
 	if err != nil {
 		return HPKECiphertext{}, err
 	}
@@ -259,7 +259,7 @@ func (h hpkeInstance) Encrypt(pub HPKEPublicKey, aad, pt []byte) (HPKECiphertext
 	return HPKECiphertext{enc, ct}, nil
 }
 
-func (h hpkeInstance) Decrypt(priv HPKEPrivateKey, aad []byte, ct HPKECiphertext) ([]byte, error) {
+func (h HPKEInstance) Decrypt(priv HPKEPrivateKey, aad []byte, ct HPKECiphertext) ([]byte, error) {
 	skR, err := h.Suite.KEM.UnmarshalPrivate(priv.Data)
 	if err != nil {
 		return nil, err
