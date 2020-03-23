@@ -35,9 +35,17 @@ func startSession(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInit
 		return nil, nil, err
 	}
 
+	var st State
+	tup := &Tuple{
+
+		data:  make([]byte, 1),
+		state: st,
+	}
 	sess := &Session{
 		CurrentEpoch:     0,
 		EncryptHandshake: false,
+		OutboundCache:    *tup,
+		sessionState:     make(map[Epoch]*State),
 	}
 
 	sess.addState(0, state)
@@ -47,9 +55,18 @@ func startSession(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInit
 
 func joinSession(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 
+	var s State
+	tup := &Tuple{
+
+		data:  make([]byte, 1),
+		state: s,
+	}
+
 	sess := &Session{
 		CurrentEpoch:     0,
 		EncryptHandshake: false,
+		OutboundCache:    *tup,
+		sessionState:     make(map[Epoch]*State),
 	}
 
 	next, err := newJoinedState(CIKs, welcome)
@@ -99,24 +116,31 @@ func (s *Session) remove(evictSecret []byte, index uint32) []byte {
 func (s *Session) handle(handshakeData []byte) {
 
 	state := s.currentState()
-	var proposal *MLSPlaintext
-	var commit *MLSPlaintext
 
 	handShakeDataStream := NewReadStream(handshakeData)
+	var proposal, commit *MLSPlaintext
 
 	if s.EncryptHandshake {
 
-		var encProposal MLSCiphertext
-		var encCommit MLSCiphertext
+		encProposal := new(MLSCiphertext)
+		encCommit := new(MLSCiphertext)
 
-		handShakeDataStream.ReadAll(&encProposal, &encCommit)
+		handShakeDataStream.ReadAll(encProposal, encCommit)
 
-		proposal, _ = state.decrypt(&encProposal)
-		commit, _ = state.decrypt(&encCommit)
+		proposal, _ = state.decrypt(encProposal)
+		commit, _ = state.decrypt(encCommit)
 
 	} else {
 
-		handShakeDataStream.ReadAll(&proposal, &commit)
+		proposal := new(MLSPlaintext)
+		commit := new(MLSPlaintext)
+		_, err := handShakeDataStream.ReadAll(proposal, commit)
+
+		if err != nil {
+
+			fmt.Println("There was an err", err)
+			//panic(err)
+		}
 
 	}
 
@@ -192,7 +216,7 @@ func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcom
 
 	state.handle(proposal)
 
-	commit, welcome, _, err := state.commit(secret)
+	commit, welcome, newState, err := state.commit(secret)
 
 	if err != nil {
 
@@ -214,7 +238,7 @@ func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcom
 	msg := w.Data()
 
 	s.OutboundCache.data = msg
-	s.OutboundCache.state = *state
+	s.OutboundCache.state = *newState
 
 	return welcome, msg
 
