@@ -91,10 +91,10 @@ func (s *SessionTest) broadcastAdd(from int, index int) {
 		assertNotError(s.testing, err, "NewClientInitKey error")
 
 		commitSecret, err := s.freshSecret()
-		creator, welcome, err := start(s.GroupID, []ClientInitKey{*myInitKey}, initKeys, commitSecret)
+		creator, welcome, err := startSession(s.GroupID, []ClientInitKey{*myInitKey}, initKeys, commitSecret)
 		assertNotError(s.testing, err, "Error starting session")
 
-		joiner, err := join([]ClientInitKey{*myInitKey}, *welcome)
+		joiner, err := joinSession([]ClientInitKey{*myInitKey}, *welcome)
 		assertNotError(s.testing, err, "Error joining session")
 
 		s.Sessions = append(s.Sessions, *creator)
@@ -108,7 +108,7 @@ func (s *SessionTest) broadcastAdd(from int, index int) {
 	welcome, add := s.Sessions[from].add(addSecret, *initKey)
 	assertNotError(s.testing, err, "Error adding participant")
 
-	next, err := join(initKeys, *welcome)
+	next, err := joinSession(initKeys, *welcome)
 	assertNotError(s.testing, err, "Error joining new participant")
 
 	s.broadcast(add, index)
@@ -193,6 +193,192 @@ func execFullGroupTest(t *testing.T) {
 
 		size := len(test.Sessions)
 		test.broadcastAdd(size-1, size)
+		//fmt.Println("This ran")
+
+	}
+
+}
+
+func execCyphersuiteNegotiationTest(t *testing.T) {
+	test := setupSessionTest(t)
+
+	//Code creates keys that support P-256 and X25519 for alice
+	aliceIDKey, err := test.newIdentityKey()
+	assertNotError(test.testing, err, "New ID KEY error")
+
+	aliceCred := NewBasicCredential(test.UserID, test.Scheme, &aliceIDKey)
+
+	aliceCiphers := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+
+	var aliceCIKs []ClientInitKey
+
+	for _, suiteA := range aliceCiphers {
+
+		initKey, err := NewClientInitKey(suiteA, aliceCred)
+		assertNotError(test.testing, err, "New ID KEY error")
+
+		aliceCIKs = append(aliceCIKs, *initKey)
+	}
+
+	//Code creates keys that support P-256 and X25519 for bob
+	bobIDKey, err := test.newIdentityKey()
+	assertNotError(test.testing, err, "New Init KEY error")
+
+	bobCred := NewBasicCredential(test.UserID, test.Scheme, &bobIDKey)
+
+	bobCiphers := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+
+	var bobCIKs []ClientInitKey
+
+	for _, suiteB := range bobCiphers {
+
+		initKey, err := NewClientInitKey(suiteB, bobCred)
+		assertNotError(test.testing, err, "New Init KEY error")
+
+		bobCIKs = append(bobCIKs, *initKey)
+	}
+
+	initSecret, err := test.freshSecret()
+	assertNotError(test.testing, err, "Fresh secret error")
+
+	alice, welcome, err := startSession([]byte{0x01, 0x02, 0x03, 0x04}, aliceCIKs, bobCIKs, initSecret)
+	assertNotError(test.testing, err, "Error starting session")
+
+	bob, err := joinSession(bobCIKs, *welcome)
+	assertNotError(test.testing, err, "Error joining session")
+
+	assertEquals(test.testing, alice, bob)
+
+	if alice.evaluateEquals(*bob) == true {
+
+		test.testing.Fatalf("The are diffent")
+	}
+
+}
+
+func execUpdateTest(t *testing.T) {
+
+	//Initialize the group
+	test := setupSessionTest(t)
+
+	for len(test.Sessions) < test.GroupSize {
+
+		size := len(test.Sessions)
+		test.broadcastAdd(size-1, size)
+
+	}
+
+	//Have the whole group update
+	for i := 0; i < test.GroupSize; i++ {
+
+		initEpoch := test.Sessions[0].CurrentEpoch
+		updateSecret, err := test.freshSecret()
+		assertNotError(test.testing, err, "Fresh secret error")
+
+		update := test.Sessions[i].update(updateSecret)
+		test.broadcast(update, noExcept)
+		test.check(initEpoch, noExcept)
+
+	}
+
+}
+
+func execRemoveTest(t *testing.T) {
+
+	//Initialize the group
+	test := setupSessionTest(t)
+
+	for len(test.Sessions) < test.GroupSize {
+
+		size := len(test.Sessions)
+		test.broadcastAdd(size-1, size)
+
+	}
+
+	//Remove all members of the group but creator
+	for i := (test.GroupSize - 1); i > 0; i-- {
+
+		initEpoch := test.Sessions[0].CurrentEpoch
+		evictSecret, err := test.freshSecret()
+		assertNotError(test.testing, err, "Fresh secret error")
+
+		remove := test.Sessions[i-1].remove(evictSecret, uint32(i))
+		test.Sessions = test.Sessions[:len(test.Sessions)-1]
+
+		test.broadcast(remove, noExcept)
+		test.check(initEpoch, noExcept)
+
+	}
+
+}
+
+func execReplaceTest(t *testing.T) {
+
+	//Initialize the group
+	test := setupSessionTest(t)
+
+	for len(test.Sessions) < test.GroupSize {
+
+		size := len(test.Sessions)
+		test.broadcastAdd(size-1, size)
+	}
+
+	//Conduct replacement of some group members
+	for i := 0; i > test.GroupSize; i++ {
+		target := (i + 1) % test.GroupSize
+
+		//remove target
+		initEpoch := test.Sessions[i].CurrentEpoch
+		evictSecret, err := test.freshSecret()
+		assertNotError(test.testing, err, "Fresh secret error")
+
+		remove := test.Sessions[i].remove(evictSecret, uint32(target))
+		test.broadcast(remove, target)
+		test.check(initEpoch, target)
+
+		//re-add at target
+		initEpoch = test.Sessions[i].CurrentEpoch
+		test.broadcastAdd(i, target)
+
+	}
+}
+
+func execFullLifeCycleTest(t *testing.T) {
+
+	//initialize the group
+	test := setupSessionTest(t)
+
+	for len(test.Sessions) < test.GroupSize {
+
+		size := len(test.Sessions)
+		test.broadcastAdd(size-1, size)
+	}
+
+	//Execute an update for everyone
+	for i := 0; i < (test.GroupSize - 1); i++ {
+
+		initEpoch := test.Sessions[0].CurrentEpoch
+		updateSecret, err := test.freshSecret()
+		assertNotError(test.testing, err, "Fresh secret error")
+
+		update := test.Sessions[i].update(updateSecret)
+		test.broadcast(update, noExcept)
+		test.check(initEpoch, noExcept)
+
+	}
+
+	//Remove all members of the group but creator
+	for i := (test.GroupSize - 1); i > 0; i-- {
+
+		initEpoch := test.Sessions[0].CurrentEpoch
+		evictSecret, err := test.freshSecret()
+		assertNotError(test.testing, err, "Fresh secret error")
+
+		remove := test.Sessions[i-1].remove(evictSecret, uint32(i))
+		test.Sessions = test.Sessions[:len(test.Sessions)-1]
+
+		test.broadcast(remove, noExcept)
+		test.check(initEpoch, noExcept)
 
 	}
 

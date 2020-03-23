@@ -26,7 +26,7 @@ type Session struct {
 
 //first attempt in go.  Neet to add error checking and test code
 
-func start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
+func startSession(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, initSecret []byte) (*Session, *Welcome, error) {
 
 	welcome, state, err := negotiateWithPeer(groupID, myCIKs, otherCIKs, initSecret)
 
@@ -45,7 +45,7 @@ func start(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInitKey, in
 	return sess, welcome, err
 }
 
-func join(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
+func joinSession(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 
 	sess := &Session{
 		CurrentEpoch:     0,
@@ -263,11 +263,10 @@ func (s *Session) evaluateEquals(sess Session) bool {
 		sessionState     map[Epoch]*State `tls:"omit"`
 	}
 
-	if s.CurrentEpoch != sess.CurrentEpoch || !reflect.DeepEqual(s.sessionState, sess.sessionState) || bytes.Compare(s.OutboundCache.data, sess.OutboundCache.data) != 0 {
+	if s.CurrentEpoch != sess.CurrentEpoch || !reflect.DeepEqual(s.sessionState, sess.sessionState) || bytes.Compare(s.OutboundCache.data, sess.OutboundCache.data) != 0 || s.EncryptHandshake != sess.EncryptHandshake {
 		return false
-	} else {
-
-		return true
 	}
+
+	return true
 
 }
