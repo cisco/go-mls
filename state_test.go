@@ -113,9 +113,9 @@ func TestStateTwoPerson(t *testing.T) {
 	assertTrue(t, first1.Equals(*second1), "State mismatch")
 
 	/// Verify that they can exchange protected messages
-	ct, err := first1.protect(testMessage)
+	ct, err := first1.Protect(testMessage)
 	assertNotError(t, err, "protect error")
-	pt, err := second1.unprotect(ct)
+	pt, err := second1.Unprotect(ct)
 	assertNotError(t, err, "unprotect failure")
 	assertByteEquals(t, pt, testMessage)
 }
@@ -166,9 +166,9 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 
 	// Verify that Alice and Bob can exchange protected messages
 	/// Verify that they can exchange protected messages
-	ct, err := alice2.protect(testMessage)
+	ct, err := alice2.Protect(testMessage)
 	assertNotError(t, err, "protect error")
-	pt, err := bob2.unprotect(ct)
+	pt, err := bob2.Unprotect(ct)
 	assertNotError(t, err, "unprotect failure")
 	assertByteEquals(t, pt, testMessage)
 }
@@ -207,12 +207,12 @@ func TestStateMulti(t *testing.T) {
 
 	// verify that everyone can send and be received
 	for i, s := range stateTest.states {
-		ct, _ := s.protect(testMessage)
+		ct, _ := s.Protect(testMessage)
 		for j, o := range stateTest.states {
 			if i == j {
 				continue
 			}
-			pt, _ := o.unprotect(ct)
+			pt, _ := o.Unprotect(ct)
 			assertByteEquals(t, pt, testMessage)
 		}
 	}

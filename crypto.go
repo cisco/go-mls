@@ -286,6 +286,10 @@ type SignaturePublicKey struct {
 	Data []byte `tls:"head=2"`
 }
 
+func (pub SignaturePublicKey) Equals(other SignaturePublicKey) bool {
+	return bytes.Equal(pub.Data, other.Data)
+}
+
 type SignatureScheme uint16
 
 const (
