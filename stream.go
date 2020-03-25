@@ -83,3 +83,7 @@ func (s *ReadStream) ReadAll(vals ...interface{}) (int, error) {
 func (s *ReadStream) Position() int {
 	return s.cursor
 }
+
+func (s ReadStream) Remaining() int {
+	return len(s.buffer) - s.cursor
+}

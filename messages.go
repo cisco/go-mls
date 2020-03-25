@@ -40,7 +40,7 @@ type ClientInitKey struct {
 	privateKey *HPKEPrivateKey `tls:"omit"`
 }
 
-func (cik ClientInitKey) GetPrivateKey() (HPKEPrivateKey, bool) {
+func (cik ClientInitKey) PrivateKey() (HPKEPrivateKey, bool) {
 	if cik.privateKey == nil {
 		return HPKEPrivateKey{}, false
 	}
@@ -51,6 +51,10 @@ func (cik ClientInitKey) GetPrivateKey() (HPKEPrivateKey, bool) {
 func (cik *ClientInitKey) SetPrivateKey(priv HPKEPrivateKey) {
 	cik.privateKey = &priv
 	cik.InitKey = priv.PublicKey
+}
+
+func (cik *ClientInitKey) RemovePrivateKey() {
+	cik.privateKey = nil
 }
 
 func (cik ClientInitKey) toBeSigned() ([]byte, error) {
@@ -198,17 +202,16 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 		return 0, fmt.Errorf("mls.proposal: Unmarshal failed for ProposalTpe")
 	}
 
-	var read int
 	switch proposalType {
 	case ProposalTypeAdd:
 		p.Add = new(AddProposal)
-		read, err = s.Read(p.Add)
+		_, err = s.Read(p.Add)
 	case ProposalTypeUpdate:
 		p.Update = new(UpdateProposal)
-		read, err = s.Read(p.Update)
+		_, err = s.Read(p.Update)
 	case ProposalTypeRemove:
 		p.Remove = new(RemoveProposal)
-		read, err = s.Read(p.Remove)
+		_, err = s.Read(p.Remove)
 	default:
 		err = fmt.Errorf("mls.proposal: ProposalType type not allowed")
 	}
@@ -217,7 +220,7 @@ func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
 		return 0, err
 	}
 
-	return read, nil
+	return s.Position(), nil
 }
 
 ///
@@ -666,6 +669,8 @@ func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, err
 	if err = gi.verify(); err != nil {
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
+
+	gi.Tree.CipherSuite = suite
 
 	return gi, nil
 }

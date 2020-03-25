@@ -340,7 +340,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (*Direct
 			pk := t.Nodes[rnode].Node.PublicKey
 			ct, err := t.CipherSuite.hpke().Encrypt(*pk, context, pathSecret)
 			if err != nil {
-				panic(fmt.Errorf("mls.rtn. Encap encrypt for resolve failed %v", err))
+				panic(fmt.Errorf("mls.rtn. Encap encrypt failed: %v", err))
 			}
 			pathNode.EncryptedPathSecrets = append(pathNode.EncryptedPathSecrets, ct)
 		}
