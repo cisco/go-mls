@@ -667,6 +667,14 @@ func (s State) verifyConfirmation(confirmation []byte) bool {
 	return true
 }
 
+func applyGuard(nonceIn []byte, reuseGuard [4]byte) []byte {
+	nonceOut := dup(nonceIn)
+	for i := range reuseGuard {
+		nonceOut[i] ^= reuseGuard[i]
+	}
+	return nonceOut
+}
+
 func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var generation uint32
 	var keys keyAndNonce
@@ -679,12 +687,11 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 		return nil, fmt.Errorf("mls.state: encrypt unknown content type")
 	}
 
+	var reuseGuard [4]byte
+	rand.Read(reuseGuard[:])
+
 	stream := NewWriteStream()
-	// skipping error checks since we are trying plain integers
-	err := stream.Write(s.Index)
-	if err == nil {
-		err = stream.Write(generation)
-	}
+	err := stream.WriteAll(s.Index, generation, reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
 	}
@@ -710,7 +717,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-	contentCt := aead.Seal(nil, keys.Nonce, content, aad)
+	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
 
 	// set up MLSCipherText
 	ct := &MLSCiphertext{
@@ -746,11 +753,9 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	// parse the senderData
 	var sender leafIndex
 	var generation uint32
+	var reuseGuard [4]byte
 	stream := NewReadStream(sd)
-	_, err = stream.Read(&sender)
-	if err == nil {
-		_, err = stream.Read(&generation)
-	}
+	_, err = stream.ReadAll(&sender, &generation, &reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
@@ -780,10 +785,8 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 	aad := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
-
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-
-	content, err := aead.Open(nil, keys.Nonce, ct.Ciphertext, aad)
+	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), ct.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
