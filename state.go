@@ -382,14 +382,6 @@ func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) er
 	return s.Tree.MergePublic(target, &update.LeafKey)
 }
 
-func (s *State) applyUpdateSecret(secret []byte) error {
-	err := s.Tree.BlankPath(s.Index, false)
-	if err != nil {
-		return err
-	}
-	return s.Tree.Merge(s.Index, secret)
-}
-
 func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
 	for _, id := range ids {
 		pt, ok := s.findProposal(id)
