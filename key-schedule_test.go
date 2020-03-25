@@ -26,7 +26,7 @@ func TestTreeBaseKeySource(t *testing.T) {
 // that it doesnt panic and produces outputs that are the right size.  We should
 // do actual interop testing.  There's not much between here and there.
 func TestKeySchedule(t *testing.T) {
-	suite := P256_SHA256_AES128GCM
+	suite := P256_AES128GCM_SHA256_P256
 	secretSize := suite.constants().SecretSize
 	keySize := suite.constants().KeySize
 	nonceSize := suite.constants().NonceSize
@@ -152,7 +152,7 @@ type KsTestVectors struct {
 /// Gen and Verify
 func generateKeyScheduleVectors(t *testing.T) []byte {
 	var tv KsTestVectors
-	suites := []CipherSuite{P256_SHA256_AES128GCM}
+	suites := []CipherSuite{P256_AES128GCM_SHA256_P256}
 	baseGrpCtx := GroupContext{
 		GroupID:                 []byte{0xA0, 0xA0, 0xA0, 0xA0},
 		Epoch:                   0,

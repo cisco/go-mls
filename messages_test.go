@@ -291,7 +291,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		Cases:           []MessageTestCase{},
 	}
 
-	suites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+	suites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
 	schemes := []SignatureScheme{ECDSA_SECP256R1_SHA256, Ed25519}
 
 	for i := range suites {
@@ -539,6 +539,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		var giWire GroupInfo
+		giWire.Tree.CipherSuite = suite
 		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
 		require.Nil(t, err)
 

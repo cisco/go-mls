@@ -366,6 +366,14 @@ func (s *State) apply(commit Commit) error {
 }
 
 func (s *State) applyAddProposal(add *AddProposal) error {
+	if add.ClientInitKey.CipherSuite != s.CipherSuite {
+		return fmt.Errorf("mls.state: new member CIK does not use group ciphersuite")
+	}
+
+	if !add.ClientInitKey.verify() {
+		return fmt.Errorf("mls.state: Invalid CIK")
+	}
+
 	target := s.Tree.LeftmostFree()
 	return s.Tree.AddLeaf(target, &add.ClientInitKey.InitKey, &add.ClientInitKey.Credential)
 }

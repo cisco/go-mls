@@ -23,17 +23,19 @@ import (
 type CipherSuite uint16
 
 const (
-	P256_SHA256_AES128GCM   CipherSuite = 0x0000
-	P521_SHA512_AES256GCM   CipherSuite = 0x0010
-	X25519_SHA256_AES128GCM CipherSuite = 0x0001
-	X448_SHA512_AES256GCM   CipherSuite = 0x0011
+	X25519_AES128GCM_SHA256_Ed25519        CipherSuite = 0x0001
+	P256_AES128GCM_SHA256_P256             CipherSuite = 0x0002
+	X25519_CHACHA20POLY1305_SHA256_Ed25519 CipherSuite = 0x0003 // UNSUPPORTED
+	X448_AES256GCM_SHA512_Ed448            CipherSuite = 0x0004 // UNSUPPORTED
+	P521_AES256GCM_SHA512_P521             CipherSuite = 0x0005
+	X448_CHACHA20POLY1305_SHA512_Ed448     CipherSuite = 0x0006 // UNSUPPORTED
 )
 
 func (cs CipherSuite) supported() bool {
 	switch cs {
-	case P256_SHA256_AES128GCM, P521_SHA512_AES256GCM:
-		fallthrough
-	case X25519_SHA256_AES128GCM, X448_SHA512_AES256GCM:
+	case X25519_AES128GCM_SHA256_Ed25519,
+		P256_AES128GCM_SHA256_P256,
+		P521_AES256GCM_SHA512_P521:
 		return true
 	}
 
@@ -42,14 +44,18 @@ func (cs CipherSuite) supported() bool {
 
 func (cs CipherSuite) String() string {
 	switch cs {
-	case P256_SHA256_AES128GCM:
-		return "P256_SHA256_AES128GCM"
-	case X25519_SHA256_AES128GCM:
-		return "X25519_SHA256_AES128GCM"
-	case P521_SHA512_AES256GCM:
-		return "P521_SHA512_AES256GCM"
-	case X448_SHA512_AES256GCM:
-		return "X448_SHA512_AES256GCM"
+	case X25519_AES128GCM_SHA256_Ed25519:
+		return "X25519_AES128GCM_SHA256_Ed25519"
+	case P256_AES128GCM_SHA256_P256:
+		return "P256_AES128GCM_SHA256_P256"
+	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
+		return "X25519_CHACHA20POLY1305_SHA256_Ed25519"
+	case X448_AES256GCM_SHA512_Ed448:
+		return "X448_AES256GCM_SHA512_Ed448"
+	case P521_AES256GCM_SHA512_P521:
+		return "P521_AES256GCM_SHA512_P521"
+	case X448_CHACHA20POLY1305_SHA512_Ed448:
+		return "X448_CHACHA20POLY1305_SHA512_Ed448"
 	}
 
 	return "UknownCiphersuite"
@@ -66,14 +72,47 @@ type cipherConstants struct {
 
 func (cs CipherSuite) constants() cipherConstants {
 	switch cs {
-	case P256_SHA256_AES128GCM:
-		return cipherConstants{16, 12, 32, hpke.DHKEM_P256, hpke.KDF_HKDF_SHA256, hpke.AEAD_AESGCM128}
-	case X25519_SHA256_AES128GCM:
-		return cipherConstants{16, 12, 32, hpke.DHKEM_X25519, hpke.KDF_HKDF_SHA256, hpke.AEAD_AESGCM128}
-	case P521_SHA512_AES256GCM:
-		return cipherConstants{32, 12, 64, hpke.DHKEM_P521, hpke.KDF_HKDF_SHA512, hpke.AEAD_AESGCM256}
-	case X448_SHA512_AES256GCM:
-		return cipherConstants{32, 12, 64, hpke.DHKEM_X448, hpke.KDF_HKDF_SHA512, hpke.AEAD_AESGCM256}
+	case X25519_AES128GCM_SHA256_Ed25519:
+		return cipherConstants{
+			KeySize:    16,
+			NonceSize:  12,
+			SecretSize: 32,
+			HPKEKEM:    hpke.DHKEM_X25519,
+			HPKEKDF:    hpke.KDF_HKDF_SHA256,
+			HPKEAEAD:   hpke.AEAD_AESGCM128,
+		}
+	case P256_AES128GCM_SHA256_P256:
+		return cipherConstants{
+			KeySize:    16,
+			NonceSize:  12,
+			SecretSize: 32,
+			HPKEKEM:    hpke.DHKEM_P256,
+			HPKEKDF:    hpke.KDF_HKDF_SHA256,
+			HPKEAEAD:   hpke.AEAD_AESGCM128,
+		}
+	case P521_AES256GCM_SHA512_P521:
+		return cipherConstants{
+			KeySize:    32,
+			NonceSize:  12,
+			SecretSize: 64,
+			HPKEKEM:    hpke.DHKEM_P256,
+			HPKEKDF:    hpke.KDF_HKDF_SHA512,
+			HPKEAEAD:   hpke.AEAD_AESGCM256,
+		}
+	}
+
+	fmt.Printf("!!! 1 %d", cs)
+	panic("Unsupported ciphersuite")
+}
+
+func (cs CipherSuite) scheme() SignatureScheme {
+	switch cs {
+	case X25519_AES128GCM_SHA256_Ed25519:
+		return Ed25519
+	case P256_AES128GCM_SHA256_P256:
+		return ECDSA_SECP256R1_SHA256
+	case P521_AES256GCM_SHA512_P521:
+		return ECDSA_SECP521R1_SHA512
 	}
 
 	panic("Unsupported ciphersuite")
@@ -81,13 +120,14 @@ func (cs CipherSuite) constants() cipherConstants {
 
 func (cs CipherSuite) newDigest() hash.Hash {
 	switch cs {
-	case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
+	case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
 		return sha256.New()
 
-	case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
+	case X448_AES256GCM_SHA512_Ed448, P521_AES256GCM_SHA512_P521:
 		return sha512.New()
 	}
 
+	fmt.Printf("!!! %d\n", cs)
 	panic("Unsupported ciphersuite")
 }
 
@@ -103,9 +143,9 @@ func (cs CipherSuite) newHMAC(key []byte) hash.Hash {
 
 func (cs CipherSuite) newAEAD(key []byte) (cipher.AEAD, error) {
 	switch cs {
-	case P256_SHA256_AES128GCM, P521_SHA512_AES256GCM:
+	case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
 		fallthrough
-	case X25519_SHA256_AES128GCM, X448_SHA512_AES256GCM:
+	case X448_AES256GCM_SHA512_Ed448, P521_AES256GCM_SHA512_P521:
 		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, err
@@ -294,12 +334,13 @@ type SignatureScheme uint16
 
 const (
 	ECDSA_SECP256R1_SHA256 SignatureScheme = 0x0403
+	ECDSA_SECP521R1_SHA512 SignatureScheme = 0x0603
 	Ed25519                SignatureScheme = 0x0807
 )
 
 func (ss SignatureScheme) supported() bool {
 	switch ss {
-	case ECDSA_SECP256R1_SHA256, Ed25519:
+	case ECDSA_SECP256R1_SHA256, ECDSA_SECP521R1_SHA512, Ed25519:
 		return true
 	}
 
@@ -310,6 +351,8 @@ func (ss SignatureScheme) String() string {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
 		return "ECDSA_SECP256R1_SHA256"
+	case ECDSA_SECP521R1_SHA512:
+		return "ECDSA_SECP521R1_SHA512"
 	case Ed25519:
 		return "Ed25519"
 	}
@@ -325,6 +368,20 @@ func (ss SignatureScheme) Derive(preSeed []byte) (SignaturePrivateKey, error) {
 		priv := h.Sum(nil)
 
 		curve := elliptic.P256()
+		x, y := curve.Params().ScalarBaseMult(priv)
+		pub := elliptic.Marshal(curve, x, y)
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
+
+	case ECDSA_SECP521R1_SHA512:
+		h := sha512.New()
+		h.Write(preSeed)
+		priv := h.Sum(nil)
+
+		curve := elliptic.P521()
 		x, y := curve.Params().ScalarBaseMult(priv)
 		pub := elliptic.Marshal(curve, x, y)
 		key := SignaturePrivateKey{
@@ -352,6 +409,20 @@ func (ss SignatureScheme) Generate() (SignaturePrivateKey, error) {
 	switch ss {
 	case ECDSA_SECP256R1_SHA256:
 		curve := elliptic.P256()
+		priv, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return SignaturePrivateKey{}, err
+		}
+
+		pub := elliptic.Marshal(curve, x, y)
+		key := SignaturePrivateKey{
+			Data:      priv,
+			PublicKey: SignaturePublicKey{pub},
+		}
+		return key, nil
+
+	case ECDSA_SECP521R1_SHA512:
+		curve := elliptic.P521()
 		priv, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
 		if err != nil {
 			return SignaturePrivateKey{}, err
@@ -398,6 +469,19 @@ func (ss SignatureScheme) Sign(priv *SignaturePrivateKey, message []byte) ([]byt
 		}
 		return ecPriv.Sign(rand.Reader, digest, nil)
 
+	case ECDSA_SECP521R1_SHA512:
+		h := sha512.New()
+		h.Write(message)
+		digest := h.Sum(nil)
+
+		ecPriv := &ecdsa.PrivateKey{
+			D: big.NewInt(0).SetBytes(priv.Data),
+			PublicKey: ecdsa.PublicKey{
+				Curve: elliptic.P521(),
+			},
+		}
+		return ecPriv.Sign(rand.Reader, digest, nil)
+
 	case Ed25519:
 		priv25519 := ed25519.PrivateKey(priv.Data)
 		return ed25519.Sign(priv25519, message), nil
@@ -413,6 +497,23 @@ func (ss SignatureScheme) Verify(pub *SignaturePublicKey, message, signature []b
 		digest := h.Sum(nil)
 
 		curve := elliptic.P256()
+		x, y := elliptic.Unmarshal(curve, pub.Data)
+
+		var sig ecdsaSignature
+		_, err := asn1.Unmarshal(signature, &sig)
+		if err != nil {
+			return false
+		}
+
+		ecPub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+		return ecdsa.Verify(ecPub, digest, sig.R, sig.S)
+
+	case ECDSA_SECP521R1_SHA512:
+		h := sha512.New()
+		h.Write(message)
+		digest := h.Sum(nil)
+
+		curve := elliptic.P521()
 		x, y := elliptic.Unmarshal(curve, pub.Data)
 
 		var sig ecdsaSignature
