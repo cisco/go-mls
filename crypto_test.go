@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 var supportedSuites = []CipherSuite{
@@ -36,9 +37,7 @@ func TestDigest(t *testing.T) {
 		}
 
 		d := suite.digest(in)
-		if !bytes.Equal(d, out) {
-			t.Fatalf("Incorrect digest: %x != %x", d, out)
-		}
+		require.Equal(t, d, out)
 	}
 }
 
@@ -75,24 +74,16 @@ func TestEncryptDecrypt(t *testing.T) {
 			}
 
 			aead, err := suite.newAEAD(key)
-			if err != nil {
-				t.Fatalf("Error creating AEAD: %v", err)
-			}
+			require.Nil(t, err)
 
 			// Test encryption
 			encrypted := aead.Seal(nil, nonce, pt, aad)
-			if !bytes.Equal(ct, encrypted) {
-				t.Fatalf("Incorrect encryption: %x != %x", ct, encrypted)
-			}
+			require.Equal(t, ct, encrypted)
 
 			// Test decryption
 			decrypted, err := aead.Open(nil, nonce, ct, aad)
-			if err != nil {
-				t.Fatalf("Error in decryption: %v", err)
-			}
-			if !bytes.Equal(pt, decrypted) {
-				t.Fatalf("Incorrect decryption: %x != %x", pt, decrypted)
-			}
+			require.Nil(t, err)
+			require.Equal(t, pt, decrypted)
 		}
 	}
 
@@ -109,17 +100,17 @@ func TestHPKE(t *testing.T) {
 	encryptDecrypt := func(suite CipherSuite) func(t *testing.T) {
 		return func(t *testing.T) {
 			priv, err := suite.hpke().Generate()
-			assertNotError(t, err, "Error generating HPKE key")
+			require.Nil(t, err)
 
 			priv, err = suite.hpke().Derive(seed)
-			assertNotError(t, err, "Error deriving HPKE key")
+			require.Nil(t, err)
 
 			encrypted, err := suite.hpke().Encrypt(priv.PublicKey, aad, original)
-			assertNotError(t, err, "Error in HPKE encryption")
+			require.Nil(t, err)
 
 			decrypted, err := suite.hpke().Decrypt(priv, aad, encrypted)
-			assertNotError(t, err, "Error in HPKE decryption")
-			assertByteEquals(t, original, decrypted)
+			require.Nil(t, err)
+			require.Equal(t, original, decrypted)
 		}
 	}
 
@@ -135,16 +126,16 @@ func TestSignVerify(t *testing.T) {
 	signVerify := func(scheme SignatureScheme) func(t *testing.T) {
 		return func(t *testing.T) {
 			priv, err := scheme.Generate()
-			assertNotError(t, err, "Error generating signing key")
+			require.Nil(t, err)
 
 			priv, err = scheme.Derive(seed)
-			assertNotError(t, err, "Error generating signing key")
+			require.Nil(t, err)
 
 			signature, err := scheme.Sign(&priv, message)
-			assertNotError(t, err, "Error signing")
+			require.Nil(t, err)
 
 			verified := scheme.Verify(&priv.PublicKey, message, signature)
-			assertTrue(t, verified, "Signature failed to verify")
+			require.True(t, verified)
 		}
 	}
 
@@ -194,32 +185,32 @@ func generateCryptoVectors(t *testing.T) []byte {
 
 		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
 		tc.DeriveKeyPairPub = priv.PublicKey
-		assertNotError(t, err, "Error deriving HPKE key pair")
+		require.Nil(t, err)
 
 		tc.HPKEOut, err = tc.CipherSuite.hpke().Encrypt(tc.DeriveKeyPairPub, tv.HPKEAAD, tv.HPKEPlaintext)
-		assertNotError(t, err, "Error in HPKE encryption")
+		require.Nil(t, err)
 	}
 
 	vec, err := syntax.Marshal(tv)
-	assertNotError(t, err, "Error marshaling test vectors")
+	require.Nil(t, err)
 	return vec
 }
 
 func verifyCryptoVectors(t *testing.T, data []byte) {
 	var tv CryptoTestVectors
 	_, err := syntax.Unmarshal(data, &tv)
-	assertNotError(t, err, "Malformed crypto test vectors")
+	require.Nil(t, err)
 
 	for _, tc := range tv.Cases {
 		hkdfExtractOut := tc.CipherSuite.hkdfExtract(tv.HKDFExtractSalt, tv.HKDFExtractIKM)
-		assertByteEquals(t, hkdfExtractOut, tc.HKDFExtractOut)
+		require.Equal(t, hkdfExtractOut, tc.HKDFExtractOut)
 
 		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
-		assertNotError(t, err, "Error deriving HPKE key pair")
-		assertByteEquals(t, priv.PublicKey.Data, tc.DeriveKeyPairPub.Data)
+		require.Nil(t, err)
+		require.Equal(t, priv.PublicKey.Data, tc.DeriveKeyPairPub.Data)
 
 		plaintext, err := tc.CipherSuite.hpke().Decrypt(priv, tv.HPKEAAD, tc.HPKEOut)
-		assertNotError(t, err, "Error in HPKE decryption")
-		assertDeepEquals(t, plaintext, tv.HPKEPlaintext)
+		require.Nil(t, err)
+		require.Equal(t, plaintext, tv.HPKEPlaintext)
 	}
 }

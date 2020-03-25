@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // To generate or verify test vectors, run `go test` with these environment
@@ -80,7 +82,7 @@ func vectorGenerate(c TestVectorCase, testDir string) func(t *testing.T) {
 		if len(testDir) != 0 {
 			file := filepath.Join(testDir, c.Filename)
 			err := ioutil.WriteFile(file, vec, 0644)
-			assertNotError(t, err, "Error writing test vectors")
+			require.Nil(t, err)
 		}
 	}
 }
@@ -99,7 +101,7 @@ func vectorVerify(c TestVectorCase, testDir string) func(t *testing.T) {
 		file := filepath.Join(testDir, c.Filename)
 		fmt.Printf("Test File %v\n", file)
 		vec, err := ioutil.ReadFile(file)
-		assertNotError(t, err, "Error reading test vectors")
+		require.Nil(t, err)
 
 		// Verify test vectors
 		c.Verify(t, vec)

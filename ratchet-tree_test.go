@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
-	"github.com/bifurcation/mint/syntax"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestRatchetTree(t *testing.T, cs CipherSuite, secrets [][]byte, creds []Credential) *RatchetTree {
@@ -115,17 +117,17 @@ var (
 
 func TestRatchetTreeOneMember(t *testing.T) {
 	tree := newTestRatchetTree(t, supportedSuites[0], [][]byte{secretA}, []Credential{credA})
-	assertTrue(t, tree.size() == 1, "size mismatch")
-	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, tree.size(), leafCount(1))
+	require.Equal(t, *tree.GetCredential(leafIndex(0)), credA)
 }
 
 func TestRatchetTreeMultipleMembers(t *testing.T) {
 	tree := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
-	assertTrue(t, tree.size() == 4, "size mismatch")
-	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
-	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
-	assertEquals(t, *tree.GetCredential(leafIndex(2)), credC)
-	assertEquals(t, *tree.GetCredential(leafIndex(3)), credD)
+	require.Equal(t, tree.size(), leafCount(4))
+	require.Equal(t, *tree.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, *tree.GetCredential(leafIndex(1)), credB)
+	require.Equal(t, *tree.GetCredential(leafIndex(2)), credC)
+	require.Equal(t, *tree.GetCredential(leafIndex(3)), credD)
 }
 
 func TestRatchetTreeByExtension(t *testing.T) {
@@ -139,9 +141,9 @@ func TestRatchetTreeByExtension(t *testing.T) {
 
 	tree.AddLeaf(leafIndex(0), &privA.PublicKey, &credA)
 	_, rootA := tree.Encap(leafIndex(0), []byte{}, secretA)
-	assertByteEquals(t, rootA, secretA)
-	assertByteEquals(t, tree.RootHash(), hashA)
-	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, rootA, secretA)
+	require.Equal(t, tree.RootHash(), hashA)
+	require.Equal(t, *tree.GetCredential(leafIndex(0)), credA)
 
 	// Add B
 	privB, err := cs.hpke().Derive(secretB)
@@ -150,13 +152,13 @@ func TestRatchetTreeByExtension(t *testing.T) {
 	}
 	tree.AddLeaf(leafIndex(1), &privB.PublicKey, &credB)
 	_, rootB := tree.Encap(leafIndex(1), []byte{}, secretB)
-	assertByteEquals(t, rootB, secretAB)
-	assertByteEquals(t, tree.RootHash(), hashAB)
-	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
+	require.Equal(t, rootB, secretAB)
+	require.Equal(t, tree.RootHash(), hashAB)
+	require.Equal(t, *tree.GetCredential(leafIndex(1)), credB)
 
 	// direct check
 	directAB := newTestRatchetTree(t, supportedSuites[0], allSecrets[:2], allCreds[:2])
-	assertTrue(t, directAB.Equals(tree), "TreeAB mismatch")
+	require.True(t, directAB.Equals(tree))
 
 	// Add C
 	privC, err := cs.hpke().Derive(secretC)
@@ -165,13 +167,13 @@ func TestRatchetTreeByExtension(t *testing.T) {
 	}
 	tree.AddLeaf(leafIndex(2), &privC.PublicKey, &credC)
 	_, rootC := tree.Encap(leafIndex(2), []byte{}, secretC)
-	assertByteEquals(t, rootC, secretABC)
-	assertEquals(t, *tree.GetCredential(leafIndex(2)), credC)
-	assertByteEquals(t, tree.RootHash(), hashABC)
+	require.Equal(t, rootC, secretABC)
+	require.Equal(t, *tree.GetCredential(leafIndex(2)), credC)
+	require.Equal(t, tree.RootHash(), hashABC)
 
 	// direct check
 	directABC := newTestRatchetTree(t, supportedSuites[0], allSecrets[:3], allCreds[:3])
-	assertTrue(t, directABC.Equals(tree), "TreeABC mismatch")
+	require.True(t, directABC.Equals(tree))
 
 	// Add D
 	privD, err := cs.hpke().Derive(secretD)
@@ -181,25 +183,25 @@ func TestRatchetTreeByExtension(t *testing.T) {
 
 	tree.AddLeaf(leafIndex(3), &privD.PublicKey, &credD)
 	_, rootD := tree.Encap(leafIndex(3), []byte{}, secretD)
-	assertByteEquals(t, rootD, secretABCD)
-	assertByteEquals(t, tree.RootHash(), hashABCD)
-	assertEquals(t, *tree.GetCredential(leafIndex(0)), credA)
-	assertEquals(t, *tree.GetCredential(leafIndex(1)), credB)
-	assertEquals(t, *tree.GetCredential(leafIndex(2)), credC)
-	assertEquals(t, *tree.GetCredential(leafIndex(3)), credD)
+	require.Equal(t, rootD, secretABCD)
+	require.Equal(t, tree.RootHash(), hashABCD)
+	require.Equal(t, *tree.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, *tree.GetCredential(leafIndex(1)), credB)
+	require.Equal(t, *tree.GetCredential(leafIndex(2)), credC)
+	require.Equal(t, *tree.GetCredential(leafIndex(3)), credD)
 
 	// direct check
 	directABCD := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
-	assertTrue(t, directABCD.Equals(tree), "TreeABCD mismatch")
+	require.True(t, directABCD.Equals(tree))
 }
 
 func TestRatchetTreeBySerialization(t *testing.T) {
 	before := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
 	after := newRatchetTree(supportedSuites[0])
 	enc, err := before.MarshalTLS()
-	assertNotError(t, err, "Tree marshal error")
+	require.Nil(t, err)
 	_, err = after.UnmarshalTLS(enc)
-	assertTrue(t, before.Equals(after), "Tree mismatch")
+	require.True(t, before.Equals(after))
 }
 
 func TestRatchetTreeEncryptDecrypt(t *testing.T) {
@@ -237,10 +239,10 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 
 	// Verify that all trees are equal and the invariants are satisfied
 	for i, tree := range trees {
-		assertTrue(t, tree.Equals(trees[0]), fmt.Sprintf("Tree %d differs", i))
-		assertEquals(t, int(tree.size()), size)
-		assertTrue(t, tree.checkCredentials(), "credential check failed")
-		assertTrue(t, tree.checkInvariant(leafIndex(i*2)), "check invariant failed")
+		require.True(t, tree.Equals(trees[0]), fmt.Sprintf("Tree %d differs", i))
+		require.Equal(t, int(tree.size()), size)
+		require.True(t, tree.checkCredentials())
+		require.True(t, tree.checkInvariant(leafIndex(i*2)))
 	}
 
 	// verify encrypt/decrypt
@@ -253,9 +255,9 @@ func TestRatchetTreeEncryptDecrypt(t *testing.T) {
 			}
 
 			decryptedSecret, err := dstTree.Decap(leafIndex(i), []byte{}, path)
-			assertNotError(t, err, "Error in decap()")
-			assertByteEquals(t, rootSecret, decryptedSecret)
-			assertTrue(t, srcTree.Equals(dstTree), "Failed update on decap()")
+			require.Nil(t, err)
+			require.Equal(t, rootSecret, decryptedSecret)
+			require.True(t, srcTree.Equals(dstTree))
 		}
 	}
 }
@@ -269,40 +271,40 @@ func TestRatchetTreeSecrets(t *testing.T) {
 
 	// Marshal the private and public parts
 	marshaledPub, err := syntax.Marshal(tree)
-	assertNotError(t, err, "Error in public marshal")
+	require.Nil(t, err)
 
 	marshaledPriv, err := syntax.Marshal(secrets)
-	assertNotError(t, err, "Error in private marshal")
+	require.Nil(t, err)
 
 	// Unmarshal the private and public parts
 	tree2 := newRatchetTree(suite)
 	secrets2 := TreeSecrets{}
 
 	_, err = syntax.Unmarshal(marshaledPub, tree2)
-	assertNotError(t, err, "Error in public unmarshal")
+	require.Nil(t, err)
 
 	_, err = syntax.Unmarshal(marshaledPriv, &secrets2)
-	assertNotError(t, err, "Error in public unmarshal")
+	require.Nil(t, err)
 
 	// Reassemble the tree
 	tree2.SetSecrets(secrets2)
 
 	// Compare public and private contents
-	assertDeepEquals(t, tree, tree2)
+	require.Equal(t, tree, tree2)
 }
 
 func TestRatchetTree_Clone(t *testing.T) {
 	tree := newTestRatchetTree(t, supportedSuites[0], allSecrets, allCreds)
-	assertTrue(t, tree.size() == 4, "size mismatch")
+	require.Equal(t, tree.size(), leafCount(4))
 
 	cloned := tree.clone()
-	assertTrue(t, cloned.size() == 4, "size mismatch")
-	assertEquals(t, *cloned.GetCredential(leafIndex(0)), credA)
-	assertEquals(t, *cloned.GetCredential(leafIndex(1)), credB)
-	assertEquals(t, *cloned.GetCredential(leafIndex(2)), credC)
-	assertEquals(t, *cloned.GetCredential(leafIndex(3)), credD)
+	require.Equal(t, cloned.size(), leafCount(4))
+	require.Equal(t, *cloned.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, *cloned.GetCredential(leafIndex(1)), credB)
+	require.Equal(t, *cloned.GetCredential(leafIndex(2)), credC)
+	require.Equal(t, *cloned.GetCredential(leafIndex(3)), credD)
 
-	assertTrue(t, tree.Equals(cloned), "clone is not equaled to its parent")
+	require.True(t, tree.Equals(cloned))
 }
 
 ///
@@ -376,7 +378,7 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 		for j := 0; j < leaves; j++ {
 			id := []byte{byte(j)}
 			sigPriv, err := scheme.Derive(id)
-			assertNotError(t, err, "sig error")
+			require.Nil(t, err)
 			sigPub := sigPriv.PublicKey
 			bc := &BasicCredential{
 				Identity:           id,
@@ -386,9 +388,9 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 			cred := Credential{Basic: bc}
 			tc.Credentials = append(tc.Credentials, cred)
 			priv, err := suite.hpke().Derive(tv.LeafSecrets[j].Data)
-			assertNotError(t, err, "hpke error")
+			require.Nil(t, err)
 			err = tree.AddLeaf(leafIndex(j), &priv.PublicKey, &cred)
-			assertNotError(t, err, "add leaf")
+			require.Nil(t, err)
 			tree.Encap(leafIndex(j), []byte{}, tv.LeafSecrets[j].Data)
 			tc.Trees = append(tc.Trees, treeToTreeNode(tree))
 		}
@@ -396,7 +398,7 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 		// blank out the even numbered leaves
 		for j := 0; j < leaves; j += 2 {
 			err := tree.BlankPath(leafIndex(j), true)
-			assertNotError(t, err, "blank path")
+			require.Nil(t, err)
 			tc.Trees = append(tc.Trees, treeToTreeNode(tree))
 		}
 
@@ -405,27 +407,27 @@ func generateRatchetTreeVectors(t *testing.T) []byte {
 	}
 
 	vec, err := syntax.Marshal(tv)
-	assertNotError(t, err, "Error marshaling test vectors")
+	require.Nil(t, err)
 	return vec
 }
 
-func assertTreeEq(t *testing.T, tn []TreeNode, tree *RatchetTree) bool {
+func requireTreesEqual(t *testing.T, tn []TreeNode, tree *RatchetTree) {
 	nodes := tree.Nodes
-	assertTrue(t, len(tn) == len(nodes), "nodes size mismatch")
+	require.Equal(t, len(tn), len(nodes))
 	for i := 0; i < len(tn); i++ {
-		assertTrue(t, bytes.Equal(tn[i].Hash, nodes[i].Hash), "hash mismatch")
+		require.True(t, bytes.Equal(tn[i].Hash, nodes[i].Hash))
 		if !nodes[i].blank() {
-			assertTrue(t, bytes.Equal(tn[i].PubKey.Data, nodes[i].Node.PublicKey.Data), "pubkey mismatch")
+			require.Equal(t, tn[i].PubKey.Data, nodes[i].Node.PublicKey.Data)
 		} else {
-			assertTrue(t, tn[i].PubKey == nil, "blank node mismatch")
+			require.Nil(t, tn[i].PubKey)
 		}
 	}
-	return true
 }
+
 func verifyRatchetTreeVectors(t *testing.T, data []byte) {
 	var tv RatchetTreeVectors
 	_, err := syntax.Unmarshal(data, &tv)
-	assertNotError(t, err, "Malformed test vectors")
+	require.Nil(t, err)
 
 	for _, tc := range tv.Cases {
 		suite := tc.CipherSuite
@@ -433,19 +435,19 @@ func verifyRatchetTreeVectors(t *testing.T, data []byte) {
 		var tci = 0
 		for i := 0; i < len(tv.LeafSecrets); i++ {
 			priv, err := suite.hpke().Derive(tv.LeafSecrets[i].Data)
-			assertNotError(t, err, "derive hpke")
+			require.Nil(t, err)
 			err = tree.AddLeaf(leafIndex(i), &priv.PublicKey, &tc.Credentials[i])
-			assertNotError(t, err, "add leaf")
+			require.Nil(t, err)
 			tree.Encap(leafIndex(i), []byte{}, tv.LeafSecrets[i].Data)
-			assertTrue(t, assertTreeEq(t, tc.Trees[tci], tree), "tree unequal")
+			requireTreesEqual(t, tc.Trees[tci], tree)
 			tci += 1
 		}
 
 		// blank even numbered leaves
 		for j := 0; j < len(tv.LeafSecrets); j += 2 {
 			err := tree.BlankPath(leafIndex(j), true)
-			assertNotError(t, err, "blank path")
-			assertTreeEq(t, tc.Trees[tci], tree)
+			require.Nil(t, err)
+			requireTreesEqual(t, tc.Trees[tci], tree)
 			tci += 1
 		}
 	}

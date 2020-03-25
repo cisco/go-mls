@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 // Precomputed answers for the tree on eleven elements:
@@ -181,14 +182,14 @@ func generateTreeMathVectors(t *testing.T) []byte {
 	}
 
 	vec, err := syntax.Marshal(tv)
-	assertNotError(t, err, "Error marshaling test vectors")
+	require.Nil(t, err)
 	return vec
 }
 
 func verifyTreeMathVectors(t *testing.T, data []byte) {
 	var tv TreeMathTestVectors
 	_, err := syntax.Unmarshal(data, &tv)
-	assertNotError(t, err, "Malformed tree math test vectors")
+	require.Nil(t, err)
 
 	tvLen := int(nodeWidth(tv.NumLeaves))
 	if len(tv.Root) != int(tv.NumLeaves) || len(tv.Left) != tvLen ||
@@ -197,13 +198,13 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 	}
 
 	for i := range tv.Root {
-		assertEquals(t, tv.Root[i], root(leafCount(i+1)))
+		require.Equal(t, tv.Root[i], root(leafCount(i+1)))
 	}
 
 	for i := range tv.Left {
-		assertEquals(t, tv.Left[i], left(nodeIndex(i)))
-		assertEquals(t, tv.Right[i], right(nodeIndex(i), tv.NumLeaves))
-		assertEquals(t, tv.Parent[i], parent(nodeIndex(i), tv.NumLeaves))
-		assertEquals(t, tv.Sibling[i], sibling(nodeIndex(i), tv.NumLeaves))
+		require.Equal(t, tv.Left[i], left(nodeIndex(i)))
+		require.Equal(t, tv.Right[i], right(nodeIndex(i), tv.NumLeaves))
+		require.Equal(t, tv.Parent[i], parent(nodeIndex(i), tv.NumLeaves))
+		require.Equal(t, tv.Sibling[i], sibling(nodeIndex(i), tv.NumLeaves))
 	}
 }

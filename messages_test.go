@@ -2,8 +2,10 @@ package mls
 
 import (
 	"bytes"
-	"github.com/bifurcation/mint/syntax"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -155,11 +157,11 @@ var (
 func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
 	return func(t *testing.T) {
 		encoded, err := syntax.Marshal(original)
-		assertNotError(t, err, "Fail to Marshal")
+		require.Nil(t, err)
 
 		_, err = syntax.Unmarshal(encoded, decoded)
-		assertNotError(t, err, "Fail to Unmarshal")
-		assertDeepEquals(t, decoded, original)
+		require.Nil(t, err)
+		require.Equal(t, decoded, original)
 	}
 }
 
@@ -182,9 +184,9 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	// a tree with 2 members
 	treeAB := newTestRatchetTree(t, supportedSuites[0], [][]byte{secretA, secretB}, []Credential{credA, credB})
-	assertTrue(t, treeAB.size() == 2, "size mismatch")
-	assertEquals(t, *treeAB.GetCredential(leafIndex(0)), credA)
-	assertEquals(t, *treeAB.GetCredential(leafIndex(1)), credB)
+	require.Equal(t, treeAB.size(), leafCount(2))
+	require.Equal(t, *treeAB.GetCredential(leafIndex(0)), credA)
+	require.Equal(t, *treeAB.GetCredential(leafIndex(1)), credB)
 
 	cs := supportedSuites[0]
 	secret, _ := getRandomBytes(32)
@@ -213,12 +215,12 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	// it matches.
 	ekp := w2.EncryptedKeyPackages[0]
 	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, ekp.EncryptedPackage)
-	assertNotError(t, err, "decryption error")
+	require.Nil(t, err)
 
 	w2kp := new(KeyPackage)
 	_, err = syntax.Unmarshal(pt, w2kp)
-	assertNotError(t, err, "unmarshal failure for decrypted KeyPackage")
-	assertByteEquals(t, epochSecret, w2kp.EpochSecret)
+	require.Nil(t, err)
+	require.Equal(t, epochSecret, w2kp.EpochSecret)
 }
 
 ///
@@ -257,21 +259,21 @@ type MessageTestVectors struct {
 //helpers
 
 func groupInfoMatch(t *testing.T, l, r GroupInfo) {
-	assertByteEquals(t, l.GroupID, r.GroupID)
-	assertEquals(t, l.Epoch, r.Epoch)
-	assertTrue(t, l.Tree.Equals(&r.Tree), "tree unequal")
-	assertByteEquals(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
-	assertByteEquals(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
-	assertByteEquals(t, l.Confirmation, r.Confirmation)
-	assertEquals(t, l.SignerIndex, r.SignerIndex)
-	assertByteEquals(t, l.Signature, r.Signature)
+	require.Equal(t, l.GroupID, r.GroupID)
+	require.Equal(t, l.Epoch, r.Epoch)
+	require.True(t, l.Tree.Equals(&r.Tree))
+	require.Equal(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
+	require.Equal(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
+	require.Equal(t, l.Confirmation, r.Confirmation)
+	require.Equal(t, l.SignerIndex, r.SignerIndex)
+	require.Equal(t, l.Signature, r.Signature)
 }
 
 func commitMatch(t *testing.T, l, r Commit) {
-	assertDeepEquals(t, l.Adds, r.Adds)
-	assertDeepEquals(t, l.Removes, r.Removes)
-	assertDeepEquals(t, l.Updates, r.Updates)
-	assertDeepEquals(t, l.Ignored, r.Ignored)
+	require.Equal(t, l.Adds, r.Adds)
+	require.Equal(t, l.Removes, r.Removes)
+	require.Equal(t, l.Updates, r.Updates)
+	require.Equal(t, l.Ignored, r.Ignored)
 }
 
 /// Gen and Verify
@@ -297,12 +299,12 @@ func generateMessageVectors(t *testing.T) []byte {
 		scheme := schemes[i]
 		// hpke
 		priv, err := suite.hpke().Derive(tv.DHSeed)
-		assertNotError(t, err, "priv key failure")
+		require.Nil(t, err)
 		pub := priv.PublicKey
 
 		// identity
 		sigPriv, err := scheme.Derive(tv.SigSeed)
-		assertNotError(t, err, "sigPriv failure")
+		require.Nil(t, err)
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
@@ -317,7 +319,7 @@ func generateMessageVectors(t *testing.T) []byte {
 			[]Credential{cred, cred, cred, cred})
 
 		err = ratchetTree.BlankPath(leafIndex(2), true)
-		assertNotError(t, err, "rtree blank path")
+		require.Nil(t, err)
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -331,7 +333,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		cikM, err := syntax.Marshal(cik)
-		assertNotError(t, err, "cik marshal")
+		require.Nil(t, err)
 
 		// Welcome
 
@@ -347,24 +349,24 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		giM, err := syntax.Marshal(gi)
-		assertNotError(t, err, "grpInfo marshal")
+		require.Nil(t, err)
 
 		kp := KeyPackage{
 			EpochSecret: tv.Random,
 		}
 
 		kpM, err := syntax.Marshal(kp)
-		assertNotError(t, err, "keyy package marshal")
+		require.Nil(t, err)
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
-		assertNotError(t, err, "encrypt ekp")
+		require.Nil(t, err)
 		ekp := EncryptedKeyPackage{
 			ClientInitKeyHash: tv.Random,
 			EncryptedPackage:  encPayload,
 		}
 
 		ekpM, err := syntax.Marshal(ekp)
-		assertNotError(t, err, "encrypted key package marshal")
+		require.Nil(t, err)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
@@ -373,7 +375,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		welcome.EncryptedGroupInfo = tv.Random
 
 		welM, err := syntax.Marshal(welcome)
-		assertNotError(t, err, "welcome marshal")
+		require.Nil(t, err)
 
 		// proposals
 		addProposal := &Proposal{
@@ -393,7 +395,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		addHs.Signature = Signature{tv.Random}
 
 		addM, err := syntax.Marshal(addHs)
-		assertNotError(t, err, "add HS marshal")
+		require.Nil(t, err)
 
 		updateProposal := &Proposal{
 			Update: &UpdateProposal{
@@ -412,7 +414,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		updateHs.Signature = Signature{tv.Random}
 
 		updateM, err := syntax.Marshal(updateHs)
-		assertNotError(t, err, "update HS marshal")
+		require.Nil(t, err)
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
@@ -431,7 +433,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		removeHs.Signature = Signature{tv.Random}
 
 		remM, err := syntax.Marshal(removeHs)
-		assertNotError(t, err, "remove HS marshal")
+		require.Nil(t, err)
 
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
@@ -444,7 +446,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		commitM, err := syntax.Marshal(commit)
-		assertNotError(t, err, "commit marshal")
+		require.Nil(t, err)
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
@@ -457,7 +459,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		ctM, err := syntax.Marshal(ct)
-		assertNotError(t, err, "MLSCiphertext marshal")
+		require.Nil(t, err)
 
 		tc := MessageTestCase{
 			CipherSuite:         suite,
@@ -477,24 +479,24 @@ func generateMessageVectors(t *testing.T) []byte {
 	}
 
 	vec, err := syntax.Marshal(tv)
-	assertNotError(t, err, "Error marshaling test vectors")
+	require.Nil(t, err)
 	return vec
 }
 
 func verifyMessageVectors(t *testing.T, data []byte) {
 	var tv MessageTestVectors
 	_, err := syntax.Unmarshal(data, &tv)
-	assertNotError(t, err, "Malformed message test vectors")
+	require.Nil(t, err)
 
 	for _, tc := range tv.Cases {
 		suite := tc.CipherSuite
 		scheme := tc.SignatureScheme
 		priv, err := suite.hpke().Derive(tv.DHSeed)
-		assertNotError(t, err, "hpke error")
+		require.Nil(t, err)
 		pub := priv.PublicKey
 
 		sigPriv, err := scheme.Derive(tv.SigSeed)
-		assertNotError(t, err, "sig error")
+		require.Nil(t, err)
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
@@ -509,7 +511,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			[]Credential{cred, cred, cred, cred})
 
 		err = ratchetTree.BlankPath(leafIndex(2), true)
-		assertNotError(t, err, "rtree blank path")
+		require.Nil(t, err)
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
@@ -522,8 +524,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Signature:        Signature{tv.Random},
 		}
 		cikM, err := syntax.Marshal(cik)
-		assertNotError(t, err, "cik marshal")
-		assertByteEquals(t, cikM, tc.ClientInitKey)
+		require.Nil(t, err)
+		require.Equal(t, cikM, tc.ClientInitKey)
 
 		// Welcome
 		gi := &GroupInfo{
@@ -539,7 +541,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		var giWire GroupInfo
 		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
-		assertNotError(t, err, "groupInfo unmarshal")
+		require.Nil(t, err)
 
 		groupInfoMatch(t, *gi, giWire)
 
@@ -548,18 +550,18 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		kpM, err := syntax.Marshal(kp)
-		assertNotError(t, err, "key package marshal")
-		assertByteEquals(t, kpM, tc.KeyPackage)
+		require.Nil(t, err)
+		require.Equal(t, kpM, tc.KeyPackage)
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
-		assertNotError(t, err, "encrypt ekp")
+		require.Nil(t, err)
 		ekp := EncryptedKeyPackage{
 			ClientInitKeyHash: tv.Random,
 			EncryptedPackage:  encPayload,
 		}
 		var ekpWire EncryptedKeyPackage
 		syntax.Unmarshal(tc.EncryptedKeyPackage, &ekpWire)
-		assertByteEquals(t, ekp.ClientInitKeyHash, ekpWire.ClientInitKeyHash)
+		require.Equal(t, ekp.ClientInitKeyHash, ekpWire.ClientInitKeyHash)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
@@ -569,9 +571,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		var welWire Welcome
 		syntax.Unmarshal(tc.Welcome, &welWire)
-		assertTrue(t, welcome.CipherSuite == welWire.CipherSuite, "welcome suite")
-		assertTrue(t, welcome.Version == welWire.Version, "welcome version")
-		assertByteEquals(t, welcome.EncryptedGroupInfo, welWire.EncryptedGroupInfo)
+		require.Equal(t, welcome.CipherSuite, welWire.CipherSuite)
+		require.Equal(t, welcome.Version, welWire.Version)
+		require.Equal(t, welcome.EncryptedGroupInfo, welWire.EncryptedGroupInfo)
 
 		// proposals
 		addProposal := &Proposal{
@@ -591,8 +593,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		addHs.Signature = Signature{tv.Random}
 
 		addM, err := syntax.Marshal(addHs)
-		assertNotError(t, err, "add HS marshal")
-		assertByteEquals(t, addM, tc.AddProposal)
+		require.Nil(t, err)
+		require.Equal(t, addM, tc.AddProposal)
 
 		updateProposal := &Proposal{
 			Update: &UpdateProposal{
@@ -611,8 +613,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		updateHs.Signature = Signature{tv.Random}
 
 		updateM, err := syntax.Marshal(updateHs)
-		assertNotError(t, err, "update HS marshal")
-		assertByteEquals(t, updateM, tc.UpdateProposal)
+		require.Nil(t, err)
+		require.Equal(t, updateM, tc.UpdateProposal)
 
 		removeProposal := &Proposal{
 			Remove: &RemoveProposal{
@@ -630,8 +632,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 		removeHs.Signature = Signature{tv.Random}
 		remM, err := syntax.Marshal(removeHs)
-		assertNotError(t, err, "remove HS marshal")
-		assertByteEquals(t, remM, tc.RemoveProposal)
+		require.Nil(t, err)
+		require.Equal(t, remM, tc.RemoveProposal)
 
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
@@ -644,7 +646,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
-		assertNotError(t, err, "commit marshal")
+		require.Nil(t, err)
 		commitMatch(t, commit, commitWire)
 
 		//MlsCiphertext
@@ -658,7 +660,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		ctM, err := syntax.Marshal(ct)
-		assertNotError(t, err, "MLSCiphertext marshal")
-		assertByteEquals(t, ctM, tc.MLSCiphertext)
+		require.Nil(t, err)
+		require.Equal(t, ctM, tc.MLSCiphertext)
 	}
 }

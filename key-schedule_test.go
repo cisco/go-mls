@@ -2,8 +2,10 @@ package mls
 
 import (
 	"bytes"
-	"github.com/bifurcation/mint/syntax"
 	"testing"
+
+	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 // XXX(rlb): Uncomment this to see a graphical illustration of how the
@@ -40,38 +42,38 @@ func TestKeySchedule(t *testing.T) {
 	targetGeneration := uint32(3)
 
 	checkEpoch := func(epoch *keyScheduleEpoch, size leafCount) {
-		assertEquals(t, epoch.Suite, suite)
-		assertEquals(t, len(epoch.EpochSecret), secretSize)
-		assertEquals(t, len(epoch.SenderDataSecret), secretSize)
-		assertEquals(t, len(epoch.SenderDataKey), keySize)
-		assertEquals(t, len(epoch.HandshakeSecret), secretSize)
-		assertEquals(t, len(epoch.ApplicationSecret), secretSize)
-		assertEquals(t, len(epoch.ConfirmationKey), secretSize)
-		assertEquals(t, len(epoch.InitSecret), secretSize)
-		assertNotNil(t, epoch.HandshakeKeys, "Missing handshake keys")
-		assertNotNil(t, epoch.HandshakeKeys, "Missing application keys")
+		require.Equal(t, epoch.Suite, suite)
+		require.Equal(t, len(epoch.EpochSecret), secretSize)
+		require.Equal(t, len(epoch.SenderDataSecret), secretSize)
+		require.Equal(t, len(epoch.SenderDataKey), keySize)
+		require.Equal(t, len(epoch.HandshakeSecret), secretSize)
+		require.Equal(t, len(epoch.ApplicationSecret), secretSize)
+		require.Equal(t, len(epoch.ConfirmationKey), secretSize)
+		require.Equal(t, len(epoch.InitSecret), secretSize)
+		require.NotNil(t, epoch.HandshakeKeys)
+		require.NotNil(t, epoch.HandshakeKeys)
 
 		for i := leafIndex(0); i < leafIndex(size); i += 1 {
 			// Test successful generation
 			hs, err := epoch.HandshakeKeys.Get(i, targetGeneration)
-			assertNotError(t, err, "Error in handshake key generation")
-			assertEquals(t, len(hs.Key), keySize)
-			assertEquals(t, len(hs.Nonce), nonceSize)
+			require.Nil(t, err)
+			require.Equal(t, len(hs.Key), keySize)
+			require.Equal(t, len(hs.Nonce), nonceSize)
 
 			app, err := epoch.ApplicationKeys.Get(i, targetGeneration)
-			assertNotError(t, err, "Error in handshake key generation")
-			assertEquals(t, len(app.Key), keySize)
-			assertEquals(t, len(app.Nonce), nonceSize)
+			require.Nil(t, err)
+			require.Equal(t, len(app.Key), keySize)
+			require.Equal(t, len(app.Nonce), nonceSize)
 
 			epoch.HandshakeKeys.Erase(i, targetGeneration)
 			epoch.ApplicationKeys.Erase(i, targetGeneration)
 
 			// Test forward secrecy
 			_, err = epoch.HandshakeKeys.Get(i, targetGeneration)
-			assertError(t, err, "Reused handshake key")
+			require.Error(t, err)
 
 			_, err = epoch.ApplicationKeys.Get(i, targetGeneration)
-			assertError(t, err, "Reused handshake key")
+			require.Error(t, err)
 		}
 	}
 
@@ -83,37 +85,37 @@ func TestKeySchedule(t *testing.T) {
 
 	// Check that marshal/unmarshal works
 	epoch2m, err := syntax.Marshal(epoch2)
-	assertNotError(t, err, "Error in key schedule marshal")
+	require.Nil(t, err)
 
 	var epoch2u keyScheduleEpoch
 	_, err = syntax.Unmarshal(epoch2m, &epoch2u)
-	assertNotError(t, err, "Error in key schedule unmarshal")
+	require.Nil(t, err)
 
 	epoch2u.enableKeySources()
 
 	// Verify that the contents match (not the group key generators)
-	assertDeepEquals(t, epoch2.Suite, epoch2u.Suite)
-	assertDeepEquals(t, epoch2.EpochSecret, epoch2u.EpochSecret)
-	assertDeepEquals(t, epoch2.SenderDataSecret, epoch2u.SenderDataSecret)
-	assertDeepEquals(t, epoch2.SenderDataKey, epoch2u.SenderDataKey)
-	assertDeepEquals(t, epoch2.HandshakeSecret, epoch2u.HandshakeSecret)
-	assertDeepEquals(t, epoch2.ApplicationSecret, epoch2u.ApplicationSecret)
-	assertDeepEquals(t, epoch2.ConfirmationKey, epoch2u.ConfirmationKey)
-	assertDeepEquals(t, epoch2.InitSecret, epoch2u.InitSecret)
-	assertDeepEquals(t, epoch2.HandshakeBaseKeys, epoch2u.HandshakeBaseKeys)
-	assertDeepEquals(t, epoch2.ApplicationBaseKeys, epoch2u.ApplicationBaseKeys)
-	assertDeepEquals(t, epoch2.HandshakeRatchets, epoch2u.HandshakeRatchets)
-	assertDeepEquals(t, epoch2.ApplicationRatchets, epoch2u.ApplicationRatchets)
+	require.Equal(t, epoch2.Suite, epoch2u.Suite)
+	require.Equal(t, epoch2.EpochSecret, epoch2u.EpochSecret)
+	require.Equal(t, epoch2.SenderDataSecret, epoch2u.SenderDataSecret)
+	require.Equal(t, epoch2.SenderDataKey, epoch2u.SenderDataKey)
+	require.Equal(t, epoch2.HandshakeSecret, epoch2u.HandshakeSecret)
+	require.Equal(t, epoch2.ApplicationSecret, epoch2u.ApplicationSecret)
+	require.Equal(t, epoch2.ConfirmationKey, epoch2u.ConfirmationKey)
+	require.Equal(t, epoch2.InitSecret, epoch2u.InitSecret)
+	require.Equal(t, epoch2.HandshakeBaseKeys, epoch2u.HandshakeBaseKeys)
+	require.Equal(t, epoch2.ApplicationBaseKeys, epoch2u.ApplicationBaseKeys)
+	require.Equal(t, epoch2.HandshakeRatchets, epoch2u.HandshakeRatchets)
+	require.Equal(t, epoch2.ApplicationRatchets, epoch2u.ApplicationRatchets)
 
 	// Verify that we can't get a key for the target generation (because it's
 	// already consumed)
 	_, err = epoch2u.HandshakeKeys.Get(0, targetGeneration)
-	assertError(t, err, "Replayed an already-used key")
+	require.Error(t, err)
 
 	// Verify that we can get one for the next epoch, and it's the same as the
 	// original key schedule would have produced
 	_, err = epoch2u.HandshakeKeys.Get(0, targetGeneration+1)
-	assertNotError(t, err, "Failed to get the next key")
+	require.Nil(t, err)
 }
 
 ///
@@ -159,7 +161,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 	}
 
 	encCtx, err := syntax.Marshal(baseGrpCtx)
-	assertNotError(t, err, "grp context marshal")
+	require.Nil(t, err)
 	tv.NumEpochs = 50
 	tv.TargetGeneration = 3
 	tv.BaseGroupContext = encCtx
@@ -216,19 +218,19 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 	}
 
 	vec, err := syntax.Marshal(tv)
-	assertNotError(t, err, "Error marshaling test vectors")
+	require.Nil(t, err)
 	return vec
 }
 
 func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 	var tv KsTestVectors
 	_, err := syntax.Unmarshal(data, &tv)
-	assertNotError(t, err, "Malformed message test vectors")
+	require.Nil(t, err)
 	for _, tc := range tv.Cases {
 		suite := tc.CipherSuite
 		var grpCtx GroupContext
 		_, err := syntax.Unmarshal(tv.BaseGroupContext, &grpCtx)
-		assertNotError(t, err, "grpCtx unmarshal")
+		require.Nil(t, err)
 		var myEpoch keyScheduleEpoch
 		myEpoch.Suite = suite
 		myEpoch.InitSecret = tv.BaseInitSecret
@@ -236,25 +238,25 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 			ctx, _ := syntax.Marshal(grpCtx)
 			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.UpdateSecret, ctx)
 			// check the secrets
-			assertByteEquals(t, myEpoch.EpochSecret, epoch.EpochSecret)
-			assertByteEquals(t, myEpoch.SenderDataSecret, epoch.SenderDataSecret)
-			assertByteEquals(t, myEpoch.SenderDataKey, epoch.SenderDataKey)
-			assertByteEquals(t, myEpoch.HandshakeSecret, epoch.HandshakeSecret)
-			assertByteEquals(t, myEpoch.ApplicationSecret, epoch.AppSecret)
-			assertByteEquals(t, myEpoch.ConfirmationKey, epoch.ConfirmationKey)
-			assertByteEquals(t, myEpoch.InitSecret, epoch.InitSecret)
+			require.Equal(t, myEpoch.EpochSecret, epoch.EpochSecret)
+			require.Equal(t, myEpoch.SenderDataSecret, epoch.SenderDataSecret)
+			require.Equal(t, myEpoch.SenderDataKey, epoch.SenderDataKey)
+			require.Equal(t, myEpoch.HandshakeSecret, epoch.HandshakeSecret)
+			require.Equal(t, myEpoch.ApplicationSecret, epoch.AppSecret)
+			require.Equal(t, myEpoch.ConfirmationKey, epoch.ConfirmationKey)
+			require.Equal(t, myEpoch.InitSecret, epoch.InitSecret)
 
 			//check the keys
 			for i := 0; leafCount(i) < epoch.NumMembers; i++ {
 				hs, err := myEpoch.HandshakeKeys.Get(leafIndex(i), tv.TargetGeneration)
-				assertNotError(t, err, "hs keys")
-				assertByteEquals(t, hs.Key, epoch.HandshakeKeys[i].Key)
-				assertByteEquals(t, hs.Nonce, epoch.HandshakeKeys[i].Nonce)
+				require.Nil(t, err)
+				require.Equal(t, hs.Key, epoch.HandshakeKeys[i].Key)
+				require.Equal(t, hs.Nonce, epoch.HandshakeKeys[i].Nonce)
 
 				as, err := myEpoch.ApplicationKeys.Get(leafIndex(i), tv.TargetGeneration)
-				assertNotError(t, err, "as keys")
-				assertByteEquals(t, as.Key, epoch.AppKeys[i].Key)
-				assertByteEquals(t, as.Nonce, epoch.AppKeys[i].Nonce)
+				require.Nil(t, err)
+				require.Equal(t, as.Key, epoch.AppKeys[i].Key)
+				require.Equal(t, as.Nonce, epoch.AppKeys[i].Nonce)
 
 			}
 			grpCtx.Epoch += 1
