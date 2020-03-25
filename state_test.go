@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -35,7 +36,7 @@ func setup(t *testing.T) StateTest {
 		cred := NewBasicCredential(userId, scheme, &sigPriv)
 		//cik gen
 		cik, err := NewClientInitKey(suite, cred)
-		assertNotError(t, err, "NewClientInitKey error")
+		require.Nil(t, err)
 		// save all the materials
 		stateTest.identityPrivs = append(stateTest.identityPrivs, sigPriv)
 		stateTest.credentials = append(stateTest.credentials, *cred)
@@ -57,18 +58,18 @@ func setupGroup(t *testing.T) StateTest {
 	for i := 1; i < groupSize; i++ {
 		add := states[0].Add(stateTest.clientInitKeys[i])
 		_, err := states[0].Handle(add)
-		assertNotError(t, err, "add failed")
+		require.Nil(t, err)
 	}
 
 	// commit the adds
 	secret, _ := getRandomBytes(32)
 	_, welcome, next, err := states[0].Commit(secret)
-	assertNotError(t, err, "commit add proposals failed")
+	require.Nil(t, err)
 	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
 		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
-		assertNotError(t, err, "initializing the state from welcome failed")
+		require.Nil(t, err)
 		states = append(states, *s)
 	}
 	stateTest.states = states
@@ -76,7 +77,7 @@ func setupGroup(t *testing.T) StateTest {
 	// Verify that the states are all equivalent
 	for _, lhs := range stateTest.states {
 		for _, rhs := range stateTest.states {
-			assertTrue(t, lhs.Equals(rhs), "State mismatch")
+			require.True(t, lhs.Equals(rhs))
 		}
 	}
 
@@ -98,26 +99,26 @@ func TestStateTwoPerson(t *testing.T) {
 	// add the second participant
 	add := first0.Add(stateTest.clientInitKeys[1])
 	_, err := first0.Handle(add)
-	assertNotError(t, err, "handle add failed")
+	require.Nil(t, err)
 
 	// commit adding the second participant
 	secret, _ := getRandomBytes(32)
 	_, welcome, first1, err := first0.Commit(secret)
-	assertNotError(t, err, "state_test. commit failed")
+	require.Nil(t, err)
 
 	// Initialize the second participant from the Welcome
 	second1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
-	assertNotError(t, err, "state_test: state creation using Welcome failed")
+	require.Nil(t, err)
 
 	// Verify that the two states are equivalent
-	assertTrue(t, first1.Equals(*second1), "State mismatch")
+	require.True(t, first1.Equals(*second1))
 
 	/// Verify that they can exchange protected messages
 	ct, err := first1.Protect(testMessage)
-	assertNotError(t, err, "protect error")
+	require.Nil(t, err)
 	pt, err := second1.Unprotect(ct)
-	assertNotError(t, err, "unprotect failure")
-	assertByteEquals(t, pt, testMessage)
+	require.Nil(t, err)
+	require.Equal(t, pt, testMessage)
 }
 
 func TestStateMarshalUnmarshal(t *testing.T) {
@@ -127,50 +128,50 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 
 	add := alice0.Add(stateTest.clientInitKeys[1])
 	_, err := alice0.Handle(add)
-	assertNotError(t, err, "Initial add failed")
+	require.Nil(t, err)
 
 	secret, _ := getRandomBytes(32)
 	_, welcome1, alice1, err := alice0.Commit(secret)
-	assertNotError(t, err, "Initial commit failed")
+	require.Nil(t, err)
 
 	// Marshal Alice's secret state
 	alice1priv, err := syntax.Marshal(alice1.GetSecrets())
-	assertNotError(t, err, "Error marshaling Alice private values")
+	require.Nil(t, err)
 
 	// Initialize Bob generate an Update+Commit
 	bob1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
-	assertNotError(t, err, "state_test: state creation using Welcome failed")
-	assertTrue(t, alice1.Equals(*bob1), "State mismatch")
+	require.Nil(t, err)
+	require.True(t, alice1.Equals(*bob1))
 
 	update := bob1.Update(secret)
 	_, err = bob1.Handle(update)
-	assertNotError(t, err, "Update failed at Bob")
+	require.Nil(t, err)
 
 	commit, _, bob2, err := bob1.Commit(secret)
-	assertNotError(t, err, "Update commit generation failed")
+	require.Nil(t, err)
 
 	// Recreate Alice from Welcome and secrets
 	alice1aPriv := StateSecrets{}
 	_, err = syntax.Unmarshal(alice1priv, &alice1aPriv)
-	assertNotError(t, err, "Error unmarshaling Alice private values")
+	require.Nil(t, err)
 
 	alice1a, err := NewStateFromWelcomeAndSecrets(*welcome1, alice1aPriv)
-	assertNotError(t, err, "Error importing group info from Welcome")
+	require.Nil(t, err)
 
 	// Verify that Alice can process Bob's Update+Commit
 	_, err = alice1a.Handle(update)
-	assertNotError(t, err, "Update failed at Alice")
+	require.Nil(t, err)
 
 	alice2, err := alice1a.Handle(commit)
-	assertNotError(t, err, "Update commit handling failed")
+	require.Nil(t, err)
 
 	// Verify that Alice and Bob can exchange protected messages
 	/// Verify that they can exchange protected messages
 	ct, err := alice2.Protect(testMessage)
-	assertNotError(t, err, "protect error")
+	require.Nil(t, err)
 	pt, err := bob2.Unprotect(ct)
-	assertNotError(t, err, "unprotect failure")
-	assertByteEquals(t, pt, testMessage)
+	require.Nil(t, err)
+	require.Equal(t, pt, testMessage)
 }
 
 func TestStateMulti(t *testing.T) {
@@ -183,25 +184,25 @@ func TestStateMulti(t *testing.T) {
 	for i := 1; i < groupSize; i++ {
 		add := stateTest.states[0].Add(stateTest.clientInitKeys[i])
 		_, err := stateTest.states[0].Handle(add)
-		assertNotError(t, err, "add failed")
+		require.Nil(t, err)
 	}
 
 	// commit the adds
 	secret, _ := getRandomBytes(32)
 	_, welcome, next, err := stateTest.states[0].Commit(secret)
-	assertNotError(t, err, "commit add proposals failed")
+	require.Nil(t, err)
 	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
 		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
-		assertNotError(t, err, "initializing the state from welcome failed")
+		require.Nil(t, err)
 		stateTest.states = append(stateTest.states, *s)
 	}
 
 	// Verify that the states are all equivalent
 	for _, lhs := range stateTest.states {
 		for _, rhs := range stateTest.states {
-			assertTrue(t, lhs.Equals(rhs), "State mismatch")
+			require.True(t, lhs.Equals(rhs))
 		}
 	}
 
@@ -213,7 +214,7 @@ func TestStateMulti(t *testing.T) {
 				continue
 			}
 			pt, _ := o.Unprotect(ct)
-			assertByteEquals(t, pt, testMessage)
+			require.Equal(t, pt, testMessage)
 		}
 	}
 }
@@ -231,7 +232,7 @@ func TestStateCipherNegotiation(t *testing.T) {
 	var aliceCiks []ClientInitKey
 	for _, s := range aliceSuites {
 		cik, err := NewClientInitKey(s, &aliceCred)
-		assertNotError(t, err, "NewClientInitKey error")
+		require.Nil(t, err)
 		aliceCiks = append(aliceCiks, *cik)
 	}
 
@@ -247,20 +248,20 @@ func TestStateCipherNegotiation(t *testing.T) {
 	var bobCiks []ClientInitKey
 	for _, s := range bobSuites {
 		cik, err := NewClientInitKey(s, &bobCred)
-		assertNotError(t, err, "NewClientInitKey error")
+		require.Nil(t, err)
 		bobCiks = append(bobCiks, *cik)
 	}
 
 	// Bob should choose P-256
 	secret, _ := getRandomBytes(32)
 	welcome, bobState, err := negotiateWithPeer(groupId, bobCiks, aliceCiks, secret)
-	assertNotError(t, err, "state negotiation failed")
+	require.Nil(t, err)
 
 	// Alice should also arrive at P-256
 	aliceState, err := NewJoinedState(aliceCiks, *welcome)
-	assertNotError(t, err, "state negotiation failed")
+	require.Nil(t, err)
 
-	assertTrue(t, aliceState.Equals(*bobState), "states are unequal")
+	require.True(t, aliceState.Equals(*bobState))
 }
 
 func TestStateUpdate(t *testing.T) {
@@ -270,23 +271,23 @@ func TestStateUpdate(t *testing.T) {
 		update := state.Update(leafSecret)
 		state.Handle(update)
 		commit, _, next, err := state.Commit(leafSecret)
-		assertNotError(t, err, "creator commit error")
+		require.Nil(t, err)
 
 		for j, other := range stateTest.states {
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
 				_, err := other.Handle(update)
-				assertNotError(t, err, "Update recipient proposal fail")
+				require.Nil(t, err)
 
 				newState, err := other.Handle(commit)
-				assertNotError(t, err, "Update recipient commit fail")
+				require.Nil(t, err)
 				stateTest.states[j] = *newState
 			}
 		}
 
 		for _, s := range stateTest.states {
-			assertTrue(t, stateTest.states[0].Equals(s), "states unequal")
+			require.True(t, stateTest.states[0].Equals(s))
 		}
 	}
 }
@@ -298,7 +299,7 @@ func TestStateRemove(t *testing.T) {
 		stateTest.states[i].Handle(remove)
 		secret, _ := getRandomBytes(32)
 		commit, _, next, err := stateTest.states[i].Commit(secret)
-		assertNotError(t, err, "remove error")
+		require.Nil(t, err)
 		stateTest.states = stateTest.states[:len(stateTest.states)-1]
 
 		for j, state := range stateTest.states {
@@ -307,13 +308,13 @@ func TestStateRemove(t *testing.T) {
 			} else {
 				state.Handle(remove)
 				newState, err := state.Handle(commit)
-				assertNotError(t, err, "remove processing error by others")
+				require.Nil(t, err)
 				stateTest.states[j] = *newState
 			}
 		}
 
 		for _, s := range stateTest.states {
-			assertTrue(t, s.Equals(stateTest.states[0]), "states unequal")
+			require.True(t, s.Equals(stateTest.states[0]))
 		}
 	}
 }

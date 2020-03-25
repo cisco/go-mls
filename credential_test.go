@@ -2,29 +2,31 @@ package mls
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBasicCredential(t *testing.T) {
 	identity := []byte("res ipsa")
 	scheme := Ed25519
 	priv, err := scheme.Generate()
-	assertNotError(t, err, "Error generating private key")
+	require.Nil(t, err)
 
 	cred := NewBasicCredential(identity, scheme, &priv)
-	assertTrue(t, cred.Equals(*cred), "Credential not equal to self")
-	assertEquals(t, cred.Type(), CredentialTypeBasic)
-	assertEquals(t, cred.Scheme(), scheme)
-	assertDeepEquals(t, *cred.PublicKey(), priv.PublicKey)
+	require.True(t, cred.Equals(*cred))
+	require.Equal(t, cred.Type(), CredentialTypeBasic)
+	require.Equal(t, cred.Scheme(), scheme)
+	require.Equal(t, *cred.PublicKey(), priv.PublicKey)
 }
 
 func TestCredentialErrorCases(t *testing.T) {
 	cred0 := Credential{nil, nil}
 
-	assertTrue(t, !cred0.Equals(cred0), "Bad credentials should not be equal")
-	assertEquals(t, cred0.Type(), CredentialTypeInvalid)
-	assertPanic(t, func() { cred0.PublicKey() }, "Public key for bad credential")
-	assertPanic(t, func() { cred0.Scheme() }, "Scheme for bad credential")
+	require.True(t, !cred0.Equals(cred0))
+	require.Equal(t, cred0.Type(), CredentialTypeInvalid)
+	require.Panics(t, func() { cred0.PublicKey() })
+	require.Panics(t, func() { cred0.Scheme() })
 
 	_, err := cred0.MarshalTLS()
-	assertError(t, err, "Marshal for bad credential")
+	require.Error(t, err)
 }
