@@ -87,7 +87,6 @@ var (
 		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
 		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
 		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Ignored: []ProposalID{{Hash: []byte{0x06, 0x07}}},
 		Path:    DirectPath{Nodes: nodes},
 	}
 
@@ -273,7 +272,6 @@ func commitMatch(t *testing.T, l, r Commit) {
 	require.Equal(t, l.Adds, r.Adds)
 	require.Equal(t, l.Removes, r.Removes)
 	require.Equal(t, l.Updates, r.Updates)
-	require.Equal(t, l.Ignored, r.Ignored)
 }
 
 /// Gen and Verify
@@ -441,7 +439,6 @@ func generateMessageVectors(t *testing.T) []byte {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Ignored: proposal,
 			Path:    *dp,
 		}
 
@@ -641,7 +638,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Ignored: proposal,
 			Path:    *dp,
 		}
 		var commitWire Commit
