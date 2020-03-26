@@ -583,22 +583,17 @@ func (t *RatchetTree) rootIndex() nodeIndex {
 	return root(t.size())
 }
 
-func (t *RatchetTree) nodeStep(pathSecret []byte) []byte {
-	return t.CipherSuite.hkdfExpandLabel(pathSecret, "node", []byte{}, t.CipherSuite.constants().SecretSize)
-}
-
 func (t *RatchetTree) pathStep(pathSecret []byte) []byte {
 	ps := t.CipherSuite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.CipherSuite.constants().SecretSize)
 	return ps
 }
 
 func (t *RatchetTree) newNode(pathSecret []byte) *RatchetTreeNode {
-	ns := t.nodeStep(pathSecret)
 	// TODO avoid direct construction
 	rtn := &RatchetTreeNode{
 		UnmergedLeaves: []leafIndex{},
 	}
-	rtn.setSecret(t.CipherSuite, ns)
+	rtn.setSecret(t.CipherSuite, pathSecret)
 	return rtn
 }
 

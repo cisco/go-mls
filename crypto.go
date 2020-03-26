@@ -261,15 +261,28 @@ func (h HPKEInstance) Generate() (HPKEPrivateKey, error) {
 }
 
 func (h HPKEInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
-	digest := h.BaseSuite.digest(seed)
+	keyPairSecretSize := 0
+	switch h.BaseSuite.constants().HPKEKEM {
+	case hpke.DHKEM_X25519:
+		keyPairSecretSize = 32
+	case hpke.DHKEM_P256:
+		keyPairSecretSize = 32
+	case hpke.DHKEM_P521:
+		keyPairSecretSize = 66
+	case hpke.DHKEM_X448:
+		keyPairSecretSize = 56
+	}
+
+	cs := h.BaseSuite
+	keyPairSecret := cs.hkdfExpandLabel(seed, "key pair", []byte{}, keyPairSecretSize)
 
 	var priv hpke.KEMPrivateKey
 	var err error
 	switch h.BaseSuite.constants().HPKEKEM {
 	case hpke.DHKEM_P256, hpke.DHKEM_P521, hpke.DHKEM_X25519:
-		priv, err = h.Suite.KEM.UnmarshalPrivate(digest)
+		priv, err = h.Suite.KEM.UnmarshalPrivate(keyPairSecret)
 	case hpke.DHKEM_X448:
-		priv, err = h.Suite.KEM.UnmarshalPrivate(digest[:56])
+		priv, err = h.Suite.KEM.UnmarshalPrivate(keyPairSecret)
 	}
 
 	if err != nil {
