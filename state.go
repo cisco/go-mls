@@ -95,9 +95,8 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 }
 
 func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
-	var kp KeyPackage
 	var clientInitKey ClientInitKey
-	var encKeyPackage EncryptedKeyPackage
+	var encGroupSecrets EncryptedGroupSecrets
 	var found = false
 	suite := welcome.CipherSuite
 	// extract the keyPackage for init secret
@@ -108,11 +107,11 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		}
 		cikhash := welcome.CipherSuite.digest(data)
 		// parse the encryptedKeyPackage to find our right cik
-		for _, ekp := range welcome.EncryptedKeyPackages {
-			found = bytes.Equal(cikhash, ekp.ClientInitKeyHash)
+		for _, egs := range welcome.Secrets {
+			found = bytes.Equal(cikhash, egs.KeyPackageHash)
 			if found {
 				clientInitKey = cik
-				encKeyPackage = ekp
+				encGroupSecrets = egs
 				break
 			}
 		}
@@ -137,18 +136,19 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: no signing key for init key")
 	}
 
-	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encKeyPackage.EncryptedPackage)
+	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
 	}
 
-	_, err = syntax.Unmarshal(pt, &kp)
+	var groupSecrets GroupSecrets
+	_, err = syntax.Unmarshal(pt, &groupSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: keyPkg unmarshal failure %v", err)
 	}
 
 	// Construct a new state based on the GroupInfo
-	s, signerIndex, confirmation, err := NewStateFromWelcome(suite, kp.EpochSecret, welcome)
+	s, signerIndex, confirmation, err := NewStateFromWelcome(suite, groupSecrets.EpochSecret, welcome)
 	if err != nil {
 		return nil, err
 	}
@@ -169,14 +169,14 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 
 	// implant the provided path secrets in the tree
 	commonAncestor := ancestor(s.Index, signerIndex)
-	_, err = s.Tree.Implant(commonAncestor, kp.PathSecret)
+	_, err = s.Tree.Implant(commonAncestor, groupSecrets.PathSecret)
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: groupCtx marshal failure %v", err)
 	}
 
-	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), kp.EpochSecret, encGrpCtx)
+	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), groupSecrets.EpochSecret, encGrpCtx)
 
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)

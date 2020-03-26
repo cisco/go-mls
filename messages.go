@@ -575,19 +575,19 @@ func (gi GroupInfo) verify() error {
 }
 
 ///
-/// KeyPackage
+/// GroupSecrets
 ///
-type KeyPackage struct {
+type GroupSecrets struct {
 	EpochSecret []byte `tls:"head=1"`
 	PathSecret  []byte `tls:"head=1"`
 }
 
 ///
-/// EncryptedKeyPackage
+/// EncryptedGroupSecrets
 ///
-type EncryptedKeyPackage struct {
-	ClientInitKeyHash []byte `tls:"head=1"`
-	EncryptedPackage  HPKECiphertext
+type EncryptedGroupSecrets struct {
+	KeyPackageHash        []byte `tls:"head=1"`
+	EncryptedGroupSecrets HPKECiphertext
 }
 
 ///
@@ -595,11 +595,11 @@ type EncryptedKeyPackage struct {
 ///
 
 type Welcome struct {
-	Version              uint8
-	CipherSuite          CipherSuite
-	EncryptedKeyPackages []EncryptedKeyPackage `tls:"head=4"`
-	EncryptedGroupInfo   []byte                `tls:"head=4"`
-	epochSecret          []byte                `tls:"omit"`
+	Version            uint8
+	CipherSuite        CipherSuite
+	Secrets            []EncryptedGroupSecrets `tls:"head=4"`
+	EncryptedGroupInfo []byte                  `tls:"head=4"`
+	epochSecret        []byte                  `tls:"omit"`
 }
 
 // XXX(rlb): The pattern we follow here basically locks us into having empty
@@ -645,7 +645,7 @@ func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
 	cikHash := w.CipherSuite.digest(data)
 
 	// Encrypt the group init secret to new member's public key
-	kp := KeyPackage{
+	kp := GroupSecrets{
 		EpochSecret: w.epochSecret,
 		PathSecret:  pathSecret,
 	}
@@ -655,17 +655,17 @@ func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
 		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
 	}
 
-	ep, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
+	egs, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))
 	}
 
 	// Assemble and append the key package
-	ekp := EncryptedKeyPackage{
-		ClientInitKeyHash: cikHash,
-		EncryptedPackage:  ep,
+	ekp := EncryptedGroupSecrets{
+		KeyPackageHash:        cikHash,
+		EncryptedGroupSecrets: egs,
 	}
-	w.EncryptedKeyPackages = append(w.EncryptedKeyPackages, ekp)
+	w.Secrets = append(w.Secrets, ekp)
 }
 
 func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, error) {

@@ -212,11 +212,11 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 
 	// decrypt the group init secret with C's privateKey and check if
 	// it matches.
-	ekp := w2.EncryptedKeyPackages[0]
-	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, ekp.EncryptedPackage)
+	egs := w2.Secrets[0]
+	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, egs.EncryptedGroupSecrets)
 	require.Nil(t, err)
 
-	w2kp := new(KeyPackage)
+	w2kp := new(GroupSecrets)
 	_, err = syntax.Unmarshal(pt, w2kp)
 	require.Nil(t, err)
 	require.Equal(t, epochSecret, w2kp.EpochSecret)
@@ -230,16 +230,16 @@ type MessageTestCase struct {
 	CipherSuite     CipherSuite
 	SignatureScheme SignatureScheme
 
-	ClientInitKey       []byte `tls:"head=4"`
-	GroupInfo           []byte `tls:"head=4"`
-	KeyPackage          []byte `tls:"head=4"`
-	EncryptedKeyPackage []byte `tls:"head=4"`
-	Welcome             []byte `tls:"head=4"`
-	AddProposal         []byte `tls:"head=4"`
-	UpdateProposal      []byte `tls:"head=4"`
-	RemoveProposal      []byte `tls:"head=4"`
-	Commit              []byte `tls:"head=4"`
-	MLSCiphertext       []byte `tls:"head=4"`
+	ClientInitKey         []byte `tls:"head=4"`
+	GroupInfo             []byte `tls:"head=4"`
+	GroupSecrets          []byte `tls:"head=4"`
+	EncryptedGroupSecrets []byte `tls:"head=4"`
+	Welcome               []byte `tls:"head=4"`
+	AddProposal           []byte `tls:"head=4"`
+	UpdateProposal        []byte `tls:"head=4"`
+	RemoveProposal        []byte `tls:"head=4"`
+	Commit                []byte `tls:"head=4"`
+	MLSCiphertext         []byte `tls:"head=4"`
 }
 
 type MessageTestVectors struct {
@@ -351,7 +351,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		giM, err := syntax.Marshal(gi)
 		require.Nil(t, err)
 
-		kp := KeyPackage{
+		kp := GroupSecrets{
 			EpochSecret: tv.Random,
 		}
 
@@ -360,18 +360,18 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
 		require.Nil(t, err)
-		ekp := EncryptedKeyPackage{
-			ClientInitKeyHash: tv.Random,
-			EncryptedPackage:  encPayload,
+		egs := EncryptedGroupSecrets{
+			KeyPackageHash:        tv.Random,
+			EncryptedGroupSecrets: encPayload,
 		}
 
-		ekpM, err := syntax.Marshal(ekp)
+		egsM, err := syntax.Marshal(egs)
 		require.Nil(t, err)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
 		welcome.CipherSuite = suite
-		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
 
 		welM, err := syntax.Marshal(welcome)
@@ -461,18 +461,18 @@ func generateMessageVectors(t *testing.T) []byte {
 		require.Nil(t, err)
 
 		tc := MessageTestCase{
-			CipherSuite:         suite,
-			SignatureScheme:     scheme,
-			ClientInitKey:       cikM,
-			GroupInfo:           giM,
-			KeyPackage:          kpM,
-			EncryptedKeyPackage: ekpM,
-			Welcome:             welM,
-			AddProposal:         addM,
-			UpdateProposal:      updateM,
-			RemoveProposal:      remM,
-			Commit:              commitM,
-			MLSCiphertext:       ctM,
+			CipherSuite:           suite,
+			SignatureScheme:       scheme,
+			ClientInitKey:         cikM,
+			GroupInfo:             giM,
+			GroupSecrets:          kpM,
+			EncryptedGroupSecrets: egsM,
+			Welcome:               welM,
+			AddProposal:           addM,
+			UpdateProposal:        updateM,
+			RemoveProposal:        remM,
+			Commit:                commitM,
+			MLSCiphertext:         ctM,
 		}
 		tv.Cases = append(tv.Cases, tc)
 	}
@@ -545,28 +545,28 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		groupInfoMatch(t, *gi, giWire)
 
-		kp := KeyPackage{
+		gs := GroupSecrets{
 			EpochSecret: tv.Random,
 		}
 
-		kpM, err := syntax.Marshal(kp)
+		gsM, err := syntax.Marshal(gs)
 		require.Nil(t, err)
-		require.Equal(t, kpM, tc.KeyPackage)
+		require.Equal(t, gsM, tc.GroupSecrets)
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
 		require.Nil(t, err)
-		ekp := EncryptedKeyPackage{
-			ClientInitKeyHash: tv.Random,
-			EncryptedPackage:  encPayload,
+		egs := EncryptedGroupSecrets{
+			KeyPackageHash:        tv.Random,
+			EncryptedGroupSecrets: encPayload,
 		}
-		var ekpWire EncryptedKeyPackage
-		syntax.Unmarshal(tc.EncryptedKeyPackage, &ekpWire)
-		require.Equal(t, ekp.ClientInitKeyHash, ekpWire.ClientInitKeyHash)
+		var egsWire EncryptedGroupSecrets
+		syntax.Unmarshal(tc.EncryptedGroupSecrets, &egsWire)
+		require.Equal(t, egs.KeyPackageHash, egsWire.KeyPackageHash)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
 		welcome.CipherSuite = suite
-		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
 
 		var welWire Welcome
