@@ -94,23 +94,23 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	return s, gi.SignerIndex, gi.Confirmation, nil
 }
 
-func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
-	var clientInitKey ClientInitKey
+func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
+	var keyPackage KeyPackage
 	var encGroupSecrets EncryptedGroupSecrets
 	var found = false
 	suite := welcome.CipherSuite
 	// extract the keyPackage for init secret
-	for idx, cik := range ciks {
-		data, err := syntax.Marshal(cik)
+	for idx, kp := range kps {
+		data, err := syntax.Marshal(kp)
 		if err != nil {
-			return nil, fmt.Errorf("mls.state: cik %d marshal failure %v", idx, err)
+			return nil, fmt.Errorf("mls.state: kp %d marshal failure %v", idx, err)
 		}
-		cikhash := welcome.CipherSuite.digest(data)
-		// parse the encryptedKeyPackage to find our right cik
+		kphash := welcome.CipherSuite.digest(data)
+		// parse the encryptedKeyPackage to find our right kp
 		for _, egs := range welcome.Secrets {
-			found = bytes.Equal(cikhash, egs.KeyPackageHash)
+			found = bytes.Equal(kphash, egs.KeyPackageHash)
 			if found {
-				clientInitKey = cik
+				keyPackage = kp
 				encGroupSecrets = egs
 				break
 			}
@@ -124,19 +124,19 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: unable to decrypt welcome message")
 	}
 
-	if clientInitKey.CipherSuite != welcome.CipherSuite {
+	if keyPackage.CipherSuite != welcome.CipherSuite {
 		return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
 	}
 
-	if clientInitKey.privateKey == nil {
+	if keyPackage.privateKey == nil {
 		return nil, fmt.Errorf("mls.state: no private key for init key")
 	}
 
-	if clientInitKey.Credential.privateKey == nil {
+	if keyPackage.Credential.privateKey == nil {
 		return nil, fmt.Errorf("mls.state: no signing key for init key")
 	}
 
-	pt, err := suite.hpke().Decrypt(*clientInitKey.privateKey, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
+	pt, err := suite.hpke().Decrypt(*keyPackage.privateKey, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
 	}
@@ -153,16 +153,16 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 		return nil, err
 	}
 
-	s.IdentityPriv = *clientInitKey.Credential.privateKey
-	s.Scheme = clientInitKey.Credential.Scheme()
+	s.IdentityPriv = *keyPackage.Credential.privateKey
+	s.Scheme = keyPackage.Credential.Scheme()
 
 	// add self to tree
-	index, res := s.Tree.Find(clientInitKey)
+	index, res := s.Tree.Find(keyPackage)
 	if !res {
 		return nil, fmt.Errorf("mls.state: new joiner not in the tree")
 	}
 	s.Index = index
-	err = s.Tree.MergePrivate(s.Index, clientInitKey.privateKey)
+	err = s.Tree.MergePrivate(s.Index, keyPackage.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -189,16 +189,16 @@ func NewJoinedState(ciks []ClientInitKey, welcome Welcome) (*State, error) {
 	return s, nil
 }
 
-func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commitSecret []byte) (*Welcome, *State, error) {
+func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecret []byte) (*Welcome, *State, error) {
 	var selected = false
-	var mySelectedCik, otherSelectedCik ClientInitKey
+	var mySelectedKP, otherSelectedKP KeyPackage
 
-	for _, mycik := range myCIKs {
-		for _, ocik := range otherCIKs {
-			if mycik.CipherSuite == ocik.CipherSuite && mycik.SupportedVersion == ocik.SupportedVersion {
+	for _, mykp := range myKPs {
+		for _, okp := range otherKPs {
+			if mykp.CipherSuite == okp.CipherSuite && mykp.SupportedVersion == okp.SupportedVersion {
 				selected = true
-				mySelectedCik = mycik
-				otherSelectedCik = ocik
+				mySelectedKP = mykp
+				otherSelectedKP = okp
 				break
 			}
 		}
@@ -211,9 +211,9 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 		return nil, nil, fmt.Errorf("mls.state: negotiation failure")
 	}
 
-	// init our state and add the negotiated peer's cik
-	s := NewEmptyState(groupID, mySelectedCik.CipherSuite, *mySelectedCik.privateKey, mySelectedCik.Credential)
-	add := s.Add(otherSelectedCik)
+	// init our state and add the negotiated peer's kp
+	s := NewEmptyState(groupID, mySelectedKP.CipherSuite, *mySelectedKP.privateKey, mySelectedKP.Credential)
+	add := s.Add(otherSelectedKP)
 	// update tree state
 	_, err := s.Handle(add)
 	if err != nil {
@@ -228,10 +228,10 @@ func negotiateWithPeer(groupID []byte, myCIKs, otherCIKs []ClientInitKey, commit
 	return welcome, newState, nil
 }
 
-func (s State) Add(cik ClientInitKey) *MLSPlaintext {
+func (s State) Add(kp KeyPackage) *MLSPlaintext {
 	addProposal := Proposal{
 		Add: &AddProposal{
-			ClientInitKey: cik,
+			KeyPackage: kp,
 		},
 	}
 	return s.sign(addProposal)
@@ -266,7 +266,7 @@ func (s *State) Remove(removed leafIndex) *MLSPlaintext {
 
 func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
 	commit := Commit{}
-	var joiners []ClientInitKey
+	var joiners []KeyPackage
 
 	for _, pp := range s.PendingProposals {
 		pid := s.proposalID(pp)
@@ -274,7 +274,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		switch proposal.Type() {
 		case ProposalTypeAdd:
 			commit.Adds = append(commit.Adds, pid)
-			joiners = append(joiners, proposal.Add.ClientInitKey)
+			joiners = append(joiners, proposal.Add.KeyPackage)
 		case ProposalTypeUpdate:
 			commit.Updates = append(commit.Updates, pid)
 		case ProposalTypeRemove:
@@ -323,8 +323,8 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi)
 	pathSecrets := next.Tree.PathSecrets(toNodeIndex(next.Index), leafSecret)
-	for _, cik := range joiners {
-		leaf, ok := next.Tree.Find(cik)
+	for _, kp := range joiners {
+		leaf, ok := next.Tree.Find(kp)
 		if !ok {
 			return nil, nil, nil, fmt.Errorf("mls.state: New joiner not in tree")
 		}
@@ -335,7 +335,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
 		}
 
-		welcome.EncryptTo(cik, pathSecret)
+		welcome.EncryptTo(kp, pathSecret)
 	}
 
 	return pt, welcome, next, nil
@@ -366,16 +366,16 @@ func (s *State) apply(commit Commit) error {
 }
 
 func (s *State) applyAddProposal(add *AddProposal) error {
-	if add.ClientInitKey.CipherSuite != s.CipherSuite {
-		return fmt.Errorf("mls.state: new member CIK does not use group ciphersuite")
+	if add.KeyPackage.CipherSuite != s.CipherSuite {
+		return fmt.Errorf("mls.state: new member kp does not use group ciphersuite")
 	}
 
-	if !add.ClientInitKey.verify() {
-		return fmt.Errorf("mls.state: Invalid CIK")
+	if !add.KeyPackage.verify() {
+		return fmt.Errorf("mls.state: Invalid kp")
 	}
 
 	target := s.Tree.LeftmostFree()
-	return s.Tree.AddLeaf(target, &add.ClientInitKey.InitKey, &add.ClientInitKey.Credential)
+	return s.Tree.AddLeaf(target, &add.KeyPackage.InitKey, &add.KeyPackage.Credential)
 }
 
 func (s *State) applyRemoveProposal(remove *RemoveProposal) error {

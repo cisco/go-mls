@@ -7,7 +7,7 @@ import (
 )
 
 ///
-/// ClientInitKey
+/// KeyPackage
 ///
 type ExtensionType uint16
 
@@ -30,7 +30,7 @@ const (
 	SupportedVersionMLS10 = 0
 )
 
-type ClientInitKey struct {
+type KeyPackage struct {
 	SupportedVersion SupportedVersion
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
@@ -40,24 +40,24 @@ type ClientInitKey struct {
 	privateKey *HPKEPrivateKey `tls:"omit"`
 }
 
-func (cik ClientInitKey) PrivateKey() (HPKEPrivateKey, bool) {
-	if cik.privateKey == nil {
+func (kp KeyPackage) PrivateKey() (HPKEPrivateKey, bool) {
+	if kp.privateKey == nil {
 		return HPKEPrivateKey{}, false
 	}
 
-	return *cik.privateKey, true
+	return *kp.privateKey, true
 }
 
-func (cik *ClientInitKey) SetPrivateKey(priv HPKEPrivateKey) {
-	cik.privateKey = &priv
-	cik.InitKey = priv.PublicKey
+func (kp *KeyPackage) SetPrivateKey(priv HPKEPrivateKey) {
+	kp.privateKey = &priv
+	kp.InitKey = priv.PublicKey
 }
 
-func (cik *ClientInitKey) RemovePrivateKey() {
-	cik.privateKey = nil
+func (kp *KeyPackage) RemovePrivateKey() {
+	kp.privateKey = nil
 }
 
-func (cik ClientInitKey) toBeSigned() ([]byte, error) {
+func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	enc, err := syntax.Marshal(struct {
 		Version     SupportedVersion
 		CipherSuite CipherSuite
@@ -65,11 +65,11 @@ func (cik ClientInitKey) toBeSigned() ([]byte, error) {
 		Credential  Credential
 		//Extensions  ExtensionList
 	}{
-		Version:     cik.SupportedVersion,
-		CipherSuite: cik.CipherSuite,
-		InitKey:     cik.InitKey,
-		Credential:  cik.Credential,
-		//Extensions:  cik.Extensions,
+		Version:     kp.SupportedVersion,
+		CipherSuite: kp.CipherSuite,
+		InitKey:     kp.InitKey,
+		Credential:  kp.Credential,
+		//Extensions:  kp.Extensions,
 	})
 
 	if err != nil {
@@ -79,50 +79,50 @@ func (cik ClientInitKey) toBeSigned() ([]byte, error) {
 	return enc, nil
 }
 
-func (cik *ClientInitKey) sign() error {
-	tbs, err := cik.toBeSigned()
+func (kp *KeyPackage) sign() error {
+	tbs, err := kp.toBeSigned()
 	if err != nil {
 		return err
 	}
 
-	sig, err := cik.Credential.Scheme().Sign(cik.Credential.privateKey, tbs)
+	sig, err := kp.Credential.Scheme().Sign(kp.Credential.privateKey, tbs)
 	if err != nil {
 		return err
 	}
 
-	cik.Signature = Signature{sig}
+	kp.Signature = Signature{sig}
 	return nil
 }
 
-func (cik ClientInitKey) verify() bool {
-	if cik.CipherSuite.scheme() != cik.Credential.Scheme() {
+func (kp KeyPackage) verify() bool {
+	if kp.CipherSuite.scheme() != kp.Credential.Scheme() {
 		return false
 	}
 
-	tbs, err := cik.toBeSigned()
+	tbs, err := kp.toBeSigned()
 	if err != nil {
 		return false
 	}
 
-	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data)
+	return kp.Credential.Scheme().Verify(kp.Credential.PublicKey(), tbs, kp.Signature.Data)
 }
 
-func NewClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
+func NewKeyPackage(suite CipherSuite, cred *Credential) (*KeyPackage, error) {
 	priv, err := suite.hpke().Generate()
 	if err != nil {
-		return nil, fmt.Errorf("mls.cik: private key generation failure %v", err)
+		return nil, fmt.Errorf("mls.kp: private key generation failure %v", err)
 	}
-	cik := new(ClientInitKey)
-	cik.SupportedVersion = SupportedVersionMLS10
-	cik.CipherSuite = suite
-	cik.InitKey = priv.PublicKey
-	cik.Credential = *cred
-	cik.privateKey = &priv
-	err = cik.sign()
+	kp := new(KeyPackage)
+	kp.SupportedVersion = SupportedVersionMLS10
+	kp.CipherSuite = suite
+	kp.InitKey = priv.PublicKey
+	kp.Credential = *cred
+	kp.privateKey = &priv
+	err = kp.sign()
 	if err != nil {
-		return nil, fmt.Errorf("mls.cik: sign marshal failure %v", err)
+		return nil, fmt.Errorf("mls.kp: sign marshal failure %v", err)
 	}
-	return cik, nil
+	return kp, nil
 }
 
 ///
@@ -142,7 +142,7 @@ func (pt ProposalType) ValidForTLS() error {
 }
 
 type AddProposal struct {
-	ClientInitKey ClientInitKey
+	KeyPackage KeyPackage
 }
 
 type UpdateProposal struct {
@@ -635,34 +635,34 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 	}
 }
 
-func (w *Welcome) EncryptTo(cik ClientInitKey, pathSecret []byte) {
-	// Compute the hash of the CIK
-	data, err := syntax.Marshal(cik)
+func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
+	// Compute the hash of the kp
+	data, err := syntax.Marshal(kp)
 	if err != nil {
-		panic(fmt.Errorf("mls.welcome: CIK marshal failure %v", err))
+		panic(fmt.Errorf("mls.welcome: kp marshal failure %v", err))
 	}
 
-	cikHash := w.CipherSuite.digest(data)
+	kpHash := w.CipherSuite.digest(data)
 
 	// Encrypt the group init secret to new member's public key
-	kp := GroupSecrets{
+	gs := GroupSecrets{
 		EpochSecret: w.epochSecret,
 		PathSecret:  pathSecret,
 	}
 
-	pt, err := syntax.Marshal(kp)
+	pt, err := syntax.Marshal(gs)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: KeyPackage marshal failure %v", err))
 	}
 
-	egs, err := w.CipherSuite.hpke().Encrypt(cik.InitKey, []byte{}, pt)
+	egs, err := w.CipherSuite.hpke().Encrypt(kp.InitKey, []byte{}, pt)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: encrpyting KeyPackage failure %v", err))
 	}
 
 	// Assemble and append the key package
 	ekp := EncryptedGroupSecrets{
-		KeyPackageHash:        cikHash,
+		KeyPackageHash:        kpHash,
 		EncryptedGroupSecrets: egs,
 	}
 	w.Secrets = append(w.Secrets, ekp)
