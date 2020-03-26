@@ -18,32 +18,32 @@ var (
 )
 
 type StateTest struct {
-	identityPrivs  []SignaturePrivateKey
-	credentials    []Credential
-	initPrivs      []HPKEPrivateKey
-	clientInitKeys []ClientInitKey
-	states         []State
+	identityPrivs []SignaturePrivateKey
+	credentials   []Credential
+	initPrivs     []HPKEPrivateKey
+	keyPackages   []KeyPackage
+	states        []State
 }
 
 func setup(t *testing.T) StateTest {
 	stateTest := StateTest{}
-	stateTest.clientInitKeys = make([]ClientInitKey, groupSize)
+	stateTest.keyPackages = make([]KeyPackage, groupSize)
 	scheme := suite.scheme()
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
 		sigPriv, _ := scheme.Generate()
 		cred := NewBasicCredential(userId, scheme, &sigPriv)
-		//cik gen
-		cik, err := NewClientInitKey(suite, cred)
+		//kp gen
+		kp, err := NewKeyPackage(suite, cred)
 		require.Nil(t, err)
 		// save all the materials
 		stateTest.identityPrivs = append(stateTest.identityPrivs, sigPriv)
 		stateTest.credentials = append(stateTest.credentials, *cred)
 		stateTest.initPrivs = append(stateTest.initPrivs, ikPriv)
-		stateTest.clientInitKeys[i] = *cik
-		cik = nil
-		//dump(clientInitKeys)
+		stateTest.keyPackages[i] = *kp
+		kp = nil
+		//dump(keyPackages)
 	}
 	return stateTest
 }
@@ -56,7 +56,7 @@ func setupGroup(t *testing.T) StateTest {
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := states[0].Add(stateTest.clientInitKeys[i])
+		add := states[0].Add(stateTest.keyPackages[i])
 		_, err := states[0].Handle(add)
 		require.Nil(t, err)
 	}
@@ -68,7 +68,7 @@ func setupGroup(t *testing.T) StateTest {
 	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
+		s, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[i]}, *welcome)
 		require.Nil(t, err)
 		states = append(states, *s)
 	}
@@ -84,20 +84,20 @@ func setupGroup(t *testing.T) StateTest {
 	return stateTest
 }
 
-func dump(ciks []ClientInitKey) {
+func dump(kps []KeyPackage) {
 	fmt.Println("---- DUMP -----")
-	for _, cik := range ciks {
-		fmt.Printf("priv %x pub %x\n", cik.privateKey.Data, cik.InitKey.Data)
+	for _, kp := range kps {
+		fmt.Printf("priv %x pub %x\n", kp.privateKey.Data, kp.InitKey.Data)
 	}
 }
 
 func TestStateTwoPerson(t *testing.T) {
 	stateTest := setup(t)
 	// creator's state
-	// dump(clientInitKeys)
+	// dump(keyPackages)
 	first0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
 	// add the second participant
-	add := first0.Add(stateTest.clientInitKeys[1])
+	add := first0.Add(stateTest.keyPackages[1])
 	_, err := first0.Handle(add)
 	require.Nil(t, err)
 
@@ -107,7 +107,7 @@ func TestStateTwoPerson(t *testing.T) {
 	require.Nil(t, err)
 
 	// Initialize the second participant from the Welcome
-	second1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome)
+	second1, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[1]}, *welcome)
 	require.Nil(t, err)
 
 	// Verify that the two states are equivalent
@@ -126,7 +126,7 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	stateTest := setup(t)
 	alice0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
 
-	add := alice0.Add(stateTest.clientInitKeys[1])
+	add := alice0.Add(stateTest.keyPackages[1])
 	_, err := alice0.Handle(add)
 	require.Nil(t, err)
 
@@ -139,7 +139,7 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	require.Nil(t, err)
 
 	// Initialize Bob generate an Update+Commit
-	bob1, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[1]}, *welcome1)
+	bob1, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[1]}, *welcome1)
 	require.Nil(t, err)
 	require.True(t, alice1.Equals(*bob1))
 
@@ -182,7 +182,7 @@ func TestStateMulti(t *testing.T) {
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := stateTest.states[0].Add(stateTest.clientInitKeys[i])
+		add := stateTest.states[0].Add(stateTest.keyPackages[i])
 		_, err := stateTest.states[0].Handle(add)
 		require.Nil(t, err)
 	}
@@ -194,7 +194,7 @@ func TestStateMulti(t *testing.T) {
 	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := NewJoinedState([]ClientInitKey{stateTest.clientInitKeys[i]}, *welcome)
+		s, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[i]}, *welcome)
 		require.Nil(t, err)
 		stateTest.states = append(stateTest.states, *s)
 	}
@@ -230,11 +230,11 @@ func TestStateCipherNegotiation(t *testing.T) {
 	}
 	aliceCred := Credential{Basic: aliceBc, privateKey: &alicePriv}
 	aliceSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
-	var aliceCiks []ClientInitKey
+	var aliceKPs []KeyPackage
 	for _, s := range aliceSuites {
-		cik, err := NewClientInitKey(s, &aliceCred)
+		kp, err := NewKeyPackage(s, &aliceCred)
 		require.Nil(t, err)
-		aliceCiks = append(aliceCiks, *cik)
+		aliceKPs = append(aliceKPs, *kp)
 	}
 
 	// Bob spuports P-256 and P-521
@@ -246,20 +246,20 @@ func TestStateCipherNegotiation(t *testing.T) {
 	}
 	bobCred := Credential{Basic: bobBc, privateKey: &bobPriv}
 	bobSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
-	var bobCiks []ClientInitKey
+	var bobKPs []KeyPackage
 	for _, s := range bobSuites {
-		cik, err := NewClientInitKey(s, &bobCred)
+		kp, err := NewKeyPackage(s, &bobCred)
 		require.Nil(t, err)
-		bobCiks = append(bobCiks, *cik)
+		bobKPs = append(bobKPs, *kp)
 	}
 
 	// Bob should choose P-256
 	secret, _ := getRandomBytes(32)
-	welcome, bobState, err := negotiateWithPeer(groupId, bobCiks, aliceCiks, secret)
+	welcome, bobState, err := negotiateWithPeer(groupId, bobKPs, aliceKPs, secret)
 	require.Nil(t, err)
 
 	// Alice should also arrive at P-256
-	aliceState, err := NewJoinedState(aliceCiks, *welcome)
+	aliceState, err := NewJoinedState(aliceKPs, *welcome)
 	require.Nil(t, err)
 
 	require.True(t, aliceState.Equals(*bobState))

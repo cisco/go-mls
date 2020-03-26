@@ -45,7 +45,7 @@ var (
 
 	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
-	clientInitKey = &ClientInitKey{
+	keyPackage = &KeyPackage{
 		SupportedVersion: SupportedVersionMLS10,
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
@@ -56,7 +56,7 @@ var (
 
 	addProposal = &Proposal{
 		Add: &AddProposal{
-			ClientInitKey: *clientInitKey,
+			KeyPackage: *keyPackage,
 		},
 	}
 
@@ -166,7 +166,7 @@ func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
 
 func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("BasicCredential", roundTrip(&credentialBasic, new(Credential)))
-	t.Run("ClientInitKey", roundTrip(clientInitKey, new(ClientInitKey)))
+	t.Run("KeyPackage", roundTrip(keyPackage, new(KeyPackage)))
 	t.Run("AddProposal", roundTrip(addProposal, new(Proposal)))
 	t.Run("RemoveProposal", roundTrip(removeProposal, new(Proposal)))
 	t.Run("UpdateProposal", roundTrip(updateProposal, new(Proposal)))
@@ -204,7 +204,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	}
 
 	w1 := newWelcome(cs, epochSecret, gi)
-	w1.EncryptTo(*clientInitKey, secret)
+	w1.EncryptTo(*keyPackage, secret)
 	// doing this so that test can omit this field when matching w1, w2
 	w1.epochSecret = nil
 	w2 := new(Welcome)
@@ -212,11 +212,11 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 
 	// decrypt the group init secret with C's privateKey and check if
 	// it matches.
-	ekp := w2.EncryptedKeyPackages[0]
-	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, ekp.EncryptedPackage)
+	egs := w2.Secrets[0]
+	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, egs.EncryptedGroupSecrets)
 	require.Nil(t, err)
 
-	w2kp := new(KeyPackage)
+	w2kp := new(GroupSecrets)
 	_, err = syntax.Unmarshal(pt, w2kp)
 	require.Nil(t, err)
 	require.Equal(t, epochSecret, w2kp.EpochSecret)
@@ -230,30 +230,30 @@ type MessageTestCase struct {
 	CipherSuite     CipherSuite
 	SignatureScheme SignatureScheme
 
-	ClientInitKey       []byte `tls:"head=4"`
-	GroupInfo           []byte `tls:"head=4"`
-	KeyPackage          []byte `tls:"head=4"`
-	EncryptedKeyPackage []byte `tls:"head=4"`
-	Welcome             []byte `tls:"head=4"`
-	AddProposal         []byte `tls:"head=4"`
-	UpdateProposal      []byte `tls:"head=4"`
-	RemoveProposal      []byte `tls:"head=4"`
-	Commit              []byte `tls:"head=4"`
-	MLSCiphertext       []byte `tls:"head=4"`
+	KeyPackage            []byte `tls:"head=4"`
+	GroupInfo             []byte `tls:"head=4"`
+	GroupSecrets          []byte `tls:"head=4"`
+	EncryptedGroupSecrets []byte `tls:"head=4"`
+	Welcome               []byte `tls:"head=4"`
+	AddProposal           []byte `tls:"head=4"`
+	UpdateProposal        []byte `tls:"head=4"`
+	RemoveProposal        []byte `tls:"head=4"`
+	Commit                []byte `tls:"head=4"`
+	MLSCiphertext         []byte `tls:"head=4"`
 }
 
 type MessageTestVectors struct {
-	Epoch           Epoch
-	SenderType      SenderType
-	SignerIndex     leafIndex
-	Removed         leafIndex
-	UserId          []byte            `tls:"head=1"`
-	GroupID         []byte            `tls:"head=1"`
-	ClientInitKeyId []byte            `tls:"head=1"`
-	DHSeed          []byte            `tls:"head=1"`
-	SigSeed         []byte            `tls:"head=1"`
-	Random          []byte            `tls:"head=1"`
-	Cases           []MessageTestCase `tls:"head=4"`
+	Epoch        Epoch
+	SenderType   SenderType
+	SignerIndex  leafIndex
+	Removed      leafIndex
+	UserId       []byte            `tls:"head=1"`
+	GroupID      []byte            `tls:"head=1"`
+	KeyPackageId []byte            `tls:"head=1"`
+	DHSeed       []byte            `tls:"head=1"`
+	SigSeed      []byte            `tls:"head=1"`
+	Random       []byte            `tls:"head=1"`
+	Cases        []MessageTestCase `tls:"head=4"`
 }
 
 //helpers
@@ -278,17 +278,17 @@ func commitMatch(t *testing.T, l, r Commit) {
 /// Gen and Verify
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
-		Epoch:           0xA0A1A2A3,
-		SenderType:      SenderTypeMember,
-		SignerIndex:     leafIndex(0xB0B1B2B3),
-		Removed:         leafIndex(0xC0C1C2C3),
-		UserId:          bytes.Repeat([]byte{0xD1}, 16),
-		GroupID:         bytes.Repeat([]byte{0xD2}, 16),
-		ClientInitKeyId: bytes.Repeat([]byte{0xD3}, 16),
-		DHSeed:          bytes.Repeat([]byte{0xD4}, 32),
-		SigSeed:         bytes.Repeat([]byte{0xD5}, 32),
-		Random:          bytes.Repeat([]byte{0xD6}, 32),
-		Cases:           []MessageTestCase{},
+		Epoch:        0xA0A1A2A3,
+		SenderType:   SenderTypeMember,
+		SignerIndex:  leafIndex(0xB0B1B2B3),
+		Removed:      leafIndex(0xC0C1C2C3),
+		UserId:       bytes.Repeat([]byte{0xD1}, 16),
+		GroupID:      bytes.Repeat([]byte{0xD2}, 16),
+		KeyPackageId: bytes.Repeat([]byte{0xD3}, 16),
+		DHSeed:       bytes.Repeat([]byte{0xD4}, 32),
+		SigSeed:      bytes.Repeat([]byte{0xD5}, 32),
+		Random:       bytes.Repeat([]byte{0xD6}, 32),
+		Cases:        []MessageTestCase{},
 	}
 
 	suites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
@@ -323,8 +323,8 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
-		// CIK
-		cik := ClientInitKey{
+		// KeyPackage
+		kp := KeyPackage{
 			SupportedVersion: SupportedVersionMLS10,
 			CipherSuite:      suite,
 			InitKey:          pub,
@@ -332,7 +332,7 @@ func generateMessageVectors(t *testing.T) []byte {
 			Signature:        Signature{tv.Random},
 		}
 
-		cikM, err := syntax.Marshal(cik)
+		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
 
 		// Welcome
@@ -351,27 +351,27 @@ func generateMessageVectors(t *testing.T) []byte {
 		giM, err := syntax.Marshal(gi)
 		require.Nil(t, err)
 
-		kp := KeyPackage{
+		gs := GroupSecrets{
 			EpochSecret: tv.Random,
 		}
 
-		kpM, err := syntax.Marshal(kp)
+		gsM, err := syntax.Marshal(gs)
 		require.Nil(t, err)
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
 		require.Nil(t, err)
-		ekp := EncryptedKeyPackage{
-			ClientInitKeyHash: tv.Random,
-			EncryptedPackage:  encPayload,
+		egs := EncryptedGroupSecrets{
+			KeyPackageHash:        tv.Random,
+			EncryptedGroupSecrets: encPayload,
 		}
 
-		ekpM, err := syntax.Marshal(ekp)
+		egsM, err := syntax.Marshal(egs)
 		require.Nil(t, err)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
 		welcome.CipherSuite = suite
-		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
 
 		welM, err := syntax.Marshal(welcome)
@@ -380,7 +380,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		// proposals
 		addProposal := &Proposal{
 			Add: &AddProposal{
-				ClientInitKey: cik,
+				KeyPackage: kp,
 			},
 		}
 
@@ -461,18 +461,18 @@ func generateMessageVectors(t *testing.T) []byte {
 		require.Nil(t, err)
 
 		tc := MessageTestCase{
-			CipherSuite:         suite,
-			SignatureScheme:     scheme,
-			ClientInitKey:       cikM,
-			GroupInfo:           giM,
-			KeyPackage:          kpM,
-			EncryptedKeyPackage: ekpM,
-			Welcome:             welM,
-			AddProposal:         addM,
-			UpdateProposal:      updateM,
-			RemoveProposal:      remM,
-			Commit:              commitM,
-			MLSCiphertext:       ctM,
+			CipherSuite:           suite,
+			SignatureScheme:       scheme,
+			KeyPackage:            kpM,
+			GroupInfo:             giM,
+			GroupSecrets:          gsM,
+			EncryptedGroupSecrets: egsM,
+			Welcome:               welM,
+			AddProposal:           addM,
+			UpdateProposal:        updateM,
+			RemoveProposal:        remM,
+			Commit:                commitM,
+			MLSCiphertext:         ctM,
 		}
 		tv.Cases = append(tv.Cases, tc)
 	}
@@ -514,17 +514,17 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 
-		// CIK
-		cik := ClientInitKey{
+		// KeyPackage
+		kp := KeyPackage{
 			SupportedVersion: SupportedVersionMLS10,
 			CipherSuite:      suite,
 			InitKey:          pub,
 			Credential:       cred,
 			Signature:        Signature{tv.Random},
 		}
-		cikM, err := syntax.Marshal(cik)
+		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
-		require.Equal(t, cikM, tc.ClientInitKey)
+		require.Equal(t, kpM, tc.KeyPackage)
 
 		// Welcome
 		gi := &GroupInfo{
@@ -545,28 +545,28 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		groupInfoMatch(t, *gi, giWire)
 
-		kp := KeyPackage{
+		gs := GroupSecrets{
 			EpochSecret: tv.Random,
 		}
 
-		kpM, err := syntax.Marshal(kp)
+		gsM, err := syntax.Marshal(gs)
 		require.Nil(t, err)
-		require.Equal(t, kpM, tc.KeyPackage)
+		require.Equal(t, gsM, tc.GroupSecrets)
 
 		encPayload, err := suite.hpke().Encrypt(pub, []byte{}, tv.Random)
 		require.Nil(t, err)
-		ekp := EncryptedKeyPackage{
-			ClientInitKeyHash: tv.Random,
-			EncryptedPackage:  encPayload,
+		egs := EncryptedGroupSecrets{
+			KeyPackageHash:        tv.Random,
+			EncryptedGroupSecrets: encPayload,
 		}
-		var ekpWire EncryptedKeyPackage
-		syntax.Unmarshal(tc.EncryptedKeyPackage, &ekpWire)
-		require.Equal(t, ekp.ClientInitKeyHash, ekpWire.ClientInitKeyHash)
+		var egsWire EncryptedGroupSecrets
+		syntax.Unmarshal(tc.EncryptedGroupSecrets, &egsWire)
+		require.Equal(t, egs.KeyPackageHash, egsWire.KeyPackageHash)
 
 		var welcome Welcome
 		welcome.Version = SupportedVersionMLS10
 		welcome.CipherSuite = suite
-		welcome.EncryptedKeyPackages = []EncryptedKeyPackage{ekp, ekp}
+		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
 
 		var welWire Welcome
@@ -578,7 +578,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		// proposals
 		addProposal := &Proposal{
 			Add: &AddProposal{
-				ClientInitKey: cik,
+				KeyPackage: kp,
 			},
 		}
 

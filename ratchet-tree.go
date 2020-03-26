@@ -542,7 +542,7 @@ func (t *RatchetTree) LeftmostFree() leafIndex {
 	return curr
 }
 
-func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
+func (t *RatchetTree) Find(kp KeyPackage) (leafIndex, bool) {
 	num := t.size()
 	for i := leafIndex(0); leafCount(i) < num; i++ {
 		idx := toNodeIndex(i)
@@ -550,8 +550,8 @@ func (t *RatchetTree) Find(cik ClientInitKey) (leafIndex, bool) {
 		if n.blank() {
 			continue
 		}
-		hpkeMatch := cik.InitKey.equals(n.Node.PublicKey)
-		credMatch := cik.Credential.Equals(*n.Node.Credential)
+		hpkeMatch := kp.InitKey.equals(n.Node.PublicKey)
+		credMatch := kp.Credential.Equals(*n.Node.Credential)
 		if hpkeMatch && credMatch {
 			return i, true
 		}
