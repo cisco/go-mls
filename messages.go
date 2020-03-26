@@ -264,7 +264,6 @@ type Commit struct {
 	Updates []ProposalID `tls:"head=2"`
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
-	Ignored []ProposalID `tls:"head=2"`
 	Path    DirectPath
 }
 
@@ -284,6 +283,24 @@ const (
 
 func (ct ContentType) ValidForTLS() error {
 	return validateEnum(ct, ContentTypeApplication, ContentTypeProposal, ContentTypeCommit)
+}
+
+type SenderType uint8
+
+const (
+	SenderTypeInvalid       SenderType = 0
+	SenderTypeMember        SenderType = 1
+	SenderTypePreconfigured SenderType = 2
+	SenderTypeNewMember     SenderType = 3
+)
+
+func (st SenderType) ValidForTLS() error {
+	return validateEnum(st, SenderTypeMember, SenderTypePreconfigured, SenderTypeNewMember)
+}
+
+type Sender struct {
+	Type   SenderType
+	Sender uint32
 }
 
 type ApplicationData struct {
@@ -375,7 +392,7 @@ func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
 type MLSPlaintext struct {
 	GroupID           []byte `tls:"head=1"`
 	Epoch             Epoch
-	Sender            leafIndex
+	Sender            Sender
 	AuthenticatedData []byte `tls:"head=4"`
 	Content           MLSPlaintextContent
 	Signature         Signature
@@ -391,7 +408,7 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	err = s.Write(struct {
 		GroupID           []byte `tls:"head=1"`
 		Epoch             Epoch
-		Sender            leafIndex
+		Sender            Sender
 		AuthenticatedData []byte `tls:"head=4"`
 		Content           MLSPlaintextContent
 	}{
@@ -427,7 +444,7 @@ func (pt MLSPlaintext) commitContent() []byte {
 	enc, err := syntax.Marshal(struct {
 		GroupId     []byte `tls:"head=1"`
 		Epoch       Epoch
-		Sender      leafIndex
+		Sender      Sender
 		Commit      Commit
 		ContentType ContentType
 	}{

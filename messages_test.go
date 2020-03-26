@@ -87,14 +87,13 @@ var (
 		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
 		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
 		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Ignored: []ProposalID{{Hash: []byte{0x06, 0x07}}},
 		Path:    DirectPath{Nodes: nodes},
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
 		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
-		Sender:            4,
+		Sender:            Sender{SenderTypeMember, 4},
 		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
 		Content: MLSPlaintextContent{
 			Application: &ApplicationData{
@@ -245,6 +244,7 @@ type MessageTestCase struct {
 
 type MessageTestVectors struct {
 	Epoch           Epoch
+	SenderType      SenderType
 	SignerIndex     leafIndex
 	Removed         leafIndex
 	UserId          []byte            `tls:"head=1"`
@@ -273,13 +273,13 @@ func commitMatch(t *testing.T, l, r Commit) {
 	require.Equal(t, l.Adds, r.Adds)
 	require.Equal(t, l.Removes, r.Removes)
 	require.Equal(t, l.Updates, r.Updates)
-	require.Equal(t, l.Ignored, r.Ignored)
 }
 
 /// Gen and Verify
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
 		Epoch:           0xA0A1A2A3,
+		SenderType:      SenderTypeMember,
 		SignerIndex:     leafIndex(0xB0B1B2B3),
 		Removed:         leafIndex(0xC0C1C2C3),
 		UserId:          bytes.Repeat([]byte{0xD1}, 16),
@@ -387,7 +387,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		addHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -406,7 +406,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		updateHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -425,7 +425,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		removeHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -441,7 +441,6 @@ func generateMessageVectors(t *testing.T) []byte {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Ignored: proposal,
 			Path:    *dp,
 		}
 
@@ -585,7 +584,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		addHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -605,7 +604,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		updateHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -625,7 +624,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		removeHs := MLSPlaintext{
 			GroupID: tv.GroupID,
 			Epoch:   tv.Epoch,
-			Sender:  tv.SignerIndex,
+			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -641,7 +640,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Ignored: proposal,
 			Path:    *dp,
 		}
 		var commitWire Commit

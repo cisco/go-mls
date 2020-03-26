@@ -382,14 +382,6 @@ func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) er
 	return s.Tree.MergePublic(target, &update.LeafKey)
 }
 
-func (s *State) applyUpdateSecret(target leafIndex, secret []byte) error {
-	err := s.Tree.BlankPath(s.Index, false)
-	if err != nil {
-		return err
-	}
-	return s.Tree.Merge(s.Index, secret)
-}
-
 func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
 	for _, id := range ids {
 		pt, ok := s.findProposal(id)
@@ -405,17 +397,21 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 		}
 
 		proposal := pt.Content.Proposal
-		var err error
 		switch proposal.Type() {
 		case ProposalTypeAdd:
-			err = s.applyAddProposal(proposal.Add)
+			err := s.applyAddProposal(proposal.Add)
 			if err != nil {
 				return err
 			}
 		case ProposalTypeUpdate:
-			if pt.Sender != s.Index {
+			if pt.Sender.Type != SenderTypeMember {
+				return fmt.Errorf("mls.state: update from non-member")
+			}
+
+			senderIndex := leafIndex(pt.Sender.Sender)
+			if senderIndex != s.Index {
 				// apply update from the given member
-				err := s.applyUpdateProposal(pt.Sender, proposal.Update)
+				err := s.applyUpdateProposal(senderIndex, proposal.Update)
 				if err != nil {
 					return err
 				}
@@ -426,12 +422,18 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 			if !ok {
 				return fmt.Errorf("mls.state: self-update with no cached secret")
 			}
-			err = s.applyUpdateSecret(pt.Sender, updateSecret)
+
+			err := s.Tree.BlankPath(s.Index, false)
+			if err != nil {
+				return err
+			}
+
+			err = s.Tree.Merge(s.Index, updateSecret)
 			if err != nil {
 				return err
 			}
 		case ProposalTypeRemove:
-			err = s.applyRemoveProposal(proposal.Remove)
+			err := s.applyRemoveProposal(proposal.Remove)
 			if err != nil {
 				return err
 			}
@@ -479,7 +481,7 @@ func (s State) sign(p Proposal) *MLSPlaintext {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
-		Sender:  s.Index,
+		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Proposal: &p,
 		},
@@ -506,7 +508,7 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
-		Sender:  s.Index,
+		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Commit: &CommitData{
 				Commit: op,
@@ -556,7 +558,17 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: epoch mismatch, have %v, got %v", s.Epoch, pt.Epoch)
 	}
 
-	sigPubKey := s.Tree.GetCredential(pt.Sender).PublicKey()
+	var sigPubKey *SignaturePublicKey
+	switch pt.Sender.Type {
+	case SenderTypeMember:
+		sigPubKey = s.Tree.GetCredential(leafIndex(pt.Sender.Sender)).PublicKey()
+
+	default:
+		// TODO(RLB): Support add sent by new member
+		// TODO(RLB): Support add/remove signed by preconfigured key
+		return nil, fmt.Errorf("mls.state: Unsupported sender type")
+	}
+
 	if !pt.verify(s.groupContext(), sigPubKey, s.Scheme) {
 		return nil, fmt.Errorf("invalid handshake message signature")
 	}
@@ -570,9 +582,11 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	if contentType != ContentTypeCommit {
 		return nil, fmt.Errorf("mls.state: incorrect content type")
+	} else if pt.Sender.Type != SenderTypeMember {
+		return nil, fmt.Errorf("mls.state: commit from non-member")
 	}
 
-	if pt.Sender == s.Index {
+	if leafIndex(pt.Sender.Sender) == s.Index {
 		return nil, fmt.Errorf("mls.state: handle own commits with caching")
 	}
 
@@ -597,7 +611,8 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	updateSecret, err := next.Tree.Decap(pt.Sender, ctx, &commitData.Commit.Path)
+	senderIndex := leafIndex(pt.Sender.Sender)
+	updateSecret, err := next.Tree.Decap(senderIndex, ctx, &commitData.Commit.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -644,6 +659,14 @@ func (s State) verifyConfirmation(confirmation []byte) bool {
 	return true
 }
 
+func applyGuard(nonceIn []byte, reuseGuard [4]byte) []byte {
+	nonceOut := dup(nonceIn)
+	for i := range reuseGuard {
+		nonceOut[i] ^= reuseGuard[i]
+	}
+	return nonceOut
+}
+
 func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var generation uint32
 	var keys keyAndNonce
@@ -656,12 +679,11 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 		return nil, fmt.Errorf("mls.state: encrypt unknown content type")
 	}
 
+	var reuseGuard [4]byte
+	rand.Read(reuseGuard[:])
+
 	stream := NewWriteStream()
-	// skipping error checks since we are trying plain integers
-	err := stream.Write(s.Index)
-	if err == nil {
-		err = stream.Write(generation)
-	}
+	err := stream.WriteAll(s.Index, generation, reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
 	}
@@ -687,7 +709,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-	contentCt := aead.Seal(nil, keys.Nonce, content, aad)
+	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
 
 	// set up MLSCipherText
 	ct := &MLSCiphertext{
@@ -723,11 +745,9 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	// parse the senderData
 	var sender leafIndex
 	var generation uint32
+	var reuseGuard [4]byte
 	stream := NewReadStream(sd)
-	_, err = stream.Read(&sender)
-	if err == nil {
-		_, err = stream.Read(&generation)
-	}
+	_, err = stream.ReadAll(&sender, &generation, &reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
@@ -757,10 +777,8 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 	aad := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
-
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-
-	content, err := aead.Open(nil, keys.Nonce, ct.Ciphertext, aad)
+	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), ct.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
@@ -781,7 +799,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
 		GroupID:           s.GroupID,
 		Epoch:             s.Epoch,
-		Sender:            sender,
+		Sender:            Sender{SenderTypeMember, uint32(sender)},
 		AuthenticatedData: ct.AuthenticatedData,
 		Content:           mlsContent,
 		Signature:         signature,
@@ -793,7 +811,7 @@ func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
-		Sender:  s.Index,
+		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Application: &ApplicationData{
 				Data: data,
@@ -811,7 +829,8 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 		return nil, err
 	}
 
-	sigPubKey := s.Tree.GetCredential(pt.Sender).PublicKey()
+	senderIndex := leafIndex(pt.Sender.Sender)
+	sigPubKey := s.Tree.GetCredential(senderIndex).PublicKey()
 	if !pt.verify(s.groupContext(), sigPubKey, s.Scheme) {
 		return nil, fmt.Errorf("invalid message signature")
 	}
