@@ -9,10 +9,9 @@ import (
 )
 
 var supportedSuites = []CipherSuite{
-	P256_SHA256_AES128GCM,
-	P521_SHA512_AES256GCM,
-	X25519_SHA256_AES128GCM,
-	X448_SHA512_AES256GCM,
+	X25519_AES128GCM_SHA256_Ed25519,
+	P256_AES128GCM_SHA256_P256,
+	P521_AES256GCM_SHA512_P521,
 }
 
 var supportedSchemes = []SignatureScheme{
@@ -30,9 +29,9 @@ func TestDigest(t *testing.T) {
 	for _, suite := range supportedSuites {
 		var out []byte
 		switch suite {
-		case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
+		case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
 			out = out256
-		case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
+		case P521_AES256GCM_SHA512_P521:
 			out = out512
 		}
 
@@ -67,9 +66,9 @@ func TestEncryptDecrypt(t *testing.T) {
 		return func(t *testing.T) {
 			var key, nonce, aad, pt, ct []byte
 			switch suite {
-			case P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM:
+			case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
 				key, nonce, aad, pt, ct = key128, nonce128, aad128, pt128, ct128
-			case P521_SHA512_AES256GCM, X448_SHA512_AES256GCM:
+			case P521_AES256GCM_SHA512_P521:
 				key, nonce, aad, pt, ct = key256, nonce256, aad256, pt256, ct256
 			}
 
@@ -88,7 +87,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	}
 
 	for _, suite := range supportedSuites {
-		t.Run(suite.String(), encryptDecrypt(suite))
+		t.Run("todo" /*suite.String()*/, encryptDecrypt(suite))
 	}
 }
 
@@ -115,7 +114,7 @@ func TestHPKE(t *testing.T) {
 	}
 
 	for _, suite := range supportedSuites {
-		t.Run(suite.String(), encryptDecrypt(suite))
+		t.Run("todo" /*suite.String()*/, encryptDecrypt(suite))
 	}
 }
 
@@ -172,8 +171,8 @@ func generateCryptoVectors(t *testing.T) []byte {
 		HPKEAAD:           bytes.Repeat([]byte{0xB1}, 128),
 		HPKEPlaintext:     bytes.Repeat([]byte{0xB2}, 128),
 		Cases: []CryptoTestCase{
-			{CipherSuite: P256_SHA256_AES128GCM},
-			{CipherSuite: X25519_SHA256_AES128GCM},
+			{CipherSuite: X25519_AES128GCM_SHA256_Ed25519},
+			{CipherSuite: P256_AES128GCM_SHA256_P256},
 		},
 	}
 

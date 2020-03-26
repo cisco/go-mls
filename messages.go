@@ -94,13 +94,17 @@ func (cik *ClientInitKey) sign() error {
 	return nil
 }
 
-func (cik ClientInitKey) verify() (bool, error) {
-	tbs, err := cik.toBeSigned()
-	if err != nil {
-		return false, fmt.Errorf("mls.cik: verification marshal error %v", err)
+func (cik ClientInitKey) verify() bool {
+	if cik.CipherSuite.scheme() != cik.Credential.Scheme() {
+		return false
 	}
 
-	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data), nil
+	tbs, err := cik.toBeSigned()
+	if err != nil {
+		return false
+	}
+
+	return cik.Credential.Scheme().Verify(cik.Credential.PublicKey(), tbs, cik.Signature.Data)
 }
 
 func NewClientInitKey(suite CipherSuite, cred *Credential) (*ClientInitKey, error) {
@@ -678,6 +682,7 @@ func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, err
 	}
 
 	gi := new(GroupInfo)
+	gi.Tree.CipherSuite = suite
 	_, err = syntax.Unmarshal(data, gi)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)

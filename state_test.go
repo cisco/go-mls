@@ -11,8 +11,7 @@ import (
 var (
 	groupId   = []byte{0x01, 0x02, 0x03, 0x04}
 	userId    = []byte{0x04, 0x05, 0x06, 0x07}
-	suite     = P256_SHA256_AES128GCM
-	scheme    = Ed25519
+	suite     = P256_AES128GCM_SHA256_P256
 	groupSize = 5
 
 	testMessage = unhex("1112131415")
@@ -29,6 +28,7 @@ type StateTest struct {
 func setup(t *testing.T) StateTest {
 	stateTest := StateTest{}
 	stateTest.clientInitKeys = make([]ClientInitKey, groupSize)
+	scheme := suite.scheme()
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
@@ -221,6 +221,7 @@ func TestStateMulti(t *testing.T) {
 
 func TestStateCipherNegotiation(t *testing.T) {
 	// Alice supports P-256 and X25519
+	scheme := suite.scheme()
 	alicePriv, _ := scheme.Generate()
 	aliceBc := &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
@@ -228,7 +229,7 @@ func TestStateCipherNegotiation(t *testing.T) {
 		SignaturePublicKey: alicePriv.PublicKey,
 	}
 	aliceCred := Credential{Basic: aliceBc, privateKey: &alicePriv}
-	aliceSuites := []CipherSuite{P256_SHA256_AES128GCM, X25519_SHA256_AES128GCM}
+	aliceSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
 	var aliceCiks []ClientInitKey
 	for _, s := range aliceSuites {
 		cik, err := NewClientInitKey(s, &aliceCred)
@@ -244,7 +245,7 @@ func TestStateCipherNegotiation(t *testing.T) {
 		SignaturePublicKey: bobPriv.PublicKey,
 	}
 	bobCred := Credential{Basic: bobBc, privateKey: &bobPriv}
-	bobSuites := []CipherSuite{P256_SHA256_AES128GCM, P521_SHA512_AES256GCM}
+	bobSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
 	var bobCiks []ClientInitKey
 	for _, s := range bobSuites {
 		cik, err := NewClientInitKey(s, &bobCred)
