@@ -331,8 +331,15 @@ func (kse *keyScheduleEpoch) enableKeySources() {
 	kse.ApplicationKeys = &groupKeySource{kse.ApplicationBaseKeys, kse.ApplicationRatchets}
 }
 
-func (kse *keyScheduleEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {
-	epochSecret := kse.Suite.hkdfExtract(kse.InitSecret, updateSecret)
+func (kse *keyScheduleEpoch) Next(size leafCount, pskIn, commitSecret, context []byte) keyScheduleEpoch {
+	psk := pskIn
+	if len(psk) == 0 {
+		psk = kse.Suite.zero()
+	}
+
+	earlySecret := kse.Suite.hkdfExtract(psk, kse.InitSecret)
+	preEpochSecret := kse.Suite.deriveSecret(earlySecret, "derived", context)
+	epochSecret := kse.Suite.hkdfExtract(commitSecret, preEpochSecret)
 	return newKeyScheduleEpoch(kse.Suite, size, epochSecret, context)
 }
 

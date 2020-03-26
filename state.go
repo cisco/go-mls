@@ -509,7 +509,9 @@ func (s *State) updateEpochSecrets(secret []byte) {
 	if err != nil {
 		panic(fmt.Errorf("mls.state: update epoch secret failed %v", err))
 	}
-	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), secret, ctx)
+
+	// TODO(RLB) Provide an API to provide PSKs
+	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), nil, secret, ctx)
 }
 
 func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {

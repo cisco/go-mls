@@ -2,6 +2,7 @@ package mls
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
@@ -36,6 +37,7 @@ func TestKeySchedule(t *testing.T) {
 	context1 := []byte("first")
 
 	size2 := leafCount(11)
+	psk2 := []byte("psk")
 	commitSecret2 := unhex("404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f")
 	context2 := []byte("second")
 
@@ -85,7 +87,7 @@ func TestKeySchedule(t *testing.T) {
 	epoch1 := newKeyScheduleEpoch(suite, size1, epochSecret1, context1)
 	checkEpoch(&epoch1, size1)
 
-	epoch2 := epoch1.Next(size2, commitSecret2, context2)
+	epoch2 := epoch1.Next(size2, psk2, commitSecret2, context2)
 	checkEpoch(&epoch2, size2)
 
 	// Check that marshal/unmarshal works
@@ -128,8 +130,10 @@ func TestKeySchedule(t *testing.T) {
 ///
 
 type KsEpoch struct {
-	NumMembers       leafCount
-	UpdateSecret     []byte        `tls:"head=1"`
+	NumMembers   leafCount
+	PSK          []byte `tls:"head=1"`
+	CommitSecret []byte `tls:"head=1"`
+
 	EpochSecret      []byte        `tls:"head=1"`
 	SenderDataSecret []byte        `tls:"head=1"`
 	SenderDataKey    []byte        `tls:"head=1"`
@@ -185,7 +189,6 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 		tc.CipherSuite = suite
 		// start with the base context for epoch0
 		grpCtx := baseGrpCtx
-		updateSecret := bytes.Repeat([]byte{0x0}, suite.constants().SecretSize)
 		minMembers := 5
 		maxMembers := 20
 		nMembers := minMembers
@@ -195,7 +198,11 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 		epoch.InitSecret = tv.BaseInitSecret
 		for i := 0; i < int(tv.NumEpochs); i++ {
 			ctx, _ := syntax.Marshal(grpCtx)
-			epoch = epoch.Next(leafCount(nMembers), updateSecret, ctx)
+
+			psk := []byte(fmt.Sprintf("psk @ %d", i))
+			commitSecret := []byte(fmt.Sprintf("commitSecret @ %d", i))
+			epoch = epoch.Next(leafCount(nMembers), psk, commitSecret, ctx)
+
 			var handshakeKeys []keyAndNonce
 			var applicationKeys []keyAndNonce
 			appSecret := dup(epoch.ApplicationSecret)
@@ -209,8 +216,10 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 			exportedSecret := epoch.Export(string(tv.ExportLabel), tv.ExportContext, int(tv.ExportSize))
 
 			kse := KsEpoch{
+				PSK:          psk,
+				CommitSecret: commitSecret,
+
 				NumMembers:       leafCount(nMembers),
-				UpdateSecret:     dup(updateSecret),
 				EpochSecret:      epoch.EpochSecret,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
@@ -225,9 +234,6 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 			}
 
 			tc.Epochs = append(tc.Epochs, kse)
-			for idx, val := range updateSecret {
-				updateSecret[idx] = byte(val + 1)
-			}
 
 			grpCtx.Epoch += 1
 			nMembers = (nMembers-minMembers)%(maxMembers-minMembers) + minMembers
@@ -254,7 +260,7 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 		myEpoch.InitSecret = tv.BaseInitSecret
 		for _, epoch := range tc.Epochs {
 			ctx, _ := syntax.Marshal(grpCtx)
-			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.UpdateSecret, ctx)
+			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.PSK, epoch.CommitSecret, ctx)
 
 			// check the secrets
 			require.Equal(t, myEpoch.EpochSecret, epoch.EpochSecret)
