@@ -2,6 +2,7 @@ package mls
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
@@ -36,9 +37,11 @@ func TestKeySchedule(t *testing.T) {
 	context1 := []byte("first")
 
 	size2 := leafCount(11)
+	psk2 := []byte("psk")
 	commitSecret2 := unhex("404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f")
 	context2 := []byte("second")
 
+	exportSize := 128
 	targetGeneration := uint32(3)
 
 	checkEpoch := func(epoch *keyScheduleEpoch, size leafCount) {
@@ -48,10 +51,14 @@ func TestKeySchedule(t *testing.T) {
 		require.Equal(t, len(epoch.SenderDataKey), keySize)
 		require.Equal(t, len(epoch.HandshakeSecret), secretSize)
 		require.Equal(t, len(epoch.ApplicationSecret), secretSize)
+		require.Equal(t, len(epoch.ExporterSecret), secretSize)
 		require.Equal(t, len(epoch.ConfirmationKey), secretSize)
 		require.Equal(t, len(epoch.InitSecret), secretSize)
 		require.NotNil(t, epoch.HandshakeKeys)
 		require.NotNil(t, epoch.HandshakeKeys)
+
+		exportedKey := epoch.Export("test", []byte{0, 1, 2, 3}, exportSize)
+		require.Equal(t, len(exportedKey), exportSize)
 
 		for i := leafIndex(0); i < leafIndex(size); i += 1 {
 			// Test successful generation
@@ -80,7 +87,7 @@ func TestKeySchedule(t *testing.T) {
 	epoch1 := newKeyScheduleEpoch(suite, size1, epochSecret1, context1)
 	checkEpoch(&epoch1, size1)
 
-	epoch2 := epoch1.Next(size2, commitSecret2, context2)
+	epoch2 := epoch1.Next(size2, psk2, commitSecret2, context2)
 	checkEpoch(&epoch2, size2)
 
 	// Check that marshal/unmarshal works
@@ -123,8 +130,10 @@ func TestKeySchedule(t *testing.T) {
 ///
 
 type KsEpoch struct {
-	NumMembers       leafCount
-	UpdateSecret     []byte        `tls:"head=1"`
+	NumMembers   leafCount
+	PSK          []byte `tls:"head=1"`
+	CommitSecret []byte `tls:"head=1"`
+
 	EpochSecret      []byte        `tls:"head=1"`
 	SenderDataSecret []byte        `tls:"head=1"`
 	SenderDataKey    []byte        `tls:"head=1"`
@@ -132,6 +141,8 @@ type KsEpoch struct {
 	HandshakeKeys    []keyAndNonce `tls:"head=4"`
 	AppSecret        []byte        `tls:"head=1"`
 	AppKeys          []keyAndNonce `tls:"head=4"`
+	ExporterSecret   []byte        `tls:"head=1"`
+	ExportedSecret   []byte        `tls:"head=1"`
 	ConfirmationKey  []byte        `tls:"head=1"`
 	InitSecret       []byte        `tls:"head=1"`
 }
@@ -144,6 +155,9 @@ type KsTestCase struct {
 type KsTestVectors struct {
 	NumEpochs        uint32
 	TargetGeneration uint32
+	ExportLabel      []byte `tls:"head=1"`
+	ExportContext    []byte `tls:"head=1"`
+	ExportSize       uint32
 	BaseInitSecret   []byte       `tls:"head=1"`
 	BaseGroupContext []byte       `tls:"head=4"`
 	Cases            []KsTestCase `tls:"head=4"`
@@ -164,15 +178,17 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 	require.Nil(t, err)
 	tv.NumEpochs = 50
 	tv.TargetGeneration = 3
-	tv.BaseGroupContext = encCtx
+	tv.ExportLabel = []byte("exportLabel")
+	tv.ExportContext = []byte("exportContext")
+	tv.ExportSize = 24
 	tv.BaseInitSecret = bytes.Repeat([]byte{0xA3}, 32)
+	tv.BaseGroupContext = encCtx
 
 	for _, suite := range suites {
 		var tc KsTestCase
 		tc.CipherSuite = suite
 		// start with the base context for epoch0
 		grpCtx := baseGrpCtx
-		updateSecret := bytes.Repeat([]byte{0x0}, suite.constants().SecretSize)
 		minMembers := 5
 		maxMembers := 20
 		nMembers := minMembers
@@ -182,7 +198,11 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 		epoch.InitSecret = tv.BaseInitSecret
 		for i := 0; i < int(tv.NumEpochs); i++ {
 			ctx, _ := syntax.Marshal(grpCtx)
-			epoch = epoch.Next(leafCount(nMembers), updateSecret, ctx)
+
+			psk := []byte(fmt.Sprintf("psk @ %d", i))
+			commitSecret := []byte(fmt.Sprintf("commitSecret @ %d", i))
+			epoch = epoch.Next(leafCount(nMembers), psk, commitSecret, ctx)
+
 			var handshakeKeys []keyAndNonce
 			var applicationKeys []keyAndNonce
 			appSecret := dup(epoch.ApplicationSecret)
@@ -192,9 +212,14 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 				as, _ := epoch.ApplicationKeys.Get(leafIndex(j), tv.TargetGeneration)
 				applicationKeys = append(applicationKeys, as)
 			}
+
+			exportedSecret := epoch.Export(string(tv.ExportLabel), tv.ExportContext, int(tv.ExportSize))
+
 			kse := KsEpoch{
+				PSK:          psk,
+				CommitSecret: commitSecret,
+
 				NumMembers:       leafCount(nMembers),
-				UpdateSecret:     dup(updateSecret),
 				EpochSecret:      epoch.EpochSecret,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
@@ -202,14 +227,13 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 				HandshakeKeys:    handshakeKeys,
 				AppSecret:        appSecret,
 				AppKeys:          applicationKeys,
+				ExporterSecret:   epoch.ExporterSecret,
+				ExportedSecret:   exportedSecret,
 				ConfirmationKey:  epoch.ConfirmationKey,
 				InitSecret:       epoch.InitSecret,
 			}
 
 			tc.Epochs = append(tc.Epochs, kse)
-			for idx, val := range updateSecret {
-				updateSecret[idx] = byte(val + 1)
-			}
 
 			grpCtx.Epoch += 1
 			nMembers = (nMembers-minMembers)%(maxMembers-minMembers) + minMembers
@@ -236,17 +260,23 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 		myEpoch.InitSecret = tv.BaseInitSecret
 		for _, epoch := range tc.Epochs {
 			ctx, _ := syntax.Marshal(grpCtx)
-			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.UpdateSecret, ctx)
+			myEpoch = myEpoch.Next(epoch.NumMembers, epoch.PSK, epoch.CommitSecret, ctx)
+
 			// check the secrets
 			require.Equal(t, myEpoch.EpochSecret, epoch.EpochSecret)
 			require.Equal(t, myEpoch.SenderDataSecret, epoch.SenderDataSecret)
 			require.Equal(t, myEpoch.SenderDataKey, epoch.SenderDataKey)
 			require.Equal(t, myEpoch.HandshakeSecret, epoch.HandshakeSecret)
 			require.Equal(t, myEpoch.ApplicationSecret, epoch.AppSecret)
+			require.Equal(t, myEpoch.ExporterSecret, epoch.ExporterSecret)
 			require.Equal(t, myEpoch.ConfirmationKey, epoch.ConfirmationKey)
 			require.Equal(t, myEpoch.InitSecret, epoch.InitSecret)
 
-			//check the keys
+			// check export
+			exportedSecret := myEpoch.Export(string(tv.ExportLabel), tv.ExportContext, int(tv.ExportSize))
+			require.Equal(t, exportedSecret, epoch.ExportedSecret)
+
+			// check the keys
 			for i := 0; leafCount(i) < epoch.NumMembers; i++ {
 				hs, err := myEpoch.HandshakeKeys.Get(leafIndex(i), tv.TargetGeneration)
 				require.Nil(t, err)
