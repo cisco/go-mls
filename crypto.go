@@ -164,15 +164,20 @@ func (cs CipherSuite) hkdfExtract(salt, ikm []byte) []byte {
 }
 
 func (cs CipherSuite) hkdfExpand(secret, info []byte, size int) []byte {
-	if size > cs.constants().SecretSize {
-		panic("Requested size too large for HKDF-Expand")
-	}
+	last := []byte{}
+	buf := []byte{}
+	counter := byte(1)
+	for len(buf) < size {
+		mac := cs.newHMAC(secret)
+		mac.Write(last)
+		mac.Write(info)
+		mac.Write([]byte{counter})
 
-	infoAndCounter := append(info, 0x01)
-	mac := cs.newHMAC(secret)
-	mac.Write(infoAndCounter)
-	val := mac.Sum(nil)[:size]
-	return val
+		last = mac.Sum(nil)
+		counter += 1
+		buf = append(buf, last...)
+	}
+	return buf[:size]
 }
 
 type hkdfLabel struct {

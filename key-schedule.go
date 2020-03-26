@@ -267,12 +267,15 @@ func groupInfoKeyAndNonce(suite CipherSuite, epochSecret []byte) keyAndNonce {
 ///
 
 type keyScheduleEpoch struct {
-	Suite             CipherSuite
+	Suite        CipherSuite
+	GroupContext []byte `tls:"head=1"`
+
 	EpochSecret       []byte `tls:"head=1"`
 	SenderDataSecret  []byte `tls:"head=1"`
 	SenderDataKey     []byte `tls:"head=1"`
 	HandshakeSecret   []byte `tls:"head=1"`
 	ApplicationSecret []byte `tls:"head=1"`
+	ExporterSecret    []byte `tls:"head=1"`
 	ConfirmationKey   []byte `tls:"head=1"`
 	InitSecret        []byte `tls:"head=1"`
 
@@ -290,6 +293,7 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 	senderDataSecret := suite.deriveSecret(epochSecret, "sender data", context)
 	handshakeSecret := suite.deriveSecret(epochSecret, "handshake", context)
 	applicationSecret := suite.deriveSecret(epochSecret, "app", context)
+	exporterSecret := suite.deriveSecret(epochSecret, "exporter", context)
 	confirmationKey := suite.deriveSecret(epochSecret, "confirm", context)
 	initSecret := suite.deriveSecret(epochSecret, "init", context)
 
@@ -298,12 +302,15 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 	applicationBaseKeys := newTreeBaseKeySource(suite, size, applicationSecret)
 
 	kse := keyScheduleEpoch{
-		Suite:             suite,
+		Suite:        suite,
+		GroupContext: context,
+
 		EpochSecret:       epochSecret,
 		SenderDataSecret:  senderDataSecret,
 		SenderDataKey:     senderDataKey,
 		HandshakeSecret:   handshakeSecret,
 		ApplicationSecret: applicationSecret,
+		ExporterSecret:    exporterSecret,
 		ConfirmationKey:   confirmationKey,
 		InitSecret:        initSecret,
 
@@ -327,4 +334,10 @@ func (kse *keyScheduleEpoch) enableKeySources() {
 func (kse *keyScheduleEpoch) Next(size leafCount, updateSecret, context []byte) keyScheduleEpoch {
 	epochSecret := kse.Suite.hkdfExtract(kse.InitSecret, updateSecret)
 	return newKeyScheduleEpoch(kse.Suite, size, epochSecret, context)
+}
+
+func (kse *keyScheduleEpoch) Export(label string, context []byte, keyLength int) []byte {
+	exporterBase := kse.Suite.deriveSecret(kse.ExporterSecret, label, kse.GroupContext)
+	hctx := kse.Suite.digest(context)
+	return kse.Suite.hkdfExpandLabel(exporterBase, "exporter", hctx, keyLength)
 }
