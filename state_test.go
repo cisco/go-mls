@@ -1,7 +1,6 @@
 package mls
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
@@ -9,8 +8,8 @@ import (
 )
 
 var (
-	groupId   = []byte{0x01, 0x02, 0x03, 0x04}
-	userId    = []byte{0x04, 0x05, 0x06, 0x07}
+	groupID   = []byte{0x01, 0x02, 0x03, 0x04}
+	userID    = []byte{0x04, 0x05, 0x06, 0x07}
 	suite     = P256_AES128GCM_SHA256_P256
 	groupSize = 5
 
@@ -33,17 +32,16 @@ func setup(t *testing.T) StateTest {
 	for i := 0; i < groupSize; i++ {
 		// cred gen
 		sigPriv, _ := scheme.Generate()
-		cred := NewBasicCredential(userId, scheme, &sigPriv)
+		cred := NewBasicCredential(userID, scheme, &sigPriv)
 		//kp gen
 		kp, err := NewKeyPackage(suite, cred)
 		require.Nil(t, err)
 		// save all the materials
 		stateTest.identityPrivs = append(stateTest.identityPrivs, sigPriv)
 		stateTest.credentials = append(stateTest.credentials, *cred)
-		stateTest.initPrivs = append(stateTest.initPrivs, ikPriv)
+		stateTest.initPrivs = append(stateTest.initPrivs, *kp.privateKey)
 		stateTest.keyPackages[i] = *kp
-		kp = nil
-		//dump(keyPackages)
+		stateTest.keyPackages[i].RemovePrivateKey()
 	}
 	return stateTest
 }
@@ -52,7 +50,9 @@ func setupGroup(t *testing.T) StateTest {
 	stateTest := setup(t)
 	var states []State
 	// start with the group creator
-	states = append(states, *NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0]))
+	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
+	require.Nil(t, err)
+	states = append(states, *NewEmptyState(groupID, stateTest.keyPackages[0]))
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
@@ -62,12 +62,14 @@ func setupGroup(t *testing.T) StateTest {
 	}
 
 	// commit the adds
-	secret, _ := getRandomBytes(32)
+	secret := randomBytes(32)
 	_, welcome, next, err := states[0].Commit(secret)
 	require.Nil(t, err)
 	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
+		err = stateTest.keyPackages[i].SetPrivateKey(stateTest.initPrivs[i])
+		require.Nil(t, err)
 		s, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[i]}, *welcome)
 		require.Nil(t, err)
 		states = append(states, *s)
@@ -84,29 +86,26 @@ func setupGroup(t *testing.T) StateTest {
 	return stateTest
 }
 
-func dump(kps []KeyPackage) {
-	fmt.Println("---- DUMP -----")
-	for _, kp := range kps {
-		fmt.Printf("priv %x pub %x\n", kp.privateKey.Data, kp.InitKey.Data)
-	}
-}
-
 func TestStateTwoPerson(t *testing.T) {
 	stateTest := setup(t)
 	// creator's state
-	// dump(keyPackages)
-	first0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
+	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
+	require.Nil(t, err)
+	first0 := NewEmptyState(groupID, stateTest.keyPackages[0])
+
 	// add the second participant
 	add := first0.Add(stateTest.keyPackages[1])
-	_, err := first0.Handle(add)
+	_, err = first0.Handle(add)
 	require.Nil(t, err)
 
 	// commit adding the second participant
-	secret, _ := getRandomBytes(32)
+	secret := randomBytes(32)
 	_, welcome, first1, err := first0.Commit(secret)
 	require.Nil(t, err)
 
 	// Initialize the second participant from the Welcome
+	err = stateTest.keyPackages[1].SetPrivateKey(stateTest.initPrivs[1])
+	require.Nil(t, err)
 	second1, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[1]}, *welcome)
 	require.Nil(t, err)
 
@@ -124,13 +123,15 @@ func TestStateTwoPerson(t *testing.T) {
 func TestStateMarshalUnmarshal(t *testing.T) {
 	// Create Alice and have her add Bob to a group
 	stateTest := setup(t)
-	alice0 := NewEmptyState(groupId, suite, stateTest.initPrivs[0], stateTest.credentials[0])
+	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
+	require.Nil(t, err)
+	alice0 := NewEmptyState(groupID, stateTest.keyPackages[0])
 
 	add := alice0.Add(stateTest.keyPackages[1])
-	_, err := alice0.Handle(add)
+	_, err = alice0.Handle(add)
 	require.Nil(t, err)
 
-	secret, _ := getRandomBytes(32)
+	secret := randomBytes(32)
 	_, welcome1, alice1, err := alice0.Commit(secret)
 	require.Nil(t, err)
 
@@ -139,11 +140,15 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	require.Nil(t, err)
 
 	// Initialize Bob generate an Update+Commit
+	err = stateTest.keyPackages[1].SetPrivateKey(stateTest.initPrivs[1])
+	require.Nil(t, err)
 	bob1, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[1]}, *welcome1)
 	require.Nil(t, err)
 	require.True(t, alice1.Equals(*bob1))
 
-	update := bob1.Update(secret)
+	newKP, err := NewKeyPackage(suite, &stateTest.keyPackages[1].Credential)
+	require.Nil(t, err)
+	update := bob1.Update(*newKP)
 	_, err = bob1.Handle(update)
 	require.Nil(t, err)
 
@@ -177,8 +182,9 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 func TestStateMulti(t *testing.T) {
 	stateTest := setup(t)
 	// start with the group creator
-	stateTest.states = append(stateTest.states, *NewEmptyState(groupId, suite, stateTest.initPrivs[0],
-		stateTest.credentials[0]))
+	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
+	require.Nil(t, err)
+	stateTest.states = append(stateTest.states, *NewEmptyState(groupID, stateTest.keyPackages[0]))
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
@@ -188,12 +194,14 @@ func TestStateMulti(t *testing.T) {
 	}
 
 	// commit the adds
-	secret, _ := getRandomBytes(32)
+	secret := randomBytes(32)
 	_, welcome, next, err := stateTest.states[0].Commit(secret)
 	require.Nil(t, err)
 	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
+		err = stateTest.keyPackages[i].SetPrivateKey(stateTest.initPrivs[i])
+		require.Nil(t, err)
 		s, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[i]}, *welcome)
 		require.Nil(t, err)
 		stateTest.states = append(stateTest.states, *s)
@@ -254,8 +262,8 @@ func TestStateCipherNegotiation(t *testing.T) {
 	}
 
 	// Bob should choose P-256
-	secret, _ := getRandomBytes(32)
-	welcome, bobState, err := negotiateWithPeer(groupId, bobKPs, aliceKPs, secret)
+	secret := randomBytes(32)
+	welcome, bobState, err := negotiateWithPeer(groupID, bobKPs, aliceKPs, secret)
 	require.Nil(t, err)
 
 	// Alice should also arrive at P-256
@@ -268,27 +276,29 @@ func TestStateCipherNegotiation(t *testing.T) {
 func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
-		leafSecret, _ := getRandomBytes(32)
-		update := state.Update(leafSecret)
-		state.Handle(update)
-		commit, _, next, err := state.Commit(leafSecret)
+		newKP, err := NewKeyPackage(suite, &stateTest.keyPackages[i].Credential)
 		require.Nil(t, err)
 
-		for j, other := range stateTest.states {
+		update := state.Update(*newKP)
+		state.Handle(update)
+
+		commitSecret := randomBytes(32)
+		commit, _, next, err := state.Commit(commitSecret)
+		require.Nil(t, err)
+
+		for j := range stateTest.states {
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
-				_, err := other.Handle(update)
+				_, err := stateTest.states[j].Handle(update)
 				require.Nil(t, err)
 
-				newState, err := other.Handle(commit)
+				newState, err := stateTest.states[j].Handle(commit)
 				require.Nil(t, err)
 				stateTest.states[j] = *newState
 			}
-		}
 
-		for _, s := range stateTest.states {
-			require.True(t, stateTest.states[0].Equals(s))
+			require.True(t, stateTest.states[0].Equals(stateTest.states[j]))
 		}
 	}
 }
@@ -298,24 +308,25 @@ func TestStateRemove(t *testing.T) {
 	for i := groupSize - 2; i > 0; i-- {
 		remove := stateTest.states[i].Remove(leafIndex(i + 1))
 		stateTest.states[i].Handle(remove)
-		secret, _ := getRandomBytes(32)
+		secret := randomBytes(32)
 		commit, _, next, err := stateTest.states[i].Commit(secret)
 		require.Nil(t, err)
+
 		stateTest.states = stateTest.states[:len(stateTest.states)-1]
 
-		for j, state := range stateTest.states {
+		for j := range stateTest.states {
 			if j == i {
 				stateTest.states[j] = *next
 			} else {
-				state.Handle(remove)
-				newState, err := state.Handle(commit)
+				_, err := stateTest.states[j].Handle(remove)
+				require.Nil(t, err)
+
+				newState, err := stateTest.states[j].Handle(commit)
 				require.Nil(t, err)
 				stateTest.states[j] = *newState
 			}
-		}
 
-		for _, s := range stateTest.states {
-			require.True(t, s.Equals(stateTest.states[0]))
+			require.True(t, stateTest.states[0].Equals(stateTest.states[j]))
 		}
 	}
 }

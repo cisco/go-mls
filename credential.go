@@ -58,12 +58,13 @@ func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePr
 
 // compare the public aspects
 func (c Credential) Equals(o Credential) bool {
-	switch {
-	// TODO(#35) case c.X509 != nil:
-	case c.Basic != nil:
+	switch c.Type() {
+	// TODO(#35) case CredentialTypeX509:
+	case CredentialTypeBasic:
 		return reflect.DeepEqual(c.Basic, o.Basic)
+	default:
+		panic("Malformed credential")
 	}
-	return false
 }
 
 func (c Credential) Type() CredentialType {
@@ -72,7 +73,7 @@ func (c Credential) Type() CredentialType {
 	case c.Basic != nil:
 		return CredentialTypeBasic
 	default:
-		return CredentialTypeInvalid
+		panic("Malformed credential")
 	}
 }
 

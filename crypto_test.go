@@ -2,6 +2,7 @@ package mls
 
 import (
 	"bytes"
+	"crypto/rand"
 	"testing"
 
 	"github.com/bifurcation/mint/syntax"
@@ -17,6 +18,12 @@ var supportedSuites = []CipherSuite{
 var supportedSchemes = []SignatureScheme{
 	ECDSA_SECP256R1_SHA256,
 	Ed25519,
+}
+
+func randomBytes(size int) []byte {
+	out := make([]byte, size)
+	rand.Read(out)
+	return out
 }
 
 func TestDigest(t *testing.T) {
@@ -182,7 +189,7 @@ func generateCryptoVectors(t *testing.T) []byte {
 
 		tc.HKDFExtractOut = tc.CipherSuite.hkdfExtract(tv.HKDFExtractSalt, tv.HKDFExtractIKM)
 
-		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
+		priv, err := tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
 		tc.DeriveKeyPairPub = priv.PublicKey
 		require.Nil(t, err)
 
@@ -204,7 +211,7 @@ func verifyCryptoVectors(t *testing.T, data []byte) {
 		hkdfExtractOut := tc.CipherSuite.hkdfExtract(tv.HKDFExtractSalt, tv.HKDFExtractIKM)
 		require.Equal(t, hkdfExtractOut, tc.HKDFExtractOut)
 
-		priv, err = tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
+		priv, err := tc.CipherSuite.hpke().Derive(tv.DeriveKeyPairSeed)
 		require.Nil(t, err)
 		require.Equal(t, priv.PublicKey.Data, tc.DeriveKeyPairPub.Data)
 

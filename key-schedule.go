@@ -165,6 +165,7 @@ func (tbks *treeBaseKeySource) Get(sender leafIndex) []byte {
 	// Find an ancestor that is populated
 	senderNode := toNodeIndex(sender)
 	d := dirpath(senderNode, tbks.Size)
+	d = append([]nodeIndex{senderNode}, d...)
 	found := false
 	curr := 0
 	for i, node := range d {
