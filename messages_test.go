@@ -84,10 +84,11 @@ var (
 	}
 
 	commit = &Commit{
-		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
-		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
-		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Path:    DirectPath{Nodes: nodes},
+		Updates:    []ProposalID{{Hash: []byte{0x00, 0x01}}},
+		Removes:    []ProposalID{{Hash: []byte{0x02, 0x03}}},
+		Adds:       []ProposalID{{Hash: []byte{0x04, 0x05}}},
+		KeyPackage: *keyPackage,
+		Path:       DirectPath{Nodes: nodes},
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
@@ -210,14 +211,6 @@ type MessageTestVectors struct {
 	SigSeed      []byte            `tls:"head=1"`
 	Random       []byte            `tls:"head=1"`
 	Cases        []MessageTestCase `tls:"head=4"`
-}
-
-//helpers
-
-func commitMatch(t *testing.T, l, r Commit) {
-	require.Equal(t, l.Adds, r.Adds)
-	require.Equal(t, l.Removes, r.Removes)
-	require.Equal(t, l.Updates, r.Updates)
 }
 
 /// Gen and Verify
@@ -383,10 +376,11 @@ func generateMessageVectors(t *testing.T) []byte {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates: proposal,
-			Removes: proposal,
-			Adds:    proposal,
-			Path:    dp,
+			Updates:    proposal,
+			Removes:    proposal,
+			Adds:       proposal,
+			KeyPackage: kp,
+			Path:       dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -574,15 +568,20 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates: proposal,
-			Removes: proposal,
-			Adds:    proposal,
-			Path:    dp,
+			Updates:    proposal,
+			Removes:    proposal,
+			Adds:       proposal,
+			KeyPackage: kp,
+			Path:       dp,
 		}
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		require.Nil(t, err)
-		commitMatch(t, commit, commitWire)
+		require.Equal(t, commit.Adds, commitWire.Adds)
+		require.Equal(t, commit.Removes, commitWire.Removes)
+		require.Equal(t, commit.Updates, commitWire.Updates)
+		require.Equal(t, commit.KeyPackage, commitWire.KeyPackage)
+		// Path not verified because HPKE is randomized
 
 		//MlsCiphertext
 		ct := MLSCiphertext{

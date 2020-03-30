@@ -263,6 +263,30 @@ func (s *State) Remove(removed leafIndex) *MLSPlaintext {
 }
 
 func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
+	// Update the leaf for this member
+	leafInitPriv, err := s.CipherSuite.hpke().Derive(leafSecret)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	kp, ok := s.Tree.KeyPackage(s.Index)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("KeyPackage not found in tree")
+	}
+
+	kp.InitKey = leafInitPriv.PublicKey
+	err = kp.SetPrivateKey(leafInitPriv)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	kp.Credential.SetPrivateKey(s.IdentityPriv)
+	err = kp.sign()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Construct and apply a commit message
 	commit := Commit{}
 	var joiners []KeyPackage
 
@@ -280,9 +304,11 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 	}
 
+	commit.KeyPackage = kp
+
 	// init new state to apply commit and ratchet forward
 	next := s.Clone()
-	err := next.apply(commit)
+	err = next.apply(s.Index, commit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -344,7 +370,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 /// Proposal processing helpers
 
-func (s *State) apply(commit Commit) error {
+func (s *State) apply(from leafIndex, commit Commit) error {
 	// state to identify proposals being processed
 	// in the PendingProposals. Avoids linear loop to
 	// remove entries from PendingProposals.
@@ -363,7 +389,9 @@ func (s *State) apply(commit Commit) error {
 	if err != nil {
 		return err
 	}
-	return nil
+
+	// Finally, apply the Update in the commit itself
+	return s.applyUpdateProposal(from, &UpdateProposal{commit.KeyPackage})
 }
 
 func (s *State) applyAddProposal(add *AddProposal) error {
@@ -611,9 +639,10 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	}
 
 	// apply the commit and discard any remaining pending proposals
+	senderIndex := leafIndex(pt.Sender.Sender)
 	commitData := pt.Content.Commit
 	next := s.Clone()
-	err = next.apply(commitData.Commit)
+	err = next.apply(senderIndex, commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +660,6 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	senderIndex := leafIndex(pt.Sender.Sender)
 	commitSecret, err := next.Tree.Decap(senderIndex, ctx, commitData.Commit.Path)
 	if err != nil {
 		return nil, err

@@ -359,6 +359,11 @@ func NewRatchetTree(suite CipherSuite) *RatchetTree {
 	return &RatchetTree{Suite: suite}
 }
 
+func (t *RatchetTree) SetLeaf(index leafIndex, keyPkg KeyPackage) {
+	n := toNodeIndex(index)
+	t.Nodes[n].Node.Leaf = &keyPkg
+}
+
 func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
 	n := toNodeIndex(index)
 

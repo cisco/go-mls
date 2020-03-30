@@ -303,7 +303,9 @@ type Commit struct {
 	Updates []ProposalID `tls:"head=2"`
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
-	Path    DirectPath
+
+	KeyPackage KeyPackage
+	Path       DirectPath
 }
 
 ///

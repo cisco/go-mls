@@ -86,7 +86,6 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 		require.Nil(t, err)
 
 		for j := range trees {
-			t.Logf("%d -> %d ", i, j)
 			if i == j {
 				continue
 			}
