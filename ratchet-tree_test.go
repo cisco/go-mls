@@ -34,7 +34,7 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Ratc
 
 	// Encap to fill in the tree
 	for i := range keyPackages {
-		_, _, err := tree.Encap(leafIndex(i), []byte{}, []byte{byte(i)})
+		_, _, _, err := tree.Encap(leafIndex(i), []byte{}, []byte{byte(i)})
 		require.Nil(t, err)
 	}
 
@@ -77,15 +77,24 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 		}
 	}
 
+	// Verify that tree is parent-hash-valid with only leaves populated (which
+	// should be vacuously true because no parent nodes have values)
+	for i := range trees {
+		require.True(t, trees[i].ParentHashValid())
+	}
+
 	// Encap from each one, decap at all the others
 	for i := range trees {
 		from := leafIndex(i)
 		context := []byte{}
 		leafSecret := []byte{byte(i)}
-		path, secretE, err := trees[i].Encap(from, context, leafSecret)
+		path, _, secretE, err := trees[i].Encap(from, context, leafSecret)
 		require.Nil(t, err)
 
+		require.True(t, trees[i].ParentHashValid())
+
 		for j := range trees {
+			t.Logf("%d -> %d", i, j)
 			if i == j {
 				continue
 			}
@@ -93,6 +102,8 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 			secretD, err := trees[j].Decap(from, context, path)
 			require.Nil(t, err)
 			require.Equal(t, secretE, secretD)
+
+			require.True(t, trees[j].ParentHashValid())
 		}
 	}
 }

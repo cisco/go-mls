@@ -185,7 +185,6 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 	hmac.Write(s.ConfirmedTranscriptHash)
 	localConfirmation := hmac.Sum(nil)
 	if !bytes.Equal(localConfirmation, confirmation) {
-		s.Tree.dump("joiner")
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 
@@ -222,10 +221,11 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	if err != nil {
 		return nil, nil, err
 	}
+
 	// commit the add and generate welcome to be sent to the peer
 	_, welcome, newState, err := s.Commit(commitSecret)
 	if err != nil {
-		panic(fmt.Errorf("mls.state: commit failure"))
+		return nil, nil, err
 	}
 
 	return welcome, newState, nil
@@ -263,6 +263,47 @@ func (s *State) Remove(removed leafIndex) *MLSPlaintext {
 }
 
 func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
+	// Construct and apply a commit message
+	commit := Commit{}
+	var joiners []KeyPackage
+
+	for _, pp := range s.PendingProposals {
+		pid := s.proposalID(pp)
+		proposal := pp.Content.Proposal
+		switch proposal.Type() {
+		case ProposalTypeAdd:
+			commit.Adds = append(commit.Adds, pid)
+			joiners = append(joiners, proposal.Add.KeyPackage)
+		case ProposalTypeUpdate:
+			commit.Updates = append(commit.Updates, pid)
+		case ProposalTypeRemove:
+			commit.Removes = append(commit.Removes, pid)
+		}
+	}
+
+	// init new state to apply commit and ratchet forward
+	next := s.Clone()
+	err := next.apply(s.Index, commit)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// reset after commit the proposals
+	next.PendingProposals = nil
+
+	// KEM new entropy to the new group
+	ctx, err := syntax.Marshal(next.groupContext())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// TODO(RLB): Take the leaf path secret here and place it in the new leaf
+	var commitSecret []byte
+	commit.Path, _, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	// Update the leaf for this member
 	leafInitPriv, err := s.CipherSuite.hpke().Derive(leafSecret)
 	if err != nil {
@@ -286,44 +327,8 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, err
 	}
 
-	// Construct and apply a commit message
-	commit := Commit{}
-	var joiners []KeyPackage
-
-	for _, pp := range s.PendingProposals {
-		pid := s.proposalID(pp)
-		proposal := pp.Content.Proposal
-		switch proposal.Type() {
-		case ProposalTypeAdd:
-			commit.Adds = append(commit.Adds, pid)
-			joiners = append(joiners, proposal.Add.KeyPackage)
-		case ProposalTypeUpdate:
-			commit.Updates = append(commit.Updates, pid)
-		case ProposalTypeRemove:
-			commit.Removes = append(commit.Removes, pid)
-		}
-	}
-
 	commit.KeyPackage = kp
-
-	// init new state to apply commit and ratchet forward
-	next := s.Clone()
-	err = next.apply(s.Index, commit)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	// reset after commit the proposals
-	next.PendingProposals = nil
-
-	// KEM new entropy to the new group
-	ctx, err := syntax.Marshal(next.groupContext())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	var commitSecret []byte
-	commit.Path, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+	err = next.applyUpdateProposal(s.Index, &UpdateProposal{commit.KeyPackage})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -390,8 +395,7 @@ func (s *State) apply(from leafIndex, commit Commit) error {
 		return err
 	}
 
-	// Finally, apply the Update in the commit itself
-	return s.applyUpdateProposal(from, &UpdateProposal{commit.KeyPackage})
+	return nil
 }
 
 func (s *State) applyAddProposal(add *AddProposal) error {
@@ -413,7 +417,7 @@ func (s *State) applyRemoveProposal(remove *RemoveProposal) error {
 
 func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) error {
 	if update.KeyPackage.CipherSuite != s.CipherSuite {
-		return fmt.Errorf("mls.state: update kp does not use group ciphersuite")
+		panic(fmt.Errorf("mls.state: update kp does not use group ciphersuite %v != %v", update.KeyPackage.CipherSuite, s.CipherSuite))
 	}
 
 	if !update.KeyPackage.verify() {
@@ -661,6 +665,12 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	}
 
 	commitSecret, err := next.Tree.Decap(senderIndex, ctx, commitData.Commit.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the update in the commit
+	err = next.applyUpdateProposal(senderIndex, &UpdateProposal{commitData.Commit.KeyPackage})
 	if err != nil {
 		return nil, err
 	}

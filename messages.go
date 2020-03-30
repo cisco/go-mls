@@ -10,17 +10,6 @@ import (
 ///
 /// KeyPackage
 ///
-type ExtensionType uint16
-
-type Extension struct {
-	ExtensionType ExtensionType
-	ExtensionData []byte `tls:"head=2"`
-}
-
-type ExtensionList struct {
-	Extensions []Extension `tls:"head=2"`
-}
-
 type Signature struct {
 	Data []byte `tls:"head=2"`
 }
@@ -36,9 +25,9 @@ type KeyPackage struct {
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
-	//Extensions       ExtensionList // TODO
-	Signature  Signature
-	privateKey *HPKEPrivateKey `tls:"omit"`
+	Extensions       ExtensionList
+	Signature        Signature
+	privateKey       *HPKEPrivateKey `tls:"omit"`
 }
 
 func (kp KeyPackage) Equals(other KeyPackage) bool {
@@ -46,8 +35,9 @@ func (kp KeyPackage) Equals(other KeyPackage) bool {
 	suite := kp.CipherSuite == other.CipherSuite
 	initKey := reflect.DeepEqual(kp.InitKey, other.InitKey)
 	credential := kp.Credential.Equals(other.Credential)
+	extensions := reflect.DeepEqual(kp.Extensions, kp.Extensions)
 	signature := reflect.DeepEqual(kp.Signature, other.Signature)
-	return version && suite && initKey && credential && signature
+	return version && suite && initKey && credential && extensions && signature
 }
 
 func (kp KeyPackage) Clone() KeyPackage {
@@ -56,6 +46,7 @@ func (kp KeyPackage) Clone() KeyPackage {
 		CipherSuite:      kp.CipherSuite,
 		InitKey:          kp.InitKey,
 		Credential:       kp.Credential,
+		Extensions:       kp.Extensions,
 		Signature:        kp.Signature,
 		privateKey:       kp.privateKey,
 	}
@@ -89,13 +80,13 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 		CipherSuite CipherSuite
 		InitKey     HPKEPublicKey
 		Credential  Credential
-		//Extensions  ExtensionList
+		Extensions  ExtensionList
 	}{
 		Version:     kp.SupportedVersion,
 		CipherSuite: kp.CipherSuite,
 		InitKey:     kp.InitKey,
 		Credential:  kp.Credential,
-		//Extensions:  kp.Extensions,
+		Extensions:  kp.Extensions,
 	})
 
 	if err != nil {

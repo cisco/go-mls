@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 
@@ -166,6 +167,20 @@ func (n Node) PrivateKey() (HPKEPrivateKey, bool) {
 	return *maybePriv, true
 }
 
+func (n *Node) HasParentHash(ph []byte) bool {
+	if n == nil {
+		return false
+	}
+
+	switch n.Type() {
+	case NodeTypeParent:
+		return bytes.Equal(n.Parent.ParentHash, ph)
+	default:
+		// TODO(RLB): Look up ParentHash in leaf node's extensions
+		panic("Invalid node type for HasParentHash")
+	}
+}
+
 func (n Node) MarshalTLS() ([]byte, error) {
 	s := NewWriteStream()
 	nodeType := n.Type()
@@ -268,7 +283,24 @@ func (n *OptionalNode) MergePublic(pub HPKEPublicKey) {
 	n.Node.Parent.SetPublicKey(pub)
 }
 
-func (n *OptionalNode) setHash(suite CipherSuite, input interface{}) error {
+func (n *OptionalNode) ParentHash(suite CipherSuite) ([]byte, error) {
+	if n.Blank() {
+		return []byte{}, nil
+	}
+
+	if n.Node.Type() != NodeTypeParent {
+		return nil, fmt.Errorf("Invalid node type for SetParentHash")
+	}
+
+	data, err := syntax.Marshal(n.Node.Parent)
+	if err != nil {
+		return nil, err
+	}
+
+	return suite.digest(data), nil
+}
+
+func (n *OptionalNode) setNodeHash(suite CipherSuite, input interface{}) error {
 	data, err := syntax.Marshal(input)
 	if err != nil {
 		return err
@@ -283,7 +315,7 @@ type LeafNodeHashInput struct {
 	KeyPackage *KeyPackage `tls:"optional"`
 }
 
-func (n *OptionalNode) SetLeafHash(suite CipherSuite, index leafIndex) error {
+func (n *OptionalNode) SetLeafNodeHash(suite CipherSuite, index leafIndex) error {
 	input := LeafNodeHashInput{
 		LeafIndex:  index,
 		KeyPackage: nil,
@@ -291,13 +323,13 @@ func (n *OptionalNode) SetLeafHash(suite CipherSuite, index leafIndex) error {
 
 	if !n.Blank() {
 		if n.Node.Type() != NodeTypeLeaf {
-			return fmt.Errorf("mls.rtn: SetLeafHash on non-leaf node")
+			return fmt.Errorf("mls.rtn: SetLeafNodeHash on non-leaf node")
 		}
 
 		input.KeyPackage = n.Node.Leaf
 	}
 
-	return n.setHash(suite, input)
+	return n.setNodeHash(suite, input)
 }
 
 type ParentNodeHashInput struct {
@@ -307,7 +339,7 @@ type ParentNodeHashInput struct {
 	RightHash  []byte      `tls:"head=1"`
 }
 
-func (n *OptionalNode) SetParentHash(suite CipherSuite, index nodeIndex, left, right []byte) error {
+func (n *OptionalNode) SetParentNodeHash(suite CipherSuite, index nodeIndex, left, right []byte) error {
 	input := ParentNodeHashInput{
 		NodeIndex:  index,
 		ParentNode: nil,
@@ -317,13 +349,13 @@ func (n *OptionalNode) SetParentHash(suite CipherSuite, index nodeIndex, left, r
 
 	if !n.Blank() {
 		if n.Node.Type() != NodeTypeParent {
-			return fmt.Errorf("mls.rtn: SetParentHash on non-leaf node")
+			return fmt.Errorf("mls.rtn: SetParentNodeHash on non-leaf node")
 		}
 
 		input.ParentNode = n.Node.Parent
 	}
 
-	return n.setHash(suite, input)
+	return n.setNodeHash(suite, input)
 }
 
 ///
@@ -348,9 +380,21 @@ func (t *RatchetTree) dump(label string) {
 			continue
 		}
 
+		var parentHash []byte
+		var selfHash []byte
+		if t.Nodes[i].Node.Type() == NodeTypeParent {
+			parentHash = t.Nodes[i].Node.Parent.ParentHash
+			if len(parentHash) > 4 {
+				parentHash = parentHash[:4]
+			}
+
+			selfHash, _ = t.Nodes[i].ParentHash(t.Suite)
+			selfHash = selfHash[:4]
+		}
+
 		_, hasPriv := t.Nodes[i].Node.PrivateKey()
 		pub := t.Nodes[i].Node.PublicKey().Data[:4]
-		fmt.Printf("%v {%x} [%x]\n", hasPriv, pub, hash)
+		fmt.Printf("%v {%x} [%x] (%x) <%x>\n", hasPriv, pub, hash, parentHash, selfHash)
 
 	}
 }
@@ -382,7 +426,8 @@ func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
 		t.Nodes[v].Node.Parent.AddUnmerged(index)
 	}
 
-	return t.setHashPath(index)
+	_, err := t.setHashPath(index)
+	return err
 }
 
 func (t *RatchetTree) UpdateLeaf(index leafIndex, keyPkg KeyPackage) error {
@@ -394,7 +439,8 @@ func (t *RatchetTree) UpdateLeaf(index leafIndex, keyPkg KeyPackage) error {
 	t.BlankPath(index)
 	t.Nodes[n] = newLeafNode(keyPkg)
 
-	return t.setHashPath(index)
+	_, err := t.setHashPath(index)
+	return err
 }
 
 func (t *RatchetTree) SetLeafPrivateKey(index leafIndex, priv HPKEPrivateKey) error {
@@ -423,14 +469,16 @@ func (t RatchetTree) PathSecrets(start nodeIndex, pathSecret []byte) map[nodeInd
 	return secrets
 }
 
-func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectPath, []byte, error) {
+func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectPath, []byte, []byte, error) {
 	// list of updated nodes - output
 	leafNode := toNodeIndex(from)
 	dp := DirectPath{}
 
 	// generate the necessary path secrets
 	secrets := t.PathSecrets(leafNode, leafSecret)
+	rootSecret := secrets[t.rootIndex()]
 
+	// set path secrets up the tree and encrypt to the copath
 	cp := copath(leafNode, t.size())
 	for _, v := range cp {
 		parent := parent(v, t.size())
@@ -443,7 +491,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectP
 		pathSecret := secrets[parent]
 		n, err := newParentNode(t.Suite, pathSecret)
 		if err != nil {
-			return DirectPath{}, nil, err
+			return DirectPath{}, nil, nil, err
 		}
 		t.Nodes[parent] = n
 
@@ -456,7 +504,7 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectP
 			pk := t.Nodes[rnode].Node.PublicKey()
 			ct, err := t.Suite.hpke().Encrypt(pk, context, pathSecret)
 			if err != nil {
-				return DirectPath{}, nil, err
+				return DirectPath{}, nil, nil, err
 			}
 			pathNode.EncryptedPathSecrets = append(pathNode.EncryptedPathSecrets, ct)
 		}
@@ -464,12 +512,12 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectP
 		dp.Nodes = append(dp.Nodes, pathNode)
 	}
 
-	err := t.setHashPath(from)
+	leafParentHash, err := t.setHashPath(from)
 	if err != nil {
-		return DirectPath{}, nil, err
+		return DirectPath{}, nil, nil, err
 	}
 
-	return dp, secrets[t.rootIndex()], nil
+	return dp, leafParentHash, rootSecret, nil
 }
 
 func (t *RatchetTree) ImplantFrom(from, to leafIndex, pathSecret []byte) ([]byte, error) {
@@ -560,7 +608,7 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) ([]
 		return nil, err
 	}
 
-	err = t.setHashPath(from)
+	_, err = t.setHashPath(from)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +630,8 @@ func (t *RatchetTree) BlankPath(index leafIndex) error {
 
 	t.Nodes[r].SetToBlank()
 
-	return t.setHashPath(index)
+	_, err := t.setHashPath(index)
+	return err
 }
 
 func (t RatchetTree) KeyPackage(index leafIndex) (KeyPackage, bool) {
@@ -655,6 +704,41 @@ func (t RatchetTree) Find(kp KeyPackage) (leafIndex, bool) {
 	return 0, false
 }
 
+// A tree's parent hashes are valid if every non-blank parent node is listed as parent
+// hash for at least one of its children.
+func (t RatchetTree) ParentHashValid() bool {
+	for i := range t.Nodes {
+		n := nodeIndex(i)
+		if level(n) < 2 {
+			// TODO change to level == 0 so we only skip leaf nodes
+			continue
+		}
+
+		if t.Nodes[n].Blank() {
+			continue
+		}
+
+		ph, err := t.Nodes[n].ParentHash(t.Suite)
+		if err != nil {
+			fmt.Printf("xxx 1 %v\n", err)
+			return false
+		}
+
+		// TODO Simplify this once leaf nodes have parent hashes
+		l, r := left(n), right(n, t.size())
+		lh, rh := false, false
+		lh = (level(l) == 0) || t.Nodes[l].Node.HasParentHash(ph)
+		rh = (level(r) == 0) || t.Nodes[r].Node.HasParentHash(ph)
+
+		if !lh && !rh {
+			t.dump("valid")
+			fmt.Printf("xxx 1 %v\n", n)
+			return false
+		}
+	}
+	return true
+}
+
 //// Ratchet Tree helpers functions
 
 // number of leaves in the ratchet tree
@@ -698,33 +782,54 @@ func (t RatchetTree) resolve(index nodeIndex) []nodeIndex {
 
 func (t *RatchetTree) setHash(index nodeIndex) error {
 	if level(index) == 0 {
-		return t.Nodes[index].SetLeafHash(t.Suite, toLeafIndex(index))
+		return t.Nodes[index].SetLeafNodeHash(t.Suite, toLeafIndex(index))
 	}
 
 	lh := t.Nodes[left(index)].Hash
 	rh := t.Nodes[right(index, t.size())].Hash
-	return t.Nodes[index].SetParentHash(t.Suite, index, lh, rh)
+	return t.Nodes[index].SetParentNodeHash(t.Suite, index, lh, rh)
 }
 
-func (t *RatchetTree) setHashPath(index leafIndex) error {
-	curr := toNodeIndex(index)
-
-	size := t.size()
-	r := root(size)
-	for {
-		err := t.setHash(curr)
-		if err != nil {
-			return err
-		}
-
-		if curr == r {
-			break
-		}
-
-		curr = parent(curr, size)
+func (t *RatchetTree) setHashPath(index leafIndex) ([]byte, error) {
+	n := toNodeIndex(index)
+	dp := dirpath(n, t.size())
+	if len(dp) == 0 {
+		// Nothing to do if we have a zero- or one-member tree
+		return nil, nil
 	}
 
-	return nil
+	// Set parent hashes down the tree
+	var err error
+	for i := len(dp) - 1; i > 0; i -= 1 {
+		if t.Nodes[dp[i-1]].Blank() {
+			continue
+		}
+
+		t.Nodes[dp[i-1]].Node.Parent.ParentHash, err = t.Nodes[dp[i]].ParentHash(t.Suite)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	leafParentHash, err := t.Nodes[dp[0]].ParentHash(t.Suite)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set tree hashes up the tree
+	err = t.setHash(n)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range dp {
+		err = t.setHash(dp[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return leafParentHash, nil
 }
 
 func (t *RatchetTree) setHashSubtree(index nodeIndex) error {

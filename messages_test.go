@@ -50,8 +50,8 @@ var (
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
-		//Extensions:       extListValidIn,
-		Signature: Signature{[]byte{0x00, 0x00, 0x00}},
+		Extensions:       extListValidIn,
+		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -258,7 +258,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		err = ratchetTree.BlankPath(leafIndex(2))
 		require.Nil(t, err)
 
-		dp, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -450,7 +450,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		err = ratchetTree.BlankPath(leafIndex(2))
 		require.Nil(t, err)
 
-		dp, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -459,6 +459,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			CipherSuite:      suite,
 			InitKey:          pub,
 			Credential:       cred,
+			Extensions:       ExtensionList{Entries: []Extension{}},
 			Signature:        Signature{tv.Random},
 		}
 		kpM, err := syntax.Marshal(kp)
