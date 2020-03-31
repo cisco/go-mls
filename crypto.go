@@ -17,6 +17,7 @@ import (
 
 	"github.com/bifurcation/hpke"
 	"github.com/bifurcation/mint/syntax"
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/ed25519"
 )
 
@@ -25,7 +26,7 @@ type CipherSuite uint16
 const (
 	X25519_AES128GCM_SHA256_Ed25519        CipherSuite = 0x0001
 	P256_AES128GCM_SHA256_P256             CipherSuite = 0x0002
-	X25519_CHACHA20POLY1305_SHA256_Ed25519 CipherSuite = 0x0003 // UNSUPPORTED
+	X25519_CHACHA20POLY1305_SHA256_Ed25519 CipherSuite = 0x0003
 	X448_AES256GCM_SHA512_Ed448            CipherSuite = 0x0004 // UNSUPPORTED
 	P521_AES256GCM_SHA512_P521             CipherSuite = 0x0005
 	X448_CHACHA20POLY1305_SHA512_Ed448     CipherSuite = 0x0006 // UNSUPPORTED
@@ -35,7 +36,8 @@ func (cs CipherSuite) supported() bool {
 	switch cs {
 	case X25519_AES128GCM_SHA256_Ed25519,
 		P256_AES128GCM_SHA256_P256,
-		P521_AES256GCM_SHA512_P521:
+		P521_AES256GCM_SHA512_P521,
+		X25519_CHACHA20POLY1305_SHA256_Ed25519:
 		return true
 	}
 
@@ -90,6 +92,15 @@ func (cs CipherSuite) constants() cipherConstants {
 			HPKEKDF:    hpke.KDF_HKDF_SHA256,
 			HPKEAEAD:   hpke.AEAD_AESGCM128,
 		}
+	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
+		return cipherConstants{
+			KeySize:    32,
+			NonceSize:  12,
+			SecretSize: 32,
+			HPKEKEM:    hpke.DHKEM_X25519,
+			HPKEKDF:    hpke.KDF_HKDF_SHA256,
+			HPKEAEAD:   hpke.AEAD_CHACHA20POLY1305,
+		}
 	case P521_AES256GCM_SHA512_P521:
 		return cipherConstants{
 			KeySize:    32,
@@ -101,7 +112,6 @@ func (cs CipherSuite) constants() cipherConstants {
 		}
 	}
 
-	fmt.Printf("!!! 1 %d", cs)
 	panic("Unsupported ciphersuite")
 }
 
@@ -111,6 +121,8 @@ func (cs CipherSuite) scheme() SignatureScheme {
 		return Ed25519
 	case P256_AES128GCM_SHA256_P256:
 		return ECDSA_SECP256R1_SHA256
+	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
+		return Ed25519
 	case P521_AES256GCM_SHA512_P521:
 		return ECDSA_SECP521R1_SHA512
 	}
@@ -124,14 +136,14 @@ func (cs CipherSuite) zero() []byte {
 
 func (cs CipherSuite) newDigest() hash.Hash {
 	switch cs {
-	case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
+	case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256,
+		X25519_CHACHA20POLY1305_SHA256_Ed25519:
 		return sha256.New()
 
 	case X448_AES256GCM_SHA512_Ed448, P521_AES256GCM_SHA512_P521:
 		return sha512.New()
 	}
 
-	fmt.Printf("!!! %d\n", cs)
 	panic("Unsupported ciphersuite")
 }
 
@@ -156,6 +168,8 @@ func (cs CipherSuite) newAEAD(key []byte) (cipher.AEAD, error) {
 		}
 
 		return cipher.NewGCM(block)
+	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
+		return chacha20poly1305.New(key)
 	}
 
 	panic("Unsupported ciphersuite")
