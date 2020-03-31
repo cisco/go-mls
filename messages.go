@@ -589,6 +589,7 @@ type GroupInfo struct {
 	Tree                    RatchetTree
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	InterimTranscriptHash   []byte `tls:"head=1"`
+	Extensions              ExtensionList
 	Confirmation            []byte `tls:"head=1"`
 	SignerIndex             leafIndex
 	Signature               []byte `tls:"head=2"`

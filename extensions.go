@@ -30,6 +30,10 @@ type ExtensionList struct {
 	Entries []Extension `tls:"head=2"`
 }
 
+func NewExtensionList() ExtensionList {
+	return ExtensionList{[]Extension{}}
+}
+
 func (el *ExtensionList) Add(src ExtensionBody) error {
 	data, err := syntax.Marshal(src)
 	if err != nil {
@@ -50,6 +54,15 @@ func (el *ExtensionList) Add(src ExtensionBody) error {
 		ExtensionData: data,
 	})
 	return nil
+}
+
+func (el ExtensionList) Has(extType ExtensionType) bool {
+	for _, ext := range el.Entries {
+		if ext.ExtensionType == extType {
+			return true
+		}
+	}
+	return false
 }
 
 func (el ExtensionList) Find(dst ExtensionBody) (bool, error) {

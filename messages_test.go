@@ -483,7 +483,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			CipherSuite: suite,
 			InitKey:     pub,
 			Credential:  cred,
-			Extensions:  ExtensionList{Entries: []Extension{}},
+			Extensions:  NewExtensionList(),
 			Signature:   Signature{tv.Random},
 		}
 		kpM, err := syntax.Marshal(kp)

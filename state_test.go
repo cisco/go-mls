@@ -52,12 +52,15 @@ func setupGroup(t *testing.T) StateTest {
 	// start with the group creator
 	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
 	require.Nil(t, err)
-	states = append(states, *NewEmptyState(groupID, stateTest.keyPackages[0]))
+	s0, err := NewEmptyState(groupID, stateTest.keyPackages[0])
+	require.Nil(t, err)
+	states = append(states, *s0)
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := states[0].Add(stateTest.keyPackages[i])
-		_, err := states[0].Handle(add)
+		add, err := states[0].Add(stateTest.keyPackages[i])
+		require.Nil(t, err)
+		_, err = states[0].Handle(add)
 		require.Nil(t, err)
 	}
 
@@ -91,10 +94,12 @@ func TestStateTwoPerson(t *testing.T) {
 	// creator's state
 	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
 	require.Nil(t, err)
-	first0 := NewEmptyState(groupID, stateTest.keyPackages[0])
+	first0, err := NewEmptyState(groupID, stateTest.keyPackages[0])
+	require.Nil(t, err)
 
 	// add the second participant
-	add := first0.Add(stateTest.keyPackages[1])
+	add, err := first0.Add(stateTest.keyPackages[1])
+	require.Nil(t, err)
 	_, err = first0.Handle(add)
 	require.Nil(t, err)
 
@@ -120,14 +125,61 @@ func TestStateTwoPerson(t *testing.T) {
 	require.Equal(t, pt, testMessage)
 }
 
+const ExtensionTypeGroupTest ExtensionType = 0xFFFF
+
+type GroupTestExtension struct{}
+
+func (gte GroupTestExtension) Type() ExtensionType {
+	return ExtensionTypeGroupTest
+}
+
+func TestStateExtensions(t *testing.T) {
+	stateTest := setup(t)
+	groupExtensions := NewExtensionList()
+	groupExtensions.Add(GroupTestExtension{})
+
+	clientExtensions := []ExtensionBody{GroupTestExtension{}}
+
+	// Check that NewEmptyStateWithExtensions fails if the KP doesn't support them
+	kpA := stateTest.keyPackages[0]
+	err := kpA.SetPrivateKey(stateTest.initPrivs[0])
+	require.Nil(t, err)
+	_, err = NewEmptyStateWithExtensions(groupID, kpA, groupExtensions)
+	require.Error(t, err)
+
+	// Check that NewEmptyStateWithExtensions succeeds with exetnsion support
+	err = kpA.Resign(nil, clientExtensions, stateTest.identityPrivs[0])
+	require.Nil(t, err)
+
+	alice0, err := NewEmptyStateWithExtensions(groupID, kpA, groupExtensions)
+	require.Nil(t, err)
+	require.Equal(t, len(alice0.Extensions.Entries), 1)
+
+	// Check that Add fails if the KP doesn't support them
+	kpB := stateTest.keyPackages[1]
+	_, err = alice0.Add(kpB)
+	require.Error(t, err)
+
+	// Check that Add succeeds with extension support
+	err = kpB.Resign(nil, clientExtensions, stateTest.identityPrivs[1])
+	require.Nil(t, err)
+
+	_, err = alice0.Add(kpB)
+	require.Nil(t, err)
+
+	// TODO(RLB) Test extension verificatoin in NewJoinedState
+}
+
 func TestStateMarshalUnmarshal(t *testing.T) {
 	// Create Alice and have her add Bob to a group
 	stateTest := setup(t)
 	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
 	require.Nil(t, err)
-	alice0 := NewEmptyState(groupID, stateTest.keyPackages[0])
+	alice0, err := NewEmptyState(groupID, stateTest.keyPackages[0])
+	require.Nil(t, err)
 
-	add := alice0.Add(stateTest.keyPackages[1])
+	add, err := alice0.Add(stateTest.keyPackages[1])
+	require.Nil(t, err)
 	_, err = alice0.Handle(add)
 	require.Nil(t, err)
 
@@ -184,12 +236,15 @@ func TestStateMulti(t *testing.T) {
 	// start with the group creator
 	err := stateTest.keyPackages[0].SetPrivateKey(stateTest.initPrivs[0])
 	require.Nil(t, err)
-	stateTest.states = append(stateTest.states, *NewEmptyState(groupID, stateTest.keyPackages[0]))
+	s0, err := NewEmptyState(groupID, stateTest.keyPackages[0])
+	require.Nil(t, err)
+	stateTest.states = append(stateTest.states, *s0)
 
 	// add proposals for rest of the participants
 	for i := 1; i < groupSize; i++ {
-		add := stateTest.states[0].Add(stateTest.keyPackages[i])
-		_, err := stateTest.states[0].Handle(add)
+		add, err := stateTest.states[0].Add(stateTest.keyPackages[i])
+		require.Nil(t, err)
+		_, err = stateTest.states[0].Handle(add)
 		require.Nil(t, err)
 	}
 

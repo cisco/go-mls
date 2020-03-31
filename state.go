@@ -17,6 +17,7 @@ type GroupContext struct {
 	Epoch                   Epoch
 	TreeHash                []byte `tls:"head=1"`
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
+	Extensions              ExtensionList
 }
 
 ///
@@ -33,6 +34,10 @@ func toRef(id ProposalID) ProposalRef {
 	return ProposalRef(ref)
 }
 
+var supportedGroupExtensions = []ExtensionType{
+	// TODO
+}
+
 type State struct {
 	// Shared confirmed state
 	CipherSuite             CipherSuite
@@ -41,6 +46,7 @@ type State struct {
 	Tree                    RatchetTree
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	InterimTranscriptHash   []byte `tls:"head=1"`
+	Extensions              ExtensionList
 
 	// Per-participant non-secret state
 	Index            leafIndex           `tls:"omit"`
@@ -53,10 +59,21 @@ type State struct {
 	Keys          keyScheduleEpoch               `tls:"omit"`
 }
 
-func NewEmptyState(groupID []byte, kp KeyPackage) *State {
+func NewEmptyState(groupID []byte, kp KeyPackage) (*State, error) {
+	return NewEmptyStateWithExtensions(groupID, kp, NewExtensionList())
+}
+
+func NewEmptyStateWithExtensions(groupID []byte, kp KeyPackage, ext ExtensionList) (*State, error) {
 	suite := kp.CipherSuite
 	tree := NewRatchetTree(suite)
 	tree.AddLeaf(0, kp)
+
+	// Verify that the creator supports the group's extensions
+	for _, ext := range ext.Entries {
+		if !kp.Extensions.Has(ext.ExtensionType) {
+			return nil, fmt.Errorf("Unsupported extension type [%04x]", ext.ExtensionType)
+		}
+	}
 
 	secret := make([]byte, suite.newDigest().Size())
 	kse := newKeyScheduleEpoch(suite, 1, secret, []byte{})
@@ -72,16 +89,19 @@ func NewEmptyState(groupID []byte, kp KeyPackage) *State {
 		UpdateSecrets:           map[ProposalRef]HPKEPrivateKey{},
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
+		Extensions:              ext,
 	}
-	return s
+	return s, nil
 }
 
 func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, leafIndex, []byte, error) {
+	// Decrypt the GroupInfo
 	gi, err := welcome.Decrypt(suite, epochSecret)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 
+	// Construct the new state
 	s := &State{
 		CipherSuite:             suite,
 		Epoch:                   gi.Epoch,
@@ -89,6 +109,7 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 		GroupID:                 gi.GroupID,
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   gi.InterimTranscriptHash,
+		Extensions:              gi.Extensions,
 		PendingProposals:        []MLSPlaintext{},
 		UpdateSecrets:           map[ProposalRef]HPKEPrivateKey{},
 	}
@@ -158,6 +179,13 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 	s.IdentityPriv = *keyPackage.Credential.privateKey
 	s.Scheme = keyPackage.Credential.Scheme()
 
+	// Verify that the joiner supports the group's extensions
+	for _, ext := range s.Extensions.Entries {
+		if !keyPackage.Extensions.Has(ext.ExtensionType) {
+			return nil, fmt.Errorf("Unsupported extension type [%04x]", ext.ExtensionType)
+		}
+	}
+
 	// add self to tree
 	index, res := s.Tree.Find(keyPackage)
 	if !res {
@@ -214,10 +242,18 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	}
 
 	// init our state and add the negotiated peer's kp
-	s := NewEmptyState(groupID, mySelectedKP)
-	add := s.Add(otherSelectedKP)
+	s, err := NewEmptyState(groupID, mySelectedKP)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	add, err := s.Add(otherSelectedKP)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// update tree state
-	_, err := s.Handle(add)
+	_, err = s.Handle(add)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -231,13 +267,20 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	return welcome, newState, nil
 }
 
-func (s State) Add(kp KeyPackage) *MLSPlaintext {
+func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
+	// Verify that the new member supports the group's extensions
+	for _, ext := range s.Extensions.Entries {
+		if !kp.Extensions.Has(ext.ExtensionType) {
+			return nil, fmt.Errorf("Unsupported extension type [%04x]", ext.ExtensionType)
+		}
+	}
+
 	addProposal := Proposal{
 		Add: &AddProposal{
 			KeyPackage: kp,
 		},
 	}
-	return s.sign(addProposal)
+	return s.sign(addProposal), nil
 }
 
 func (s State) Update(kp KeyPackage) *MLSPlaintext {
@@ -507,6 +550,7 @@ func (s State) groupContext() GroupContext {
 		Epoch:                   s.Epoch,
 		TreeHash:                s.Tree.RootHash(),
 		ConfirmedTranscriptHash: s.ConfirmedTranscriptHash,
+		Extensions:              s.Extensions,
 	}
 }
 

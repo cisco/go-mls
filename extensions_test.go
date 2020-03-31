@@ -7,24 +7,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TwoByteExtensionType ExtensionType = 0xffff
+const ExtensionTypeTwoByte ExtensionType = 0xffff
 
 type TwoByteExtension [2]byte
 
 func (ne TwoByteExtension) Type() ExtensionType {
-	return TwoByteExtensionType
+	return ExtensionTypeTwoByte
 }
 
 func TestExtensionList(t *testing.T) {
 	// Add an extension to the list
 	extBody1 := &TwoByteExtension{0xFF, 0xFE}
 	extBody1Data := unhex("FFFE")
-	el := ExtensionList{}
+	el := NewExtensionList()
 	err := el.Add(extBody1)
 	require.Nil(t, err)
 	require.Equal(t, len(el.Entries), 1)
 	require.Equal(t, el.Entries[0].ExtensionType, extBody1.Type())
 	require.Equal(t, el.Entries[0].ExtensionData, extBody1Data)
+
+	// Verify that Has() returns the expected values
+	require.True(t, el.Has(ExtensionTypeTwoByte))
+	require.False(t, el.Has(ExtensionTypeSupportedVersions))
 
 	// Verify that adding again replaces the first
 	extBody2 := &TwoByteExtension{0xFD, 0xFC}
