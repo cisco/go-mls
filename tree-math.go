@@ -29,6 +29,14 @@ func toNodeIndex(leaf leafIndex) nodeIndex {
 	return nodeIndex(2 * leaf)
 }
 
+func toLeafIndex(node nodeIndex) leafIndex {
+	if node&0x01 != 0 {
+		panic("toLeafIndex on non-leaf index")
+	}
+
+	return leafIndex(node) >> 1
+}
+
 // Position of the most significant 1 bit
 func log2(x nodeCount) uint {
 	if x == 0 {
@@ -131,17 +139,19 @@ func sibling(x nodeIndex, n leafCount) nodeIndex {
 }
 
 // Direct path for x
-// Ordered from leaf to root, including leaf and root
+// Ordered from leaf to root, excluding leaf, including root
 func dirpath(x nodeIndex, n leafCount) []nodeIndex {
 	d := []nodeIndex{}
-	p := x
+	p := parent(x, n)
 	r := root(n)
 	for p != r {
 		d = append(d, p)
 		p = parent(p, n)
 	}
 
-	d = append(d, p)
+	if x != r {
+		d = append(d, p)
+	}
 	return d
 }
 
@@ -149,9 +159,14 @@ func dirpath(x nodeIndex, n leafCount) []nodeIndex {
 // Ordered from leaf to root
 func copath(x nodeIndex, n leafCount) []nodeIndex {
 	d := dirpath(x, n)
+	if len(d) == 0 {
+		return []nodeIndex{}
+	}
+
+	d = append([]nodeIndex{x}, d[:len(d)-1]...)
 
 	r := root(n)
-	c := make([]nodeIndex, len(d)-1)
+	c := make([]nodeIndex, len(d))
 	for i, x := range d {
 		// Don't include the root
 		if x == r {

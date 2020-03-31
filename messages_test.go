@@ -50,8 +50,8 @@ var (
 		CipherSuite:      0x0001,
 		InitKey:          ikPriv.PublicKey,
 		Credential:       credentialBasic,
-		//Extensions:       extListValidIn,
-		Signature: Signature{[]byte{0x00, 0x00, 0x00}},
+		Extensions:       extListValidIn,
+		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -68,7 +68,7 @@ var (
 
 	updateProposal = &Proposal{
 		Update: &UpdateProposal{
-			LeafKey: HPKEPublicKey{[]byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16}},
+			KeyPackage: *keyPackage,
 		},
 	}
 
@@ -84,10 +84,11 @@ var (
 	}
 
 	commit = &Commit{
-		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
-		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
-		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Path:    DirectPath{Nodes: nodes},
+		Updates:    []ProposalID{{Hash: []byte{0x00, 0x01}}},
+		Removes:    []ProposalID{{Hash: []byte{0x02, 0x03}}},
+		Adds:       []ProposalID{{Hash: []byte{0x04, 0x05}}},
+		KeyPackage: *keyPackage,
+		Path:       DirectPath{Nodes: nodes},
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
@@ -112,45 +113,6 @@ var (
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 		Ciphertext:          []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
 	}
-
-	priv, _          = supportedSuites[0].hpke().Derive(secretA)
-	rtnNilCredential = &RatchetTreeNode{
-		Credential:     nil,
-		PublicKey:      &priv.PublicKey,
-		UnmergedLeaves: []leafIndex{leafIndex(1)},
-	}
-
-	rtnWithCredential = &RatchetTreeNode{
-		Credential:     &credentialBasic,
-		PublicKey:      &priv.PublicKey,
-		UnmergedLeaves: []leafIndex{leafIndex(1)},
-	}
-
-	ortnRtnNilCred = &OptionalRatchetNode{
-		Node: rtnNilCredential,
-	}
-
-	ortnRtnCred = &OptionalRatchetNode{
-		Node: rtnWithCredential,
-	}
-
-	ratchetTree = &RatchetTree{
-		Nodes:       []OptionalRatchetNode{*ortnRtnCred},
-		CipherSuite: supportedSuites[0],
-	}
-
-	leafNodeWithNilInfo = &LeafNodeHashInput{
-		HashType: 0,
-		Info:     nil,
-	}
-
-	leafNodeWithInfo = &LeafNodeHashInput{
-		HashType: 0,
-		Info: &LeafNodeInfo{
-			Credential: credA,
-			PublicKey:  priv.PublicKey,
-		},
-	}
 )
 
 func roundTrip(original interface{}, decoded interface{}) func(t *testing.T) {
@@ -173,22 +135,17 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("Commit", roundTrip(commit, new(Commit)))
 	t.Run("MLSPlaintextContentApplication", roundTrip(mlsPlaintextIn, new(MLSPlaintext)))
 	t.Run("MLSCiphertext", roundTrip(mlsCiphertextIn, new(MLSCiphertext)))
-	t.Run("RatchetTreeNodeNilCredential", roundTrip(rtnNilCredential, new(RatchetTreeNode)))
-	t.Run("RatchetTreeNodeWithCredential", roundTrip(rtnWithCredential, new(RatchetTreeNode)))
-	t.Run("OptionalRatchetTreeNodeWithCredential", roundTrip(ortnRtnNilCred, new(OptionalRatchetNode)))
-	t.Run("LeafNodeHashInputWithNilInfo", roundTrip(leafNodeWithNilInfo, new(LeafNodeHashInput)))
-	t.Run("LeafNodeHashInputWithInfo", roundTrip(leafNodeWithInfo, new(LeafNodeHashInput)))
 }
 
 func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	// a tree with 2 members
-	treeAB := newTestRatchetTree(t, supportedSuites[0], [][]byte{secretA, secretB}, []Credential{credA, credB})
-	require.Equal(t, treeAB.size(), leafCount(2))
-	require.Equal(t, *treeAB.GetCredential(leafIndex(0)), credA)
-	require.Equal(t, *treeAB.GetCredential(leafIndex(1)), credB)
+	groupSize := 2
+	secrets := [][]byte{randomBytes(32), randomBytes(32)}
+	treeAB := newTestRatchetTree(t, suite, secrets)
+	require.Equal(t, treeAB.size(), leafCount(groupSize))
 
 	cs := supportedSuites[0]
-	secret, _ := getRandomBytes(32)
+	secret := randomBytes(32)
 
 	// setup things needed to welcome c
 	epochSecret := []byte("we welcome you c")
@@ -256,25 +213,6 @@ type MessageTestVectors struct {
 	Cases        []MessageTestCase `tls:"head=4"`
 }
 
-//helpers
-
-func groupInfoMatch(t *testing.T, l, r GroupInfo) {
-	require.Equal(t, l.GroupID, r.GroupID)
-	require.Equal(t, l.Epoch, r.Epoch)
-	require.True(t, l.Tree.Equals(&r.Tree))
-	require.Equal(t, l.ConfirmedTranscriptHash, r.ConfirmedTranscriptHash)
-	require.Equal(t, l.InterimTranscriptHash, r.InterimTranscriptHash)
-	require.Equal(t, l.Confirmation, r.Confirmation)
-	require.Equal(t, l.SignerIndex, r.SignerIndex)
-	require.Equal(t, l.Signature, r.Signature)
-}
-
-func commitMatch(t *testing.T, l, r Commit) {
-	require.Equal(t, l.Adds, r.Adds)
-	require.Equal(t, l.Removes, r.Removes)
-	require.Equal(t, l.Updates, r.Updates)
-}
-
 /// Gen and Verify
 func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
@@ -314,14 +252,14 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 		cred := Credential{Basic: bc}
 
-		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
-			[]Credential{cred, cred, cred, cred})
+		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
+		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(leafIndex(2), true)
+		err = ratchetTree.BlankPath(leafIndex(2))
 		require.Nil(t, err)
 
-		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		require.Nil(t, err)
 
 		// KeyPackage
 		kp := KeyPackage{
@@ -399,7 +337,7 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		updateProposal := &Proposal{
 			Update: &UpdateProposal{
-				LeafKey: pub,
+				KeyPackage: kp,
 			},
 		}
 
@@ -438,10 +376,11 @@ func generateMessageVectors(t *testing.T) []byte {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates: proposal,
-			Removes: proposal,
-			Adds:    proposal,
-			Path:    *dp,
+			Updates:    proposal,
+			Removes:    proposal,
+			Adds:       proposal,
+			KeyPackage: kp,
+			Path:       dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -505,14 +444,14 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 		cred := Credential{Basic: bc}
 
-		ratchetTree := newTestRatchetTree(t, suite,
-			[][]byte{tv.Random, tv.Random, tv.Random, tv.Random},
-			[]Credential{cred, cred, cred, cred})
+		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
+		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(leafIndex(2), true)
+		err = ratchetTree.BlankPath(leafIndex(2))
 		require.Nil(t, err)
 
-		dp, _ := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		require.Nil(t, err)
 
 		// KeyPackage
 		kp := KeyPackage{
@@ -520,6 +459,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			CipherSuite:      suite,
 			InitKey:          pub,
 			Credential:       cred,
+			Extensions:       ExtensionList{Entries: []Extension{}},
 			Signature:        Signature{tv.Random},
 		}
 		kpM, err := syntax.Marshal(kp)
@@ -527,23 +467,14 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		require.Equal(t, kpM, tc.KeyPackage)
 
 		// Welcome
-		gi := &GroupInfo{
-			GroupID:                 tv.GroupID,
-			Epoch:                   tv.Epoch,
-			Tree:                    *ratchetTree,
-			ConfirmedTranscriptHash: tv.Random,
-			InterimTranscriptHash:   tv.Random,
-			Confirmation:            tv.Random,
-			SignerIndex:             tv.SignerIndex,
-			Signature:               tv.Random,
-		}
-
-		var giWire GroupInfo
-		giWire.Tree.CipherSuite = suite
-		_, err = syntax.Unmarshal(tc.GroupInfo, &giWire)
+		var gi GroupInfo
+		gi.Tree.Suite = suite
+		_, err = syntax.Unmarshal(tc.GroupInfo, &gi)
 		require.Nil(t, err)
 
-		groupInfoMatch(t, *gi, giWire)
+		marshaled, err := syntax.Marshal(gi)
+		require.Nil(t, err)
+		require.Equal(t, marshaled, tc.GroupInfo)
 
 		gs := GroupSecrets{
 			EpochSecret: tv.Random,
@@ -598,7 +529,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		updateProposal := &Proposal{
 			Update: &UpdateProposal{
-				LeafKey: pub,
+				KeyPackage: kp,
 			},
 		}
 
@@ -638,15 +569,20 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates: proposal,
-			Removes: proposal,
-			Adds:    proposal,
-			Path:    *dp,
+			Updates:    proposal,
+			Removes:    proposal,
+			Adds:       proposal,
+			KeyPackage: kp,
+			Path:       dp,
 		}
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		require.Nil(t, err)
-		commitMatch(t, commit, commitWire)
+		require.Equal(t, commit.Adds, commitWire.Adds)
+		require.Equal(t, commit.Removes, commitWire.Removes)
+		require.Equal(t, commit.Updates, commitWire.Updates)
+		require.Equal(t, commit.KeyPackage, commitWire.KeyPackage)
+		// Path not verified because HPKE is randomized
 
 		//MlsCiphertext
 		ct := MLSCiphertext{

@@ -242,7 +242,7 @@ type HPKEPublicKey struct {
 	Data []byte `tls:"head=2"`
 }
 
-func (k *HPKEPublicKey) equals(o *HPKEPublicKey) bool {
+func (k HPKEPublicKey) Equals(o HPKEPublicKey) bool {
 	return bytes.Equal(k.Data, o.Data)
 }
 

@@ -49,25 +49,27 @@ type State struct {
 	PendingProposals []MLSPlaintext      `tls:"omit"`
 
 	// Secret state
-	UpdateSecrets map[ProposalRef]Bytes1 `tls:"omit"`
-	Keys          keyScheduleEpoch       `tls:"omit"`
+	UpdateKeys map[ProposalRef]HPKEPrivateKey `tls:"omit"`
+	Keys       keyScheduleEpoch               `tls:"omit"`
 }
 
-func NewEmptyState(groupID []byte, cs CipherSuite, leafPriv HPKEPrivateKey, cred Credential) *State {
-	tree := newRatchetTree(cs)
-	tree.AddLeaf(0, &leafPriv.PublicKey, &cred)
-	secret := make([]byte, cs.newDigest().Size())
-	kse := newKeyScheduleEpoch(cs, 1, secret, []byte{})
+func NewEmptyState(groupID []byte, kp KeyPackage) *State {
+	suite := kp.CipherSuite
+	tree := NewRatchetTree(suite)
+	tree.AddLeaf(0, kp)
+
+	secret := make([]byte, suite.newDigest().Size())
+	kse := newKeyScheduleEpoch(suite, 1, secret, []byte{})
 	s := &State{
-		CipherSuite:             cs,
+		CipherSuite:             kp.CipherSuite,
 		GroupID:                 groupID,
 		Epoch:                   0,
 		Tree:                    *tree,
 		Keys:                    kse,
 		Index:                   0,
-		IdentityPriv:            *cred.privateKey,
-		Scheme:                  cred.Scheme(),
-		UpdateSecrets:           map[ProposalRef]Bytes1{},
+		IdentityPriv:            *kp.Credential.privateKey,
+		Scheme:                  kp.Credential.Scheme(),
+		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
 	}
@@ -83,12 +85,12 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	s := &State{
 		CipherSuite:             suite,
 		Epoch:                   gi.Epoch,
+		Tree:                    gi.Tree.Clone(),
 		GroupID:                 gi.GroupID,
-		Tree:                    *gi.Tree.clone(),
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   gi.InterimTranscriptHash,
 		PendingProposals:        []MLSPlaintext{},
-		UpdateSecrets:           map[ProposalRef]Bytes1{},
+		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
 	}
 
 	return s, gi.SignerIndex, gi.Confirmation, nil
@@ -162,7 +164,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: new joiner not in the tree")
 	}
 	s.Index = index
-	err = s.Tree.MergePrivate(s.Index, keyPackage.privateKey)
+	err = s.Tree.SetLeafPrivateKey(s.Index, *keyPackage.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -212,17 +214,18 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	}
 
 	// init our state and add the negotiated peer's kp
-	s := NewEmptyState(groupID, mySelectedKP.CipherSuite, *mySelectedKP.privateKey, mySelectedKP.Credential)
+	s := NewEmptyState(groupID, mySelectedKP)
 	add := s.Add(otherSelectedKP)
 	// update tree state
 	_, err := s.Handle(add)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	// commit the add and generate welcome to be sent to the peer
 	_, welcome, newState, err := s.Commit(commitSecret)
 	if err != nil {
-		panic(fmt.Errorf("mls.state: commit failure"))
+		return nil, nil, err
 	}
 
 	return welcome, newState, nil
@@ -237,21 +240,16 @@ func (s State) Add(kp KeyPackage) *MLSPlaintext {
 	return s.sign(addProposal)
 }
 
-func (s State) Update(leafSecret []byte) *MLSPlaintext {
-	key, err := s.CipherSuite.hpke().Derive(leafSecret)
-	if err != nil {
-		panic(fmt.Errorf("mls.state: deriving secret for update failure %v", err))
-	}
-
+func (s State) Update(kp KeyPackage) *MLSPlaintext {
 	updateProposal := Proposal{
 		Update: &UpdateProposal{
-			LeafKey: key.PublicKey,
+			KeyPackage: kp,
 		},
 	}
 
 	pt := s.sign(updateProposal)
 	ref := toRef(s.proposalID(*pt))
-	s.UpdateSecrets[ref] = leafSecret
+	s.UpdateKeys[ref] = *kp.privateKey
 	return pt
 }
 
@@ -265,6 +263,7 @@ func (s *State) Remove(removed leafIndex) *MLSPlaintext {
 }
 
 func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
+	// Construct and apply a commit message
 	commit := Commit{}
 	var joiners []KeyPackage
 
@@ -283,7 +282,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// init new state to apply commit and ratchet forward
-	next := s.clone()
+	next := s.Clone()
 	err := next.apply(commit)
 	if err != nil {
 		return nil, nil, nil, err
@@ -298,11 +297,37 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, err
 	}
 
-	path, updateSecret := next.Tree.Encap(s.Index, ctx, leafSecret)
-	commit.Path = *path
+	var leafParentHash, commitSecret []byte
+	commit.Path, leafParentHash, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Update the leaf for this member
+	kp, ok := s.Tree.KeyPackage(s.Index)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("KeyPackage not found in tree")
+	}
+
+	initPriv, err := kp.CipherSuite.hpke().Derive(leafSecret)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	phe := ParentHashExtension{leafParentHash}
+	err = kp.ReSign(&initPriv, []ExtensionBody{phe}, s.IdentityPriv)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	commit.KeyPackage = kp
+	err = next.Tree.SetLeaf(s.Index, kp)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	// Create the Commit message and advance the transcripts / key schedule
-	pt, err := next.ratchetAndSign(commit, updateSecret, s.groupContext())
+	pt, err := next.ratchetAndSign(commit, commitSecret, s.groupContext())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("mls.state: racthet forward failed %v", err)
 	}
@@ -362,6 +387,7 @@ func (s *State) apply(commit Commit) error {
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -375,19 +401,23 @@ func (s *State) applyAddProposal(add *AddProposal) error {
 	}
 
 	target := s.Tree.LeftmostFree()
-	return s.Tree.AddLeaf(target, &add.KeyPackage.InitKey, &add.KeyPackage.Credential)
+	return s.Tree.AddLeaf(target, add.KeyPackage)
 }
 
 func (s *State) applyRemoveProposal(remove *RemoveProposal) error {
-	return s.Tree.BlankPath(leafIndex(remove.Removed), false)
+	return s.Tree.BlankPath(leafIndex(remove.Removed))
 }
 
 func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) error {
-	err := s.Tree.BlankPath(target, false)
-	if err != nil {
-		return err
+	if update.KeyPackage.CipherSuite != s.CipherSuite {
+		panic(fmt.Errorf("mls.state: update kp does not use group ciphersuite %v != %v", update.KeyPackage.CipherSuite, s.CipherSuite))
 	}
-	return s.Tree.MergePublic(target, &update.LeafKey)
+
+	if !update.KeyPackage.verify() {
+		return fmt.Errorf("mls.state: Invalid kp")
+	}
+
+	return s.Tree.UpdateLeaf(target, update.KeyPackage)
 }
 
 func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) error {
@@ -417,29 +447,23 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 			}
 
 			senderIndex := leafIndex(pt.Sender.Sender)
-			if senderIndex != s.Index {
-				// apply update from the given member
-				err := s.applyUpdateProposal(senderIndex, proposal.Update)
+			err := s.applyUpdateProposal(senderIndex, proposal.Update)
+			if err != nil {
+				return err
+			}
+
+			if senderIndex == s.Index {
+				updatePriv, ok := s.UpdateKeys[toRef(id)]
+				if !ok {
+					return fmt.Errorf("mls.state: self-update with no cached secret")
+				}
+
+				err := s.Tree.SetLeafPrivateKey(senderIndex, updatePriv)
 				if err != nil {
 					return err
 				}
-				return nil
-			}
-			// handle self-update commit
-			updateSecret, ok := s.UpdateSecrets[toRef(id)]
-			if !ok {
-				return fmt.Errorf("mls.state: self-update with no cached secret")
 			}
 
-			err := s.Tree.BlankPath(s.Index, false)
-			if err != nil {
-				return err
-			}
-
-			err = s.Tree.Merge(s.Index, updateSecret)
-			if err != nil {
-				return err
-			}
 		case ProposalTypeRemove:
 			err := s.applyRemoveProposal(proposal.Remove)
 			if err != nil {
@@ -514,7 +538,7 @@ func (s *State) updateEpochSecrets(secret []byte) {
 	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), nil, secret, ctx)
 }
 
-func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {
+func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -534,7 +558,7 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 
 	// Advance the key schedule
 	s.Epoch += 1
-	s.updateEpochSecrets(updateSecret)
+	s.updateEpochSecrets(commitSecret)
 
 	// generate the confirmation based on the new keys
 	commit := pt.Content.Commit
@@ -559,6 +583,23 @@ func (s *State) ratchetAndSign(op Commit, updateSecret []byte, prevGrpCtx GroupC
 	return pt, nil
 }
 
+func (s State) signerPublicKey(sender Sender) (*SignaturePublicKey, error) {
+	switch sender.Type {
+	case SenderTypeMember:
+		kp, ok := s.Tree.KeyPackage(leafIndex(sender.Sender))
+		if !ok {
+			return nil, fmt.Errorf("mls.state: Received from blank leaf")
+		}
+
+		return kp.Credential.PublicKey(), nil
+
+	default:
+		// TODO(RLB): Support add sent by new member
+		// TODO(RLB): Support add/remove signed by preconfigured key
+		return nil, fmt.Errorf("mls.state: Unsupported sender type")
+	}
+}
+
 func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	if !bytes.Equal(pt.GroupID, s.GroupID) {
 		return nil, fmt.Errorf("mls.state: groupId mismatch")
@@ -568,15 +609,9 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: epoch mismatch, have %v, got %v", s.Epoch, pt.Epoch)
 	}
 
-	var sigPubKey *SignaturePublicKey
-	switch pt.Sender.Type {
-	case SenderTypeMember:
-		sigPubKey = s.Tree.GetCredential(leafIndex(pt.Sender.Sender)).PublicKey()
-
-	default:
-		// TODO(RLB): Support add sent by new member
-		// TODO(RLB): Support add/remove signed by preconfigured key
-		return nil, fmt.Errorf("mls.state: Unsupported sender type")
+	sigPubKey, err := s.signerPublicKey(pt.Sender)
+	if err != nil {
+		return nil, err
 	}
 
 	if !pt.verify(s.groupContext(), sigPubKey, s.Scheme) {
@@ -601,9 +636,10 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	}
 
 	// apply the commit and discard any remaining pending proposals
+	senderIndex := leafIndex(pt.Sender.Sender)
 	commitData := pt.Content.Commit
-	next := s.clone()
-	err := next.apply(commitData.Commit)
+	next := s.Clone()
+	err = next.apply(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -621,8 +657,13 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	senderIndex := leafIndex(pt.Sender.Sender)
-	updateSecret, err := next.Tree.Decap(senderIndex, ctx, &commitData.Commit.Path)
+	commitSecret, err := next.Tree.Decap(senderIndex, ctx, commitData.Commit.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the update in the commit
+	err = next.Tree.SetLeaf(senderIndex, commitData.Commit.KeyPackage)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +676,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	// Advance the key schedule
 	next.Epoch += 1
-	next.updateEpochSecrets(updateSecret)
+	next.updateEpochSecrets(commitSecret)
 
 	// Verify confirmation MAC
 	if !next.verifyConfirmation(commitData.Confirmation.Data) {
@@ -762,10 +803,6 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
 
-	if !s.Tree.occupied(sender) {
-		return nil, fmt.Errorf("mls.state: encryptionn from unoccupied leaf %v", sender)
-	}
-
 	var keys keyAndNonce
 	contentType := ContentType(ct.ContentType)
 	switch contentType {
@@ -839,8 +876,11 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 		return nil, err
 	}
 
-	senderIndex := leafIndex(pt.Sender.Sender)
-	sigPubKey := s.Tree.GetCredential(senderIndex).PublicKey()
+	sigPubKey, err := s.signerPublicKey(pt.Sender)
+	if err != nil {
+		return nil, err
+	}
+
 	if !pt.verify(s.groupContext(), sigPubKey, s.Scheme) {
 		return nil, fmt.Errorf("invalid message signature")
 	}
@@ -899,23 +939,24 @@ func contentAAD(gid []byte, epoch Epoch,
 	return s.Data()
 }
 
-func (s State) clone() *State {
+func (s State) Clone() *State {
 	// Note: all the slice/map copy operations below on state are mere
 	// reference copies.
 	clone := &State{
 		CipherSuite:             s.CipherSuite,
 		GroupID:                 dup(s.GroupID),
 		Epoch:                   s.Epoch,
-		Tree:                    *s.Tree.clone(),
+		Tree:                    s.Tree.Clone(),
 		ConfirmedTranscriptHash: nil,
 		InterimTranscriptHash:   dup(s.InterimTranscriptHash),
 		Keys:                    s.Keys,
 		Index:                   s.Index,
 		IdentityPriv:            s.IdentityPriv,
 		Scheme:                  s.Scheme,
-		UpdateSecrets:           s.UpdateSecrets,
+		UpdateKeys:              s.UpdateKeys,
 		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
 	}
+
 	copy(clone.PendingProposals, s.PendingProposals)
 	return clone
 }
@@ -925,7 +966,7 @@ func (s State) Equals(o State) bool {
 	suite := s.CipherSuite == o.CipherSuite
 	groupID := bytes.Equal(s.GroupID, o.GroupID)
 	epoch := s.Epoch == o.Epoch
-	tree := s.Tree.Equals(&o.Tree)
+	tree := s.Tree.Equals(o.Tree)
 	cth := bytes.Equal(s.ConfirmedTranscriptHash, o.ConfirmedTranscriptHash)
 	ith := bytes.Equal(s.InterimTranscriptHash, o.InterimTranscriptHash)
 	keys := reflect.DeepEqual(s.Keys, o.Keys)
@@ -948,9 +989,9 @@ type StateSecrets struct {
 	PendingProposals []MLSPlaintext `tls:"head=4"`
 
 	// Secret state
-	UpdateSecrets map[ProposalRef]Bytes1 `tls:"head=4"`
-	Keys          keyScheduleEpoch
-	Tree          TreeSecrets
+	UpdateKeys map[ProposalRef]HPKEPrivateKey `tls:"head=4"`
+	Keys       keyScheduleEpoch
+	Tree       TreeSecrets
 }
 
 func NewStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, error) {
@@ -979,7 +1020,7 @@ func (s *State) SetSecrets(ss StateSecrets) {
 	s.IdentityPriv = ss.IdentityPriv
 	s.Scheme = ss.Scheme
 	s.PendingProposals = ss.PendingProposals
-	s.UpdateSecrets = ss.UpdateSecrets
+	s.UpdateKeys = ss.UpdateKeys
 	s.Keys = ss.Keys
 	s.Tree.SetSecrets(ss.Tree)
 }
@@ -991,7 +1032,7 @@ func (s State) GetSecrets() StateSecrets {
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
 		PendingProposals: s.PendingProposals,
-		UpdateSecrets:    s.UpdateSecrets,
+		UpdateKeys:       s.UpdateKeys,
 		Keys:             s.Keys,
 		Tree:             s.Tree.GetSecrets(),
 	}

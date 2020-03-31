@@ -3,6 +3,7 @@ package mls
 import (
 	"testing"
 
+	"github.com/bifurcation/mint/syntax"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,13 +21,11 @@ func TestBasicCredential(t *testing.T) {
 }
 
 func TestCredentialErrorCases(t *testing.T) {
-	cred0 := Credential{nil, nil}
+	cred := Credential{nil, nil}
 
-	require.True(t, !cred0.Equals(cred0))
-	require.Equal(t, cred0.Type(), CredentialTypeInvalid)
-	require.Panics(t, func() { cred0.PublicKey() })
-	require.Panics(t, func() { cred0.Scheme() })
-
-	_, err := cred0.MarshalTLS()
-	require.Error(t, err)
+	require.Panics(t, func() { cred.Equals(cred) })
+	require.Panics(t, func() { cred.Type() })
+	require.Panics(t, func() { cred.PublicKey() })
+	require.Panics(t, func() { cred.Scheme() })
+	require.Panics(t, func() { syntax.Marshal(cred) })
 }

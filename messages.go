@@ -1,25 +1,15 @@
 package mls
 
 import (
-	"bytes"
 	"fmt"
+	"reflect"
+
 	"github.com/bifurcation/mint/syntax"
 )
 
 ///
 /// KeyPackage
 ///
-type ExtensionType uint16
-
-type Extension struct {
-	ExtensionType ExtensionType
-	ExtensionData []byte `tls:"head=2"`
-}
-
-type ExtensionList struct {
-	Extensions []Extension `tls:"head=2"`
-}
-
 type Signature struct {
 	Data []byte `tls:"head=2"`
 }
@@ -35,9 +25,31 @@ type KeyPackage struct {
 	CipherSuite      CipherSuite
 	InitKey          HPKEPublicKey
 	Credential       Credential
-	//Extensions       ExtensionList
-	Signature  Signature
-	privateKey *HPKEPrivateKey `tls:"omit"`
+	Extensions       ExtensionList
+	Signature        Signature
+	privateKey       *HPKEPrivateKey `tls:"omit"`
+}
+
+func (kp KeyPackage) Equals(other KeyPackage) bool {
+	version := kp.SupportedVersion == other.SupportedVersion
+	suite := kp.CipherSuite == other.CipherSuite
+	initKey := reflect.DeepEqual(kp.InitKey, other.InitKey)
+	credential := kp.Credential.Equals(other.Credential)
+	extensions := reflect.DeepEqual(kp.Extensions, kp.Extensions)
+	signature := reflect.DeepEqual(kp.Signature, other.Signature)
+	return version && suite && initKey && credential && extensions && signature
+}
+
+func (kp KeyPackage) Clone() KeyPackage {
+	return KeyPackage{
+		SupportedVersion: kp.SupportedVersion,
+		CipherSuite:      kp.CipherSuite,
+		InitKey:          kp.InitKey,
+		Credential:       kp.Credential,
+		Extensions:       kp.Extensions,
+		Signature:        kp.Signature,
+		privateKey:       kp.privateKey,
+	}
 }
 
 func (kp KeyPackage) PrivateKey() (HPKEPrivateKey, bool) {
@@ -48,9 +60,14 @@ func (kp KeyPackage) PrivateKey() (HPKEPrivateKey, bool) {
 	return *kp.privateKey, true
 }
 
-func (kp *KeyPackage) SetPrivateKey(priv HPKEPrivateKey) {
+func (kp *KeyPackage) SetPrivateKey(priv HPKEPrivateKey) error {
+	if !kp.InitKey.Equals(priv.PublicKey) {
+		return fmt.Errorf("Incorrect private key for key package")
+	}
+
 	kp.privateKey = &priv
 	kp.InitKey = priv.PublicKey
+	return nil
 }
 
 func (kp *KeyPackage) RemovePrivateKey() {
@@ -63,13 +80,13 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 		CipherSuite CipherSuite
 		InitKey     HPKEPublicKey
 		Credential  Credential
-		//Extensions  ExtensionList
+		Extensions  ExtensionList
 	}{
 		Version:     kp.SupportedVersion,
 		CipherSuite: kp.CipherSuite,
 		InitKey:     kp.InitKey,
 		Credential:  kp.Credential,
-		//Extensions:  kp.Extensions,
+		Extensions:  kp.Extensions,
 	})
 
 	if err != nil {
@@ -77,6 +94,23 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	}
 
 	return enc, nil
+}
+
+func (kp *KeyPackage) ReSign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sigPriv SignaturePrivateKey) error {
+	if initPriv != nil {
+		kp.privateKey = initPriv
+		kp.InitKey = initPriv.PublicKey
+	}
+
+	for _, ext := range exts {
+		err := kp.Extensions.Add(ext)
+		if err != nil {
+			return err
+		}
+	}
+
+	kp.Credential.SetPrivateKey(sigPriv)
+	return kp.sign()
 }
 
 func (kp *KeyPackage) sign() error {
@@ -108,9 +142,18 @@ func (kp KeyPackage) verify() bool {
 }
 
 func NewKeyPackage(suite CipherSuite, cred *Credential) (*KeyPackage, error) {
+	initKey, err := suite.hpke().Generate()
+	if err != nil {
+		return nil, err
+	}
+
+	return NewKeyPackageWithInitKey(suite, initKey, cred)
+}
+
+func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *Credential) (*KeyPackage, error) {
 	priv, err := suite.hpke().Generate()
 	if err != nil {
-		return nil, fmt.Errorf("mls.kp: private key generation failure %v", err)
+		return nil, err
 	}
 	kp := new(KeyPackage)
 	kp.SupportedVersion = SupportedVersionMLS10
@@ -120,7 +163,7 @@ func NewKeyPackage(suite CipherSuite, cred *Credential) (*KeyPackage, error) {
 	kp.privateKey = &priv
 	err = kp.sign()
 	if err != nil {
-		return nil, fmt.Errorf("mls.kp: sign marshal failure %v", err)
+		return nil, err
 	}
 	return kp, nil
 }
@@ -146,7 +189,7 @@ type AddProposal struct {
 }
 
 type UpdateProposal struct {
-	LeafKey HPKEPublicKey
+	KeyPackage KeyPackage
 }
 
 type RemoveProposal struct {
@@ -257,7 +300,6 @@ func (p DirectPath) dump() {
 		}
 	}
 	fmt.Printf("\n++++ DirectPath ++++\n")
-
 }
 
 func (p *DirectPath) addNode(n DirectPathNode) {
@@ -268,7 +310,9 @@ type Commit struct {
 	Updates []ProposalID `tls:"head=2"`
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
-	Path    DirectPath
+
+	KeyPackage KeyPackage
+	Path       DirectPath
 }
 
 ///
@@ -503,7 +547,7 @@ type GroupInfo struct {
 func (gi GroupInfo) dump() {
 	fmt.Printf("\n+++++ groupInfo +++++\n")
 	fmt.Printf("\tGroupID %x, Epoch %x\n", gi.GroupID, gi.Epoch)
-	gi.Tree.Dump("Tree")
+	gi.Tree.dump("Tree")
 	fmt.Printf("ConfirmedTranscriptHash %x, InterimTranscriptHash %x\n",
 		gi.ConfirmedTranscriptHash, gi.InterimTranscriptHash)
 	fmt.Printf("\tConfirmation %x, SignerIndex %x\n", gi.Confirmation, gi.SignerIndex)
@@ -533,8 +577,14 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 
 func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 	// Verify that priv corresponds to tree[index]
-	cred := gi.Tree.GetCredential(index)
-	if !bytes.Equal(cred.PublicKey().Data, priv.PublicKey.Data) {
+	kp, ok := gi.Tree.KeyPackage(index)
+	if !ok {
+		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
+	}
+
+	scheme := kp.CipherSuite.scheme()
+	pub := kp.Credential.PublicKey()
+	if !pub.Equals(priv.PublicKey) {
 		return fmt.Errorf("mls.groupInfo: Incorrect private key for index")
 	}
 
@@ -546,7 +596,7 @@ func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 	}
 
 	// Sign toBeSigned() with priv -> SignerIndex, Signature
-	sig, err := cred.Scheme().Sign(priv, tbs)
+	sig, err := scheme.Sign(priv, tbs)
 	if err != nil {
 		return err
 	}
@@ -557,7 +607,13 @@ func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
 
 func (gi GroupInfo) verify() error {
 	// Get pub from tree[SignerIndex]
-	cred := gi.Tree.GetCredential(gi.SignerIndex)
+	kp, ok := gi.Tree.KeyPackage(gi.SignerIndex)
+	if !ok {
+		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
+	}
+
+	scheme := kp.CipherSuite.scheme()
+	pub := kp.Credential.PublicKey()
 
 	// Marshal the contents of the GroupInfo
 	tbs, err := gi.toBeSigned()
@@ -566,7 +622,7 @@ func (gi GroupInfo) verify() error {
 	}
 
 	// Verify (toBeSigned(), Signature) with pub
-	ver := cred.Scheme().Verify(cred.PublicKey(), tbs, gi.Signature)
+	ver := scheme.Verify(pub, tbs, gi.Signature)
 	if !ver {
 		return fmt.Errorf("mls.groupInfo: Vefication failed")
 	}
@@ -682,17 +738,19 @@ func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, err
 	}
 
 	gi := new(GroupInfo)
-	gi.Tree.CipherSuite = suite
 	_, err = syntax.Unmarshal(data, gi)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
 	}
 
+	gi.Tree.Suite = suite
+	gi.Tree.SetHashAll()
+
 	if err = gi.verify(); err != nil {
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
 
-	gi.Tree.CipherSuite = suite
+	gi.Tree.Suite = suite
 
 	return gi, nil
 }
