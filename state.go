@@ -298,37 +298,31 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// TODO(RLB): Take the leaf path secret here and place it in the new leaf
-	var commitSecret []byte
-	commit.Path, _, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+	var leafParentHash, commitSecret []byte
+	commit.Path, leafParentHash, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	// Update the leaf for this member
-	leafInitPriv, err := s.CipherSuite.hpke().Derive(leafSecret)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	kp, ok := s.Tree.KeyPackage(s.Index)
 	if !ok {
 		return nil, nil, nil, fmt.Errorf("KeyPackage not found in tree")
 	}
 
-	kp.InitKey = leafInitPriv.PublicKey
-	err = kp.SetPrivateKey(leafInitPriv)
+	initPriv, err := kp.CipherSuite.hpke().Derive(leafSecret)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	kp.Credential.SetPrivateKey(s.IdentityPriv)
-	err = kp.sign()
+	phe := ParentHashExtension{leafParentHash}
+	err = kp.Resign(&initPriv, []ExtensionBody{phe}, s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	commit.KeyPackage = kp
-	err = next.applyUpdateProposal(s.Index, &UpdateProposal{commit.KeyPackage})
+	err = next.Tree.SetLeaf(s.Index, kp)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -670,7 +664,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	}
 
 	// Apply the update in the commit
-	err = next.applyUpdateProposal(senderIndex, &UpdateProposal{commitData.Commit.KeyPackage})
+	err = next.Tree.SetLeaf(senderIndex, commitData.Commit.KeyPackage)
 	if err != nil {
 		return nil, err
 	}

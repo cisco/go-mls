@@ -96,6 +96,23 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	return enc, nil
 }
 
+func (kp *KeyPackage) Resign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sigPriv SignaturePrivateKey) error {
+	if initPriv != nil {
+		kp.privateKey = initPriv
+		kp.InitKey = initPriv.PublicKey
+	}
+
+	for _, ext := range exts {
+		err := kp.Extensions.Add(ext)
+		if err != nil {
+			return err
+		}
+	}
+
+	kp.Credential.SetPrivateKey(sigPriv)
+	return kp.sign()
+}
+
 func (kp *KeyPackage) sign() error {
 	tbs, err := kp.toBeSigned()
 	if err != nil {
@@ -283,7 +300,6 @@ func (p DirectPath) dump() {
 		}
 	}
 	fmt.Printf("\n++++ DirectPath ++++\n")
-
 }
 
 func (p *DirectPath) addNode(n DirectPathNode) {

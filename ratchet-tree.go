@@ -167,17 +167,29 @@ func (n Node) PrivateKey() (HPKEPrivateKey, bool) {
 	return *maybePriv, true
 }
 
-func (n *Node) HasParentHash(ph []byte) bool {
+func (n *Node) ParentHash() ([]byte, bool) {
 	if n == nil {
-		return false
+		return nil, false
 	}
 
 	switch n.Type() {
 	case NodeTypeParent:
-		return bytes.Equal(n.Parent.ParentHash, ph)
+		return n.Parent.ParentHash, true
+
+	case NodeTypeLeaf:
+		phe := new(ParentHashExtension)
+		found, err := n.Leaf.Extensions.Find(phe)
+		if err != nil {
+			return nil, false
+		}
+		if !found {
+			return nil, false
+		}
+
+		return phe.ParentHash, true
+
 	default:
-		// TODO(RLB): Look up ParentHash in leaf node's extensions
-		panic("Invalid node type for HasParentHash")
+		return nil, false
 	}
 }
 
@@ -380,14 +392,13 @@ func (t *RatchetTree) dump(label string) {
 			continue
 		}
 
-		var parentHash []byte
+		parentHash, found := t.Nodes[i].Node.ParentHash()
+		if found && len(parentHash) > 4 {
+			parentHash = parentHash[:4]
+		}
+
 		var selfHash []byte
 		if t.Nodes[i].Node.Type() == NodeTypeParent {
-			parentHash = t.Nodes[i].Node.Parent.ParentHash
-			if len(parentHash) > 4 {
-				parentHash = parentHash[:4]
-			}
-
 			selfHash, _ = t.Nodes[i].ParentHash(t.Suite)
 			selfHash = selfHash[:4]
 		}
@@ -403,9 +414,11 @@ func NewRatchetTree(suite CipherSuite) *RatchetTree {
 	return &RatchetTree{Suite: suite}
 }
 
-func (t *RatchetTree) SetLeaf(index leafIndex, keyPkg KeyPackage) {
+func (t *RatchetTree) SetLeaf(index leafIndex, keyPkg KeyPackage) error {
 	n := toNodeIndex(index)
 	t.Nodes[n].Node.Leaf = &keyPkg
+	_, err := t.setHashPath(index)
+	return err
 }
 
 func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
@@ -709,8 +722,7 @@ func (t RatchetTree) Find(kp KeyPackage) (leafIndex, bool) {
 func (t RatchetTree) ParentHashValid() bool {
 	for i := range t.Nodes {
 		n := nodeIndex(i)
-		if level(n) < 2 {
-			// TODO change to level == 0 so we only skip leaf nodes
+		if level(n) == 0 {
 			continue
 		}
 
@@ -720,19 +732,15 @@ func (t RatchetTree) ParentHashValid() bool {
 
 		ph, err := t.Nodes[n].ParentHash(t.Suite)
 		if err != nil {
-			fmt.Printf("xxx 1 %v\n", err)
 			return false
 		}
 
-		// TODO Simplify this once leaf nodes have parent hashes
 		l, r := left(n), right(n, t.size())
-		lh, rh := false, false
-		lh = (level(l) == 0) || t.Nodes[l].Node.HasParentHash(ph)
-		rh = (level(r) == 0) || t.Nodes[r].Node.HasParentHash(ph)
-
-		if !lh && !rh {
-			t.dump("valid")
-			fmt.Printf("xxx 1 %v\n", n)
+		hashL, foundL := t.Nodes[l].Node.ParentHash()
+		matchL := foundL && bytes.Equal(ph, hashL)
+		hashR, foundR := t.Nodes[r].Node.ParentHash()
+		matchR := foundR && bytes.Equal(ph, hashR)
+		if !matchL && !matchR {
 			return false
 		}
 	}
