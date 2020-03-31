@@ -107,7 +107,7 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	return enc, nil
 }
 
-func (kp *KeyPackage) Resign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sigPriv SignaturePrivateKey) error {
+func (kp *KeyPackage) ReSign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sigPriv SignaturePrivateKey) error {
 	if initPriv != nil {
 		kp.privateKey = initPriv
 		kp.InitKey = initPriv.PublicKey
