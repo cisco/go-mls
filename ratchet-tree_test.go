@@ -101,7 +101,7 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 		require.True(t, found)
 
 		phe := ParentHashExtension{leafParentHash}
-		err = kp.Resign(&initPrivs[i], []ExtensionBody{phe}, sigPrivs[i])
+		err = kp.ReSign(&initPrivs[i], []ExtensionBody{phe}, sigPrivs[i])
 		require.Nil(t, err)
 
 		err = trees[i].SetLeaf(from, kp)

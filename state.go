@@ -49,8 +49,8 @@ type State struct {
 	PendingProposals []MLSPlaintext      `tls:"omit"`
 
 	// Secret state
-	UpdateSecrets map[ProposalRef]HPKEPrivateKey `tls:"omit"`
-	Keys          keyScheduleEpoch               `tls:"omit"`
+	UpdateKeys map[ProposalRef]HPKEPrivateKey `tls:"omit"`
+	Keys       keyScheduleEpoch               `tls:"omit"`
 }
 
 func NewEmptyState(groupID []byte, kp KeyPackage) *State {
@@ -69,7 +69,7 @@ func NewEmptyState(groupID []byte, kp KeyPackage) *State {
 		Index:                   0,
 		IdentityPriv:            *kp.Credential.privateKey,
 		Scheme:                  kp.Credential.Scheme(),
-		UpdateSecrets:           map[ProposalRef]HPKEPrivateKey{},
+		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
 	}
@@ -90,7 +90,7 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   gi.InterimTranscriptHash,
 		PendingProposals:        []MLSPlaintext{},
-		UpdateSecrets:           map[ProposalRef]HPKEPrivateKey{},
+		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
 	}
 
 	return s, gi.SignerIndex, gi.Confirmation, nil
@@ -249,7 +249,7 @@ func (s State) Update(kp KeyPackage) *MLSPlaintext {
 
 	pt := s.sign(updateProposal)
 	ref := toRef(s.proposalID(*pt))
-	s.UpdateSecrets[ref] = *kp.privateKey
+	s.UpdateKeys[ref] = *kp.privateKey
 	return pt
 }
 
@@ -283,7 +283,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 	// init new state to apply commit and ratchet forward
 	next := s.Clone()
-	err := next.apply(s.Index, commit)
+	err := next.apply(commit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -297,7 +297,6 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, err
 	}
 
-	// TODO(RLB): Take the leaf path secret here and place it in the new leaf
 	var leafParentHash, commitSecret []byte
 	commit.Path, leafParentHash, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
 	if err != nil {
@@ -316,7 +315,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	phe := ParentHashExtension{leafParentHash}
-	err = kp.Resign(&initPriv, []ExtensionBody{phe}, s.IdentityPriv)
+	err = kp.ReSign(&initPriv, []ExtensionBody{phe}, s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -369,7 +368,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 
 /// Proposal processing helpers
 
-func (s *State) apply(from leafIndex, commit Commit) error {
+func (s *State) apply(commit Commit) error {
 	// state to identify proposals being processed
 	// in the PendingProposals. Avoids linear loop to
 	// remove entries from PendingProposals.
@@ -454,7 +453,7 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 			}
 
 			if senderIndex == s.Index {
-				updatePriv, ok := s.UpdateSecrets[toRef(id)]
+				updatePriv, ok := s.UpdateKeys[toRef(id)]
 				if !ok {
 					return fmt.Errorf("mls.state: self-update with no cached secret")
 				}
@@ -640,7 +639,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	senderIndex := leafIndex(pt.Sender.Sender)
 	commitData := pt.Content.Commit
 	next := s.Clone()
-	err = next.apply(senderIndex, commitData.Commit)
+	err = next.apply(commitData.Commit)
 	if err != nil {
 		return nil, err
 	}
@@ -954,7 +953,7 @@ func (s State) Clone() *State {
 		Index:                   s.Index,
 		IdentityPriv:            s.IdentityPriv,
 		Scheme:                  s.Scheme,
-		UpdateSecrets:           s.UpdateSecrets,
+		UpdateKeys:              s.UpdateKeys,
 		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
 	}
 
@@ -990,9 +989,9 @@ type StateSecrets struct {
 	PendingProposals []MLSPlaintext `tls:"head=4"`
 
 	// Secret state
-	UpdateSecrets map[ProposalRef]HPKEPrivateKey `tls:"head=4"`
-	Keys          keyScheduleEpoch
-	Tree          TreeSecrets
+	UpdateKeys map[ProposalRef]HPKEPrivateKey `tls:"head=4"`
+	Keys       keyScheduleEpoch
+	Tree       TreeSecrets
 }
 
 func NewStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, error) {
@@ -1021,7 +1020,7 @@ func (s *State) SetSecrets(ss StateSecrets) {
 	s.IdentityPriv = ss.IdentityPriv
 	s.Scheme = ss.Scheme
 	s.PendingProposals = ss.PendingProposals
-	s.UpdateSecrets = ss.UpdateSecrets
+	s.UpdateKeys = ss.UpdateKeys
 	s.Keys = ss.Keys
 	s.Tree.SetSecrets(ss.Tree)
 }
@@ -1033,7 +1032,7 @@ func (s State) GetSecrets() StateSecrets {
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
 		PendingProposals: s.PendingProposals,
-		UpdateSecrets:    s.UpdateSecrets,
+		UpdateKeys:       s.UpdateKeys,
 		Keys:             s.Keys,
 		Tree:             s.Tree.GetSecrets(),
 	}
