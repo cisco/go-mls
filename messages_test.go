@@ -154,7 +154,7 @@ func TestKeyPackageExpiry(t *testing.T) {
 	// Change the expiration time to a time in the past and check that verify()
 	// now fails
 	alreadyExpired := ExpirationExtension(time.Now().Add(-24 * time.Hour).Unix())
-	err = kp.Resign(nil, []ExtensionBody{alreadyExpired}, priv)
+	err = kp.ReSign(nil, []ExtensionBody{alreadyExpired}, priv)
 	require.Nil(t, err)
 
 	ver = kp.verify()
