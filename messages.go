@@ -3,6 +3,7 @@ package mls
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/bifurcation/mint/syntax"
 )
@@ -14,24 +15,34 @@ type Signature struct {
 	Data []byte `tls:"head=2"`
 }
 
-type SupportedVersion uint8
+type ProtocolVersion uint8
 
 const (
-	SupportedVersionMLS10 = 0
+	ProtocolVersionMLS10 ProtocolVersion = 0x00
+)
+
+var (
+	supportedVersions     = []ProtocolVersion{ProtocolVersionMLS10}
+	supportedCipherSuites = []CipherSuite{
+		X25519_AES128GCM_SHA256_Ed25519,
+		P256_AES128GCM_SHA256_P256,
+		P521_AES256GCM_SHA512_P521,
+	}
+	defaultLifetime = 30 * 24 * time.Hour
 )
 
 type KeyPackage struct {
-	SupportedVersion SupportedVersion
-	CipherSuite      CipherSuite
-	InitKey          HPKEPublicKey
-	Credential       Credential
-	Extensions       ExtensionList
-	Signature        Signature
-	privateKey       *HPKEPrivateKey `tls:"omit"`
+	Version     ProtocolVersion
+	CipherSuite CipherSuite
+	InitKey     HPKEPublicKey
+	Credential  Credential
+	Extensions  ExtensionList
+	Signature   Signature
+	privateKey  *HPKEPrivateKey `tls:"omit"`
 }
 
 func (kp KeyPackage) Equals(other KeyPackage) bool {
-	version := kp.SupportedVersion == other.SupportedVersion
+	version := kp.Version == other.Version
 	suite := kp.CipherSuite == other.CipherSuite
 	initKey := reflect.DeepEqual(kp.InitKey, other.InitKey)
 	credential := kp.Credential.Equals(other.Credential)
@@ -42,13 +53,13 @@ func (kp KeyPackage) Equals(other KeyPackage) bool {
 
 func (kp KeyPackage) Clone() KeyPackage {
 	return KeyPackage{
-		SupportedVersion: kp.SupportedVersion,
-		CipherSuite:      kp.CipherSuite,
-		InitKey:          kp.InitKey,
-		Credential:       kp.Credential,
-		Extensions:       kp.Extensions,
-		Signature:        kp.Signature,
-		privateKey:       kp.privateKey,
+		Version:     kp.Version,
+		CipherSuite: kp.CipherSuite,
+		InitKey:     kp.InitKey,
+		Credential:  kp.Credential,
+		Extensions:  kp.Extensions,
+		Signature:   kp.Signature,
+		privateKey:  kp.privateKey,
 	}
 }
 
@@ -76,13 +87,13 @@ func (kp *KeyPackage) RemovePrivateKey() {
 
 func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	enc, err := syntax.Marshal(struct {
-		Version     SupportedVersion
+		Version     ProtocolVersion
 		CipherSuite CipherSuite
 		InitKey     HPKEPublicKey
 		Credential  Credential
 		Extensions  ExtensionList
 	}{
-		Version:     kp.SupportedVersion,
+		Version:     kp.Version,
 		CipherSuite: kp.CipherSuite,
 		InitKey:     kp.InitKey,
 		Credential:  kp.Credential,
@@ -129,7 +140,30 @@ func (kp *KeyPackage) sign() error {
 }
 
 func (kp KeyPackage) verify() bool {
-	if kp.CipherSuite.scheme() != kp.Credential.Scheme() {
+	// Check for required extensions, but do not verify contents
+	var sve SupportedVersionsExtension
+	var sce SupportedCipherSuitesExtension
+	foundSV, _ := kp.Extensions.Find(&sve)
+	foundSC, _ := kp.Extensions.Find(&sce)
+	if !foundSV || !foundSC {
+		return false
+	}
+
+	// Verify that the KeyPackage has not expired
+	var expirationExt ExpirationExtension
+	found, err := kp.Extensions.Find(&expirationExt)
+	if !found || err != nil {
+		return false
+	}
+
+	expiry := time.Unix(int64(expirationExt), 0)
+	if time.Now().After(expiry) {
+		return false
+	}
+
+	// Verify the signature
+	scheme := kp.Credential.Scheme()
+	if scheme != kp.CipherSuite.scheme() {
 		return false
 	}
 
@@ -151,16 +185,32 @@ func NewKeyPackage(suite CipherSuite, cred *Credential) (*KeyPackage, error) {
 }
 
 func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *Credential) (*KeyPackage, error) {
-	priv, err := suite.hpke().Generate()
+	kp := &KeyPackage{
+		Version:     ProtocolVersionMLS10,
+		CipherSuite: suite,
+		InitKey:     initKey.PublicKey,
+		Credential:  *cred,
+		privateKey:  &initKey,
+	}
+
+	// Add required extensions
+	err := kp.Extensions.Add(SupportedVersionsExtension{supportedVersions})
 	if err != nil {
 		return nil, err
 	}
-	kp := new(KeyPackage)
-	kp.SupportedVersion = SupportedVersionMLS10
-	kp.CipherSuite = suite
-	kp.InitKey = priv.PublicKey
-	kp.Credential = *cred
-	kp.privateKey = &priv
+
+	err = kp.Extensions.Add(SupportedCipherSuitesExtension{supportedCipherSuites})
+	if err != nil {
+		return nil, err
+	}
+
+	expiry := time.Now().Add(defaultLifetime).Unix()
+	err = kp.Extensions.Add(ExpirationExtension(expiry))
+	if err != nil {
+		return nil, err
+	}
+
+	// Sign
 	err = kp.sign()
 	if err != nil {
 		return nil, err
@@ -651,7 +701,7 @@ type EncryptedGroupSecrets struct {
 ///
 
 type Welcome struct {
-	Version            uint8
+	Version            ProtocolVersion
 	CipherSuite        CipherSuite
 	Secrets            []EncryptedGroupSecrets `tls:"head=4"`
 	EncryptedGroupInfo []byte                  `tls:"head=4"`
@@ -684,7 +734,7 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 
 	// Assemble the Welcome
 	return &Welcome{
-		Version:            SupportedVersionMLS10,
+		Version:            ProtocolVersionMLS10,
 		CipherSuite:        cs,
 		EncryptedGroupInfo: ct,
 		epochSecret:        epochSecret,

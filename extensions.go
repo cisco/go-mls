@@ -9,7 +9,12 @@ import (
 type ExtensionType uint16
 
 const (
-	ExtensionTypeParentHash ExtensionType = 0x0005
+	ExtensionTypeInvalid               ExtensionType = 0x0000
+	ExtensionTypeSupportedVersions     ExtensionType = 0x0001
+	ExtensionTypeSupportedCipherSuites ExtensionType = 0x0002
+	ExtensionTypeExpiration            ExtensionType = 0x0003
+	ExtensionTypeKeyID                 ExtensionType = 0x0004
+	ExtensionTypeParentHash            ExtensionType = 0x0005
 )
 
 type ExtensionBody interface {
@@ -63,6 +68,34 @@ func (el ExtensionList) Find(dst ExtensionBody) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+//////////
+
+type SupportedVersionsExtension struct {
+	SupportedVersions []ProtocolVersion `tls:"head=1"`
+}
+
+func (sve SupportedVersionsExtension) Type() ExtensionType {
+	return ExtensionTypeSupportedVersions
+}
+
+//////////
+
+type SupportedCipherSuitesExtension struct {
+	SupportedCipherSuites []CipherSuite `tls:"head=1"`
+}
+
+func (sce SupportedCipherSuitesExtension) Type() ExtensionType {
+	return ExtensionTypeSupportedCipherSuites
+}
+
+//////////
+
+type ExpirationExtension uint64
+
+func (ee ExpirationExtension) Type() ExtensionType {
+	return ExtensionTypeExpiration
 }
 
 //////////

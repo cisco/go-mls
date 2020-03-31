@@ -197,7 +197,7 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 
 	for _, mykp := range myKPs {
 		for _, okp := range otherKPs {
-			if mykp.CipherSuite == okp.CipherSuite && mykp.SupportedVersion == okp.SupportedVersion {
+			if mykp.CipherSuite == okp.CipherSuite && mykp.Version == okp.Version {
 				selected = true
 				mySelectedKP = mykp
 				otherSelectedKP = okp
