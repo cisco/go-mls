@@ -3,6 +3,7 @@ package mls
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/bifurcation/mint/syntax"
 	"github.com/stretchr/testify/require"
@@ -46,12 +47,12 @@ var (
 	ikPriv, _ = supportedSuites[0].hpke().Generate()
 
 	keyPackage = &KeyPackage{
-		SupportedVersion: SupportedVersionMLS10,
-		CipherSuite:      0x0001,
-		InitKey:          ikPriv.PublicKey,
-		Credential:       credentialBasic,
-		Extensions:       extListValidIn,
-		Signature:        Signature{[]byte{0x00, 0x00, 0x00}},
+		Version:     ProtocolVersionMLS10,
+		CipherSuite: 0x0001,
+		InitKey:     ikPriv.PublicKey,
+		Credential:  credentialBasic,
+		Extensions:  extListValidIn,
+		Signature:   Signature{[]byte{0x00, 0x00, 0x00}},
 	}
 
 	addProposal = &Proposal{
@@ -135,6 +136,29 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("Commit", roundTrip(commit, new(Commit)))
 	t.Run("MLSPlaintextContentApplication", roundTrip(mlsPlaintextIn, new(MLSPlaintext)))
 	t.Run("MLSCiphertext", roundTrip(mlsCiphertextIn, new(MLSCiphertext)))
+}
+
+func TestKeyPackageExpiry(t *testing.T) {
+	// Prepare a new key package, which should be valid
+	scheme := suite.scheme()
+	priv, err := scheme.Generate()
+	require.Nil(t, err)
+
+	cred := NewBasicCredential(userID, scheme, &priv)
+	kp, err := NewKeyPackage(suite, cred)
+	require.Nil(t, err)
+
+	ver := kp.verify()
+	require.True(t, ver)
+
+	// Change the expiration time to a time in the past and check that verify()
+	// now fails
+	alreadyExpired := ExpirationExtension(time.Now().Add(-24 * time.Hour).Unix())
+	err = kp.ReSign(nil, []ExtensionBody{alreadyExpired}, priv)
+	require.Nil(t, err)
+
+	ver = kp.verify()
+	require.False(t, ver)
 }
 
 func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
@@ -263,11 +287,11 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		// KeyPackage
 		kp := KeyPackage{
-			SupportedVersion: SupportedVersionMLS10,
-			CipherSuite:      suite,
-			InitKey:          pub,
-			Credential:       cred,
-			Signature:        Signature{tv.Random},
+			Version:     ProtocolVersionMLS10,
+			CipherSuite: suite,
+			InitKey:     pub,
+			Credential:  cred,
+			Signature:   Signature{tv.Random},
 		}
 
 		kpM, err := syntax.Marshal(kp)
@@ -307,7 +331,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		require.Nil(t, err)
 
 		var welcome Welcome
-		welcome.Version = SupportedVersionMLS10
+		welcome.Version = ProtocolVersionMLS10
 		welcome.CipherSuite = suite
 		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
@@ -455,12 +479,12 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		// KeyPackage
 		kp := KeyPackage{
-			SupportedVersion: SupportedVersionMLS10,
-			CipherSuite:      suite,
-			InitKey:          pub,
-			Credential:       cred,
-			Extensions:       ExtensionList{Entries: []Extension{}},
-			Signature:        Signature{tv.Random},
+			Version:     ProtocolVersionMLS10,
+			CipherSuite: suite,
+			InitKey:     pub,
+			Credential:  cred,
+			Extensions:  NewExtensionList(),
+			Signature:   Signature{tv.Random},
 		}
 		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
@@ -495,7 +519,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		require.Equal(t, egs.KeyPackageHash, egsWire.KeyPackageHash)
 
 		var welcome Welcome
-		welcome.Version = SupportedVersionMLS10
+		welcome.Version = ProtocolVersionMLS10
 		welcome.CipherSuite = suite
 		welcome.Secrets = []EncryptedGroupSecrets{egs, egs}
 		welcome.EncryptedGroupInfo = tv.Random
