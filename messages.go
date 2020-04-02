@@ -26,6 +26,7 @@ var (
 	supportedCipherSuites = []CipherSuite{
 		X25519_AES128GCM_SHA256_Ed25519,
 		P256_AES128GCM_SHA256_P256,
+		X25519_CHACHA20POLY1305_SHA256_Ed25519,
 		P521_AES256GCM_SHA512_P521,
 	}
 	defaultLifetime = 30 * 24 * time.Hour
