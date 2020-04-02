@@ -108,12 +108,18 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	return enc, nil
 }
 
-func (kp *KeyPackage) ReSign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sigPriv SignaturePrivateKey) error {
-	if initPriv != nil {
-		kp.privateKey = initPriv
-		kp.InitKey = initPriv.PublicKey
+func (kp *KeyPackage) UpdateInitKey() error {
+	initPriv, err := kp.CipherSuite.hpke().Generate()
+	if err != nil {
+		return err
 	}
 
+	kp.privateKey = &initPriv
+	kp.InitKey = initPriv.PublicKey
+	return nil
+}
+
+func (kp *KeyPackage) SetExtensions(exts []ExtensionBody) error {
 	for _, ext := range exts {
 		err := kp.Extensions.Add(ext)
 		if err != nil {
@@ -121,17 +127,21 @@ func (kp *KeyPackage) ReSign(initPriv *HPKEPrivateKey, exts []ExtensionBody, sig
 		}
 	}
 
-	kp.Credential.SetPrivateKey(sigPriv)
-	return kp.sign()
+	return nil
 }
 
-func (kp *KeyPackage) sign() error {
+func (kp *KeyPackage) Sign() error {
+	priv := kp.Credential.privateKey
+	if priv == nil {
+		return fmt.Errorf("No private key available for signing")
+	}
+
 	tbs, err := kp.toBeSigned()
 	if err != nil {
 		return err
 	}
 
-	sig, err := kp.Credential.Scheme().Sign(kp.Credential.privateKey, tbs)
+	sig, err := kp.Credential.Scheme().Sign(priv, tbs)
 	if err != nil {
 		return err
 	}
@@ -140,7 +150,7 @@ func (kp *KeyPackage) sign() error {
 	return nil
 }
 
-func (kp KeyPackage) verify() bool {
+func (kp KeyPackage) Verify() bool {
 	// Check for required extensions, but do not verify contents
 	var sve SupportedVersionsExtension
 	var sce SupportedCipherSuitesExtension
@@ -212,7 +222,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *C
 	}
 
 	// Sign
-	err = kp.sign()
+	err = kp.Sign()
 	if err != nil {
 		return nil, err
 	}

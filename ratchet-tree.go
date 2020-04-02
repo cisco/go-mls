@@ -456,13 +456,14 @@ func (t *RatchetTree) UpdateLeaf(index leafIndex, keyPkg KeyPackage) error {
 	return err
 }
 
-func (t *RatchetTree) SetLeafPrivateKey(index leafIndex, priv HPKEPrivateKey) error {
+func (t *RatchetTree) SetLeafPrivateKeys(index leafIndex, initPriv HPKEPrivateKey, sigPriv SignaturePrivateKey) error {
 	ni := toNodeIndex(index)
 	if t.Nodes[ni].Blank() {
 		return fmt.Errorf("Attempt to set private key for a blank node")
 	}
 
-	t.Nodes[ni].Node.Leaf.SetPrivateKey(priv)
+	t.Nodes[ni].Node.Leaf.SetPrivateKey(initPriv)
+	t.Nodes[ni].Node.Leaf.Credential.SetPrivateKey(sigPriv)
 	return nil
 }
 
