@@ -101,7 +101,6 @@ func (cs CipherSuite) constants() cipherConstants {
 		}
 	}
 
-	fmt.Printf("!!! 1 %d", cs)
 	panic("Unsupported ciphersuite")
 }
 
@@ -131,7 +130,6 @@ func (cs CipherSuite) newDigest() hash.Hash {
 		return sha512.New()
 	}
 
-	fmt.Printf("!!! %d\n", cs)
 	panic("Unsupported ciphersuite")
 }
 
