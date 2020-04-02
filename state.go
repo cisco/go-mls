@@ -192,7 +192,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: new joiner not in the tree")
 	}
 	s.Index = index
-	err = s.Tree.SetLeafPrivateKey(s.Index, *keyPackage.privateKey)
+	err = s.Tree.SetLeafPrivateKeys(s.Index, *keyPackage.privateKey, s.IdentityPriv)
 	if err != nil {
 		return nil, err
 	}
@@ -352,13 +352,18 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, fmt.Errorf("KeyPackage not found in tree")
 	}
 
-	initPriv, err := kp.CipherSuite.hpke().Derive(leafSecret)
+	err = kp.UpdateInitKey()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	phe := ParentHashExtension{leafParentHash}
-	err = kp.ReSign(&initPriv, []ExtensionBody{phe}, s.IdentityPriv)
+	err = kp.SetExtensions([]ExtensionBody{phe})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	err = kp.Sign()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -439,7 +444,7 @@ func (s *State) applyAddProposal(add *AddProposal) error {
 		return fmt.Errorf("mls.state: new member kp does not use group ciphersuite")
 	}
 
-	if !add.KeyPackage.verify() {
+	if !add.KeyPackage.Verify() {
 		return fmt.Errorf("mls.state: Invalid kp")
 	}
 
@@ -456,7 +461,7 @@ func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) er
 		panic(fmt.Errorf("mls.state: update kp does not use group ciphersuite %v != %v", update.KeyPackage.CipherSuite, s.CipherSuite))
 	}
 
-	if !update.KeyPackage.verify() {
+	if !update.KeyPackage.Verify() {
 		return fmt.Errorf("mls.state: Invalid kp")
 	}
 
@@ -501,7 +506,7 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 					return fmt.Errorf("mls.state: self-update with no cached secret")
 				}
 
-				err := s.Tree.SetLeafPrivateKey(senderIndex, updatePriv)
+				err := s.Tree.SetLeafPrivateKeys(senderIndex, updatePriv, s.IdentityPriv)
 				if err != nil {
 					return err
 				}
