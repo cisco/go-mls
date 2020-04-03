@@ -208,3 +208,8 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 		require.Equal(t, tv.Sibling[i], sibling(nodeIndex(i), tv.NumLeaves))
 	}
 }
+
+func TestTreeMathErrorCases(t *testing.T) {
+	_, err := toLeafIndex(0x03)
+	require.NotNil(t, err)
+}

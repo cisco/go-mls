@@ -8,7 +8,7 @@ import (
 type CredentialType uint8
 
 const (
-	CredentialTypeInvalid CredentialType = 0xff
+	CredentialTypeInvalid CredentialType = 255
 	CredentialTypeBasic   CredentialType = 0
 	CredentialTypeX509    CredentialType = 1
 )
@@ -63,7 +63,7 @@ func (c Credential) Equals(o Credential) bool {
 	case CredentialTypeBasic:
 		return reflect.DeepEqual(c.Basic, o.Basic)
 	default:
-		panic("Malformed credential")
+		return false
 	}
 }
 
@@ -73,7 +73,7 @@ func (c Credential) Type() CredentialType {
 	case c.Basic != nil:
 		return CredentialTypeBasic
 	default:
-		panic("Malformed credential")
+		return CredentialTypeInvalid
 	}
 }
 
@@ -99,7 +99,7 @@ func (c Credential) PublicKey() *SignaturePublicKey {
 	case c.Basic != nil:
 		return &c.Basic.SignaturePublicKey
 	default:
-		panic("mls.credential: Can't retrieve PublicKey")
+		return nil
 	}
 }
 
@@ -109,7 +109,7 @@ func (c Credential) Scheme() SignatureScheme {
 	case c.Basic != nil:
 		return c.Basic.SignatureScheme
 	default:
-		panic("mls.credential: Can't retrieve SignatureScheme")
+		return SIGNATURE_SCHEME_UNKNOWN
 	}
 }
 

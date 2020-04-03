@@ -204,7 +204,8 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 
 	newKP, err := NewKeyPackage(suite, &stateTest.keyPackages[1].Credential)
 	require.Nil(t, err)
-	update := bob1.Update(*newKP)
+	update, err := bob1.Update(*newKP)
+	require.Nil(t, err)
 	_, err = bob1.Handle(update)
 	require.Nil(t, err)
 
@@ -338,7 +339,8 @@ func TestStateUpdate(t *testing.T) {
 		newKP, err := NewKeyPackage(suite, &stateTest.keyPackages[i].Credential)
 		require.Nil(t, err)
 
-		update := state.Update(*newKP)
+		update, err := state.Update(*newKP)
+		require.Nil(t, err)
 		state.Handle(update)
 
 		commitSecret := randomBytes(32)
@@ -365,7 +367,8 @@ func TestStateUpdate(t *testing.T) {
 func TestStateRemove(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i := groupSize - 2; i > 0; i-- {
-		remove := stateTest.states[i].Remove(leafIndex(i + 1))
+		remove, err := stateTest.states[i].Remove(leafIndex(i + 1))
+		require.Nil(t, err)
 		stateTest.states[i].Handle(remove)
 		secret := randomBytes(32)
 		commit, _, next, err := stateTest.states[i].Commit(secret)

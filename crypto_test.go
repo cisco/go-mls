@@ -178,6 +178,24 @@ func TestSignVerify(t *testing.T) {
 	}
 }
 
+func TestCipherSuite_String(t *testing.T) {
+	suiteToString :=  map[CipherSuite]string {
+		X25519_AES128GCM_SHA256_Ed25519: "X25519_AES128GCM_SHA256_Ed25519",
+		P256_AES128GCM_SHA256_P256: "P256_AES128GCM_SHA256_P256",
+		X25519_CHACHA20POLY1305_SHA256_Ed25519: "X25519_CHACHA20POLY1305_SHA256_Ed25519",
+		P521_AES256GCM_SHA512_P521: "P521_AES256GCM_SHA512_P521",
+		X448_AES256GCM_SHA512_Ed448: "X448_AES256GCM_SHA512_Ed448",
+		X448_CHACHA20POLY1305_SHA512_Ed448: "X448_CHACHA20POLY1305_SHA512_Ed448",
+	}
+
+	for _, suite := range supportedSuites {
+		require.True(t, suite.String() == suiteToString[suite])
+	}
+
+	var badCipherSuite CipherSuite = 0x0009
+	require.True(t, badCipherSuite.String() ==  "UnknownCipherSuite")
+}
+
 ///
 /// Test Vectors
 ///

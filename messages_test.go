@@ -105,6 +105,33 @@ var (
 		Signature: Signature{[]byte{0x00, 0x01, 0x02, 0x03}},
 	}
 
+	mlsPlaintextCommitIn = &MLSPlaintext{
+		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
+		Epoch:             1,
+		Sender:            Sender{SenderTypeMember, 4},
+		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
+		Content: MLSPlaintextContent{
+			Commit: &CommitData{
+				Commit: *commit,
+				Confirmation: Confirmation{
+					Data: []byte{0x0C, 0X00, 0x03, 0x03, 0x01, 0x0f},
+				},
+			},
+		},
+		Signature: Signature{[]byte{0x00, 0x01, 0x02, 0x03}},
+	}
+
+	mlsPlaintextProposalIn = &MLSPlaintext{
+		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
+		Epoch:             1,
+		Sender:            Sender{SenderTypeMember, 4},
+		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
+		Content: MLSPlaintextContent{
+			Proposal: removeProposal,
+		},
+		Signature: Signature{[]byte{0x00, 0x01, 0x02, 0x03}},
+	}
+
 	mlsCiphertextIn = &MLSCiphertext{
 		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
@@ -135,6 +162,9 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 	t.Run("UpdateProposal", roundTrip(updateProposal, new(Proposal)))
 	t.Run("Commit", roundTrip(commit, new(Commit)))
 	t.Run("MLSPlaintextContentApplication", roundTrip(mlsPlaintextIn, new(MLSPlaintext)))
+	t.Run("MLSPlaintextContentProposal", roundTrip(mlsPlaintextProposalIn, new(MLSPlaintext)))
+	t.Run("MLSPlaintextContentCommit", roundTrip(mlsPlaintextCommitIn, new(MLSPlaintext)))
+
 	t.Run("MLSCiphertext", roundTrip(mlsCiphertextIn, new(MLSCiphertext)))
 }
 
@@ -203,6 +233,49 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	_, err = syntax.Unmarshal(pt, w2kp)
 	require.Nil(t, err)
 	require.Equal(t, epochSecret, w2kp.EpochSecret)
+}
+
+func TestKeyPackageErrorCases(t *testing.T) {
+	kp := keyPackage.Clone()
+	// try setting incorrect private key
+	priv, _ := supportedSuites[0].hpke().Generate()
+	err := kp.SetPrivateKey(priv)
+	require.NotNil(t, err)
+
+	// remove priv key, verify retrieval
+	kp.RemovePrivateKey()
+	priv, ok := kp.PrivateKey()
+	require.False(t, ok)
+	require.Empty(t, priv)
+
+
+    // sign a kp with nil private key
+    err = kp.Sign()
+    require.NotNil(t, err)
+
+}
+
+func TestProposalErrorCases(t *testing.T) {
+	p := Proposal{Add: nil, Update: nil, Remove: nil}
+	require.Panics(t, func() {p.Type()})
+	require.Panics(t, func() { syntax.Marshal(p) })
+}
+
+func TestMLSPlainTestErrorCases(t *testing.T) {
+	c := MLSPlaintextContent{Application: nil, Proposal: nil, Commit: nil}
+	require.Panics(t, func() { c.Type() })
+}
+
+func TestDirectPath(t *testing.T) {
+	priv, _ := supportedSuites[0].hpke().Generate()
+	n := DirectPathNode{
+		PublicKey: priv.PublicKey,
+	}
+
+	dp := DirectPath{}
+	dp.addNode(n)
+	require.Equal(t, len(dp.Nodes), 1)
+	dp.dump()
 }
 
 ///

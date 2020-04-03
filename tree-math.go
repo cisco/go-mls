@@ -1,5 +1,7 @@
 package mls
 
+import "fmt"
+
 // The below functions provide the index calculus for the tree structures used in MLS.
 // They are premised on a "flat" representation of a balanced binary tree.  Leaf nodes
 // are even-numbered nodes, with the n-th leaf at 2*n.  Intermediate nodes are held in
@@ -29,12 +31,12 @@ func toNodeIndex(leaf leafIndex) nodeIndex {
 	return nodeIndex(2 * leaf)
 }
 
-func toLeafIndex(node nodeIndex) leafIndex {
+func toLeafIndex(node nodeIndex) (leafIndex, error) {
 	if node&0x01 != 0 {
-		panic("toLeafIndex on non-leaf index")
+		return 0, fmt.Errorf("toLeafIndex on non-leaf index")
 	}
 
-	return leafIndex(node) >> 1
+	return leafIndex(node) >> 1, nil
 }
 
 // Position of the most significant 1 bit
