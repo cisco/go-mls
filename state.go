@@ -267,6 +267,15 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	return welcome, newState, nil
 }
 
+func (s State) KeyPackage() KeyPackage {
+	kp, ok := s.Tree.KeyPackage(s.Index)
+	if !ok {
+		panic("Malformed state")
+	}
+
+	return kp
+}
+
 func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 	// Verify that the new member supports the group's extensions
 	for _, ext := range s.Extensions.Entries {
@@ -347,11 +356,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// Update the leaf for this member
-	kp, ok := s.Tree.KeyPackage(s.Index)
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("KeyPackage not found in tree")
-	}
-
+	kp := s.KeyPackage()
 	err = kp.UpdateInitKey()
 	if err != nil {
 		return nil, nil, nil, err
@@ -1033,6 +1038,7 @@ type StateSecrets struct {
 
 	// Per-participant non-secret state
 	Index            leafIndex
+	InitPriv         HPKEPrivateKey
 	IdentityPriv     SignaturePrivateKey
 	Scheme           SignatureScheme
 	PendingProposals []MLSPlaintext `tls:"head=4"`
@@ -1072,12 +1078,16 @@ func (s *State) SetSecrets(ss StateSecrets) {
 	s.UpdateKeys = ss.UpdateKeys
 	s.Keys = ss.Keys
 	s.Tree.SetSecrets(ss.Tree)
+	s.Tree.SetLeafPrivateKeys(s.Index, ss.InitPriv, ss.IdentityPriv)
 }
 
 func (s State) GetSecrets() StateSecrets {
+	initPriv, _ := s.KeyPackage().PrivateKey()
+
 	return StateSecrets{
 		CipherSuite:      s.CipherSuite,
 		Index:            s.Index,
+		InitPriv:         initPriv,
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
 		PendingProposals: s.PendingProposals,
