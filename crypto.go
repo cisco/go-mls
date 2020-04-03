@@ -372,7 +372,6 @@ const (
 	ECDSA_SECP256R1_SHA256 SignatureScheme = 0x0403
 	ECDSA_SECP521R1_SHA512 SignatureScheme = 0x0603
 	Ed25519                SignatureScheme = 0x0807
-	SIGNATURE_SCHEME_UNKNOWN SignatureScheme = 0xffff
 )
 
 func (ss SignatureScheme) supported() bool {

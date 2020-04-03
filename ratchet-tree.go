@@ -791,11 +791,7 @@ func (t RatchetTree) resolve(index nodeIndex) []nodeIndex {
 
 func (t *RatchetTree) setHash(index nodeIndex) error {
 	if level(index) == 0 {
-		li, err := toLeafIndex(index)
-		if err != nil {
-			return err
-		}
-		return t.Nodes[index].SetLeafNodeHash(t.Suite, li)
+		return t.Nodes[index].SetLeafNodeHash(t.Suite, toLeafIndex(index))
 	}
 
 	lh := t.Nodes[left(index)].Hash

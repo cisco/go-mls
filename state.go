@@ -289,12 +289,8 @@ func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 			KeyPackage: kp,
 		},
 	}
-
-	pt, err := s.sign(addProposal)
-	if err != nil {
-		return nil, err
-	}
-	return pt, nil
+	
+	return s.sign(addProposal)
 }
 
 func (s State) Update(kp KeyPackage) (*MLSPlaintext, error) {

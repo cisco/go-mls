@@ -210,6 +210,5 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 }
 
 func TestTreeMathErrorCases(t *testing.T) {
-	_, err := toLeafIndex(0x03)
-	require.NotNil(t, err)
+	require.Panics(t, func() { toLeafIndex(0x03) })
 }
