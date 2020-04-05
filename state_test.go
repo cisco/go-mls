@@ -365,7 +365,7 @@ func TestStateUpdate(t *testing.T) {
 func TestStateRemove(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i := groupSize - 2; i > 0; i-- {
-		remove := stateTest.states[i].Remove(leafIndex(i + 1))
+		remove := stateTest.states[i].Remove(LeafIndex(i + 1))
 		stateTest.states[i].Handle(remove)
 		secret := randomBytes(32)
 		commit, _, next, err := stateTest.states[i].Commit(secret)

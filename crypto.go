@@ -204,11 +204,11 @@ func (cs CipherSuite) deriveSecret(secret []byte, label string, context []byte) 
 }
 
 type applicationContext struct {
-	Node       nodeIndex
+	Node       NodeIndex
 	Generation uint32
 }
 
-func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node nodeIndex, generation uint32, length int) []byte {
+func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node NodeIndex, generation uint32, length int) []byte {
 	ctx, err := syntax.Marshal(applicationContext{node, generation})
 	if err != nil {
 		panic(fmt.Errorf("Error marshaling application context: %v", err))

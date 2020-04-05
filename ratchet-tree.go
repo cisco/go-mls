@@ -21,7 +21,7 @@ const (
 
 type ParentNode struct {
 	PublicKey      HPKEPublicKey
-	UnmergedLeaves []leafIndex     `tls:"head=4"`
+	UnmergedLeaves []LeafIndex     `tls:"head=4"`
 	ParentHash     []byte          `tls:"head=1"`
 	PrivateKey     *HPKEPrivateKey `tls:"omit"`
 }
@@ -37,7 +37,7 @@ func (n *ParentNode) Equals(other *ParentNode) bool {
 func (n ParentNode) Clone() ParentNode {
 	next := ParentNode{
 		PublicKey:      n.PublicKey,
-		UnmergedLeaves: make([]leafIndex, len(n.UnmergedLeaves)),
+		UnmergedLeaves: make([]LeafIndex, len(n.UnmergedLeaves)),
 		ParentHash:     dup(n.ParentHash),
 		PrivateKey:     n.PrivateKey,
 	}
@@ -49,13 +49,13 @@ func (n ParentNode) Clone() ParentNode {
 	return next
 }
 
-func (n *ParentNode) AddUnmerged(l leafIndex) {
+func (n *ParentNode) AddUnmerged(l LeafIndex) {
 	n.UnmergedLeaves = append(n.UnmergedLeaves, l)
 }
 
 func (n *ParentNode) SetPublicKey(pub HPKEPublicKey) {
 	n.PublicKey = pub
-	n.UnmergedLeaves = []leafIndex{}
+	n.UnmergedLeaves = []LeafIndex{}
 }
 
 func (n *ParentNode) SetPrivateKey(priv HPKEPrivateKey) {
@@ -255,7 +255,7 @@ func newLeafNode(keyPkg KeyPackage) OptionalNode {
 
 func newParentNode(suite CipherSuite, pathSecret []byte) (OptionalNode, error) {
 	parent := ParentNode{
-		UnmergedLeaves: []leafIndex{},
+		UnmergedLeaves: []LeafIndex{},
 		ParentHash:     []byte{},
 	}
 	err := parent.SetSecret(suite, pathSecret)
@@ -288,7 +288,7 @@ func (n *OptionalNode) MergePublic(pub HPKEPublicKey) {
 
 	if n.Blank() {
 		n.Node = &Node{Parent: &ParentNode{
-			UnmergedLeaves: []leafIndex{},
+			UnmergedLeaves: []LeafIndex{},
 			ParentHash:     []byte{},
 		}}
 	}
@@ -323,11 +323,11 @@ func (n *OptionalNode) setNodeHash(suite CipherSuite, input interface{}) error {
 }
 
 type LeafNodeHashInput struct {
-	LeafIndex  leafIndex
+	LeafIndex  LeafIndex
 	KeyPackage *KeyPackage `tls:"optional"`
 }
 
-func (n *OptionalNode) SetLeafNodeHash(suite CipherSuite, index leafIndex) error {
+func (n *OptionalNode) SetLeafNodeHash(suite CipherSuite, index LeafIndex) error {
 	input := LeafNodeHashInput{
 		LeafIndex:  index,
 		KeyPackage: nil,
@@ -345,13 +345,13 @@ func (n *OptionalNode) SetLeafNodeHash(suite CipherSuite, index leafIndex) error
 }
 
 type ParentNodeHashInput struct {
-	NodeIndex  nodeIndex
+	NodeIndex  NodeIndex
 	ParentNode *ParentNode `tls:"optional"`
 	LeftHash   []byte      `tls:"head=1"`
 	RightHash  []byte      `tls:"head=1"`
 }
 
-func (n *OptionalNode) SetParentNodeHash(suite CipherSuite, index nodeIndex, left, right []byte) error {
+func (n *OptionalNode) SetParentNodeHash(suite CipherSuite, index NodeIndex, left, right []byte) error {
 	input := ParentNodeHashInput{
 		NodeIndex:  index,
 		ParentNode: nil,
@@ -414,14 +414,14 @@ func NewRatchetTree(suite CipherSuite) *RatchetTree {
 	return &RatchetTree{Suite: suite}
 }
 
-func (t *RatchetTree) SetLeaf(index leafIndex, keyPkg KeyPackage) error {
+func (t *RatchetTree) SetLeaf(index LeafIndex, keyPkg KeyPackage) error {
 	n := toNodeIndex(index)
 	t.Nodes[n].Node.Leaf = &keyPkg
 	_, err := t.setHashPath(index)
 	return err
 }
 
-func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
+func (t *RatchetTree) AddLeaf(index LeafIndex, keyPkg KeyPackage) error {
 	n := toNodeIndex(index)
 
 	for len(t.Nodes) < int(n)+1 {
@@ -431,7 +431,7 @@ func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
 	t.Nodes[n] = newLeafNode(keyPkg)
 
 	// update unmerged list
-	dp := dirpath(n, t.size())
+	dp := dirpath(n, t.Size())
 	for _, v := range dp {
 		if v == toNodeIndex(index) || t.Nodes[v].Node == nil {
 			continue
@@ -443,7 +443,7 @@ func (t *RatchetTree) AddLeaf(index leafIndex, keyPkg KeyPackage) error {
 	return err
 }
 
-func (t *RatchetTree) UpdateLeaf(index leafIndex, keyPkg KeyPackage) error {
+func (t *RatchetTree) UpdateLeaf(index LeafIndex, keyPkg KeyPackage) error {
 	n := toNodeIndex(index)
 	if t.Nodes[n].Blank() {
 		return fmt.Errorf("Update to unoccupied node")
@@ -456,7 +456,7 @@ func (t *RatchetTree) UpdateLeaf(index leafIndex, keyPkg KeyPackage) error {
 	return err
 }
 
-func (t *RatchetTree) SetLeafPrivateKeys(index leafIndex, initPriv HPKEPrivateKey, sigPriv SignaturePrivateKey) error {
+func (t *RatchetTree) SetLeafPrivateKeys(index LeafIndex, initPriv HPKEPrivateKey, sigPriv SignaturePrivateKey) error {
 	ni := toNodeIndex(index)
 	if t.Nodes[ni].Blank() {
 		return fmt.Errorf("Attempt to set private key for a blank node")
@@ -467,23 +467,23 @@ func (t *RatchetTree) SetLeafPrivateKeys(index leafIndex, initPriv HPKEPrivateKe
 	return nil
 }
 
-func (t RatchetTree) PathSecrets(start nodeIndex, pathSecret []byte) map[nodeIndex][]byte {
-	secrets := map[nodeIndex][]byte{}
+func (t RatchetTree) PathSecrets(start NodeIndex, pathSecret []byte) map[NodeIndex][]byte {
+	secrets := map[NodeIndex][]byte{}
 
 	curr := start
-	next := parent(curr, t.size())
+	next := parent(curr, t.Size())
 	secrets[curr] = dup(pathSecret)
 
 	for curr != t.rootIndex() {
 		secrets[next] = t.pathStep(secrets[curr])
 		curr = next
-		next = parent(curr, t.size())
+		next = parent(curr, t.Size())
 	}
 
 	return secrets
 }
 
-func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectPath, []byte, []byte, error) {
+func (t *RatchetTree) Encap(from LeafIndex, context, leafSecret []byte) (DirectPath, []byte, []byte, error) {
 	// list of updated nodes - output
 	leafNode := toNodeIndex(from)
 	dp := DirectPath{}
@@ -493,9 +493,9 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectP
 	rootSecret := secrets[t.rootIndex()]
 
 	// set path secrets up the tree and encrypt to the copath
-	cp := copath(leafNode, t.size())
+	cp := copath(leafNode, t.Size())
 	for _, v := range cp {
-		parent := parent(v, t.size())
+		parent := parent(v, t.Size())
 		if parent == leafNode {
 			continue
 		}
@@ -534,11 +534,11 @@ func (t *RatchetTree) Encap(from leafIndex, context, leafSecret []byte) (DirectP
 	return dp, leafParentHash, rootSecret, nil
 }
 
-func (t *RatchetTree) ImplantFrom(from, to leafIndex, pathSecret []byte) ([]byte, error) {
+func (t *RatchetTree) ImplantFrom(from, to LeafIndex, pathSecret []byte) ([]byte, error) {
 	return t.Implant(ancestor(from, to), pathSecret)
 }
 
-func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error) {
+func (t *RatchetTree) Implant(start NodeIndex, pathSecret []byte) ([]byte, error) {
 	secrets := t.PathSecrets(start, pathSecret)
 
 	for curr, secret := range secrets {
@@ -562,8 +562,8 @@ func (t *RatchetTree) Implant(start nodeIndex, pathSecret []byte) ([]byte, error
 	return secrets[t.rootIndex()], nil
 }
 
-func (t *RatchetTree) decryptPathSecret(from leafIndex, context []byte, path DirectPath) (nodeIndex, []byte, error) {
-	cp := copath(toNodeIndex(from), t.size())
+func (t *RatchetTree) decryptPathSecret(from LeafIndex, context []byte, path DirectPath) (NodeIndex, []byte, error) {
+	cp := copath(toNodeIndex(from), t.Size())
 	if len(path.Nodes) != len(cp) {
 		return 0, nil, fmt.Errorf("mls.rtn: Malformed (cp) DirectPath %d %d %v", len(path.Nodes), len(cp)+1, cp)
 	}
@@ -592,7 +592,7 @@ func (t *RatchetTree) decryptPathSecret(from leafIndex, context []byte, path Dir
 				return 0, nil, fmt.Errorf("mls:rtn: Ratchet node %v Decryption failure %v", v, err)
 			}
 
-			parentNode := parent(curr, t.size())
+			parentNode := parent(curr, t.Size())
 			return parentNode, pathSecret, nil
 		}
 	}
@@ -600,9 +600,9 @@ func (t *RatchetTree) decryptPathSecret(from leafIndex, context []byte, path Dir
 	return 0, nil, fmt.Errorf("mls:rtn: No private key available for decrypt")
 }
 
-func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) ([]byte, error) {
+func (t *RatchetTree) Decap(from LeafIndex, context []byte, path DirectPath) ([]byte, error) {
 	// Set public keys
-	dp := dirpath(toNodeIndex(from), t.size())
+	dp := dirpath(toNodeIndex(from), t.Size())
 	if len(path.Nodes) != len(dp) {
 		return nil, fmt.Errorf("mls.rtn: Malformed (dp) DirectPath %d %d", len(path.Nodes), len(dp))
 	}
@@ -630,12 +630,12 @@ func (t *RatchetTree) Decap(from leafIndex, context []byte, path DirectPath) ([]
 	return rootSecret, nil
 }
 
-func (t *RatchetTree) BlankPath(index leafIndex) error {
+func (t *RatchetTree) BlankPath(index LeafIndex) error {
 	if len(t.Nodes) == 0 {
 		return nil
 	}
 
-	lc := t.size()
+	lc := t.Size()
 	r := t.rootIndex()
 	leaf := toNodeIndex(index)
 	for curr := leaf; curr != r; curr = parent(curr, lc) {
@@ -648,7 +648,7 @@ func (t *RatchetTree) BlankPath(index leafIndex) error {
 	return err
 }
 
-func (t RatchetTree) KeyPackage(index leafIndex) (KeyPackage, bool) {
+func (t RatchetTree) KeyPackage(index LeafIndex) (KeyPackage, bool) {
 	ni := toNodeIndex(index)
 	if t.Nodes[ni].Blank() {
 		return KeyPackage{}, false
@@ -658,7 +658,7 @@ func (t RatchetTree) KeyPackage(index leafIndex) (KeyPackage, bool) {
 }
 
 func (t RatchetTree) RootHash() []byte {
-	r := root(t.size())
+	r := root(t.Size())
 	return t.Nodes[r].Hash
 }
 
@@ -688,9 +688,9 @@ func (t RatchetTree) Equals(o RatchetTree) bool {
 	return true
 }
 
-func (t RatchetTree) LeftmostFree() leafIndex {
-	curr := leafIndex(0)
-	size := leafIndex(t.size())
+func (t RatchetTree) LeftmostFree() LeafIndex {
+	curr := LeafIndex(0)
+	size := LeafIndex(t.Size())
 	for {
 		if curr < size && !t.Nodes[toNodeIndex(curr)].Blank() {
 			curr++
@@ -701,9 +701,9 @@ func (t RatchetTree) LeftmostFree() leafIndex {
 	return curr
 }
 
-func (t RatchetTree) Find(kp KeyPackage) (leafIndex, bool) {
-	num := t.size()
-	for i := leafIndex(0); leafCount(i) < num; i++ {
+func (t RatchetTree) Find(kp KeyPackage) (LeafIndex, bool) {
+	num := t.Size()
+	for i := LeafIndex(0); LeafCount(i) < num; i++ {
 		ni := toNodeIndex(i)
 		n := t.Nodes[ni]
 		if n.Blank() {
@@ -722,7 +722,7 @@ func (t RatchetTree) Find(kp KeyPackage) (leafIndex, bool) {
 // hash for at least one of its children.
 func (t RatchetTree) ParentHashValid() bool {
 	for i := range t.Nodes {
-		n := nodeIndex(i)
+		n := NodeIndex(i)
 		if level(n) == 0 {
 			continue
 		}
@@ -736,7 +736,7 @@ func (t RatchetTree) ParentHashValid() bool {
 			return false
 		}
 
-		l, r := left(n), right(n, t.size())
+		l, r := left(n), right(n, t.Size())
 		hashL, foundL := t.Nodes[l].Node.ParentHash()
 		matchL := foundL && bytes.Equal(ph, hashL)
 		hashR, foundR := t.Nodes[r].Node.ParentHash()
@@ -751,12 +751,12 @@ func (t RatchetTree) ParentHashValid() bool {
 //// Ratchet Tree helpers functions
 
 // number of leaves in the ratchet tree
-func (t RatchetTree) size() leafCount {
+func (t RatchetTree) Size() LeafCount {
 	return leafWidth(nodeCount(len(t.Nodes)))
 }
 
-func (t RatchetTree) rootIndex() nodeIndex {
-	return root(t.size())
+func (t RatchetTree) rootIndex() NodeIndex {
+	return root(t.Size())
 }
 
 func (t RatchetTree) pathStep(pathSecret []byte) []byte {
@@ -764,13 +764,13 @@ func (t RatchetTree) pathStep(pathSecret []byte) []byte {
 	return ps
 }
 
-func (t RatchetTree) resolve(index nodeIndex) []nodeIndex {
+func (t RatchetTree) resolve(index NodeIndex) []NodeIndex {
 	// Resolution of non-blank is node + unmerged leaves
 	if !t.Nodes[index].Blank() {
-		res := []nodeIndex{index}
+		res := []NodeIndex{index}
 		if level(index) > 0 {
 			for _, v := range t.Nodes[index].Node.Parent.UnmergedLeaves {
-				res = append(res, nodeIndex(v))
+				res = append(res, toNodeIndex(v))
 			}
 		}
 		return res
@@ -778,30 +778,30 @@ func (t RatchetTree) resolve(index nodeIndex) []nodeIndex {
 
 	// Resolution of blank leaf is the empty list
 	if level(index) == 0 {
-		return []nodeIndex{}
+		return []NodeIndex{}
 	}
 
 	// Resolution of blank intermediate node is concatenation of the resolutions
 	// of the children
 	l := t.resolve(left(index))
-	r := t.resolve(right(index, t.size()))
+	r := t.resolve(right(index, t.Size()))
 	l = append(l, r...)
 	return l
 }
 
-func (t *RatchetTree) setHash(index nodeIndex) error {
+func (t *RatchetTree) setHash(index NodeIndex) error {
 	if level(index) == 0 {
 		return t.Nodes[index].SetLeafNodeHash(t.Suite, toLeafIndex(index))
 	}
 
 	lh := t.Nodes[left(index)].Hash
-	rh := t.Nodes[right(index, t.size())].Hash
+	rh := t.Nodes[right(index, t.Size())].Hash
 	return t.Nodes[index].SetParentNodeHash(t.Suite, index, lh, rh)
 }
 
-func (t *RatchetTree) setHashPath(index leafIndex) ([]byte, error) {
+func (t *RatchetTree) setHashPath(index LeafIndex) ([]byte, error) {
 	n := toNodeIndex(index)
-	dp := dirpath(n, t.size())
+	dp := dirpath(n, t.Size())
 	if len(dp) == 0 {
 		// Nothing to do if we have a zero- or one-member tree
 		return nil, nil
@@ -841,7 +841,7 @@ func (t *RatchetTree) setHashPath(index leafIndex) ([]byte, error) {
 	return leafParentHash, nil
 }
 
-func (t *RatchetTree) setHashSubtree(index nodeIndex) error {
+func (t *RatchetTree) setHashSubtree(index NodeIndex) error {
 	if len(t.Nodes) == 0 {
 		return nil
 	}
@@ -856,7 +856,7 @@ func (t *RatchetTree) setHashSubtree(index nodeIndex) error {
 		return err
 	}
 
-	r := right(index, t.size())
+	r := right(index, t.Size())
 	err = t.setHashSubtree(r)
 	if err != nil {
 		return err
@@ -866,12 +866,12 @@ func (t *RatchetTree) setHashSubtree(index nodeIndex) error {
 }
 
 func (t *RatchetTree) SetHashAll() error {
-	return t.setHashSubtree(root(t.size()))
+	return t.setHashSubtree(root(t.Size()))
 }
 
 // Isolated getters and setters for secret state
 type TreeSecrets struct {
-	PrivateKeys map[nodeIndex]HPKEPrivateKey `tls:"head=4"`
+	PrivateKeys map[NodeIndex]HPKEPrivateKey `tls:"head=4"`
 }
 
 func (t *RatchetTree) SetSecrets(ts TreeSecrets) {
@@ -882,7 +882,7 @@ func (t *RatchetTree) SetSecrets(ts TreeSecrets) {
 
 func (t RatchetTree) GetSecrets() TreeSecrets {
 	ts := TreeSecrets{
-		PrivateKeys: map[nodeIndex]HPKEPrivateKey{},
+		PrivateKeys: map[NodeIndex]HPKEPrivateKey{},
 	}
 
 	for i, n := range t.Nodes {
@@ -895,7 +895,7 @@ func (t RatchetTree) GetSecrets() TreeSecrets {
 			continue
 		}
 
-		ts.PrivateKeys[nodeIndex(i)] = priv
+		ts.PrivateKeys[NodeIndex(i)] = priv
 	}
 
 	return ts

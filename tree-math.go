@@ -20,21 +20,21 @@ package mls
 //
 //    01x = <00x, 10x>
 
-type leafIndex uint32
-type leafCount uint32
-type nodeIndex uint32
+type LeafIndex uint32
+type LeafCount uint32
+type NodeIndex uint32
 type nodeCount uint32
 
-func toNodeIndex(leaf leafIndex) nodeIndex {
-	return nodeIndex(2 * leaf)
+func toNodeIndex(leaf LeafIndex) NodeIndex {
+	return NodeIndex(2 * leaf)
 }
 
-func toLeafIndex(node nodeIndex) leafIndex {
+func toLeafIndex(node NodeIndex) LeafIndex {
 	if node&0x01 != 0 {
 		panic("toLeafIndex on non-leaf index")
 	}
 
-	return leafIndex(node) >> 1
+	return LeafIndex(node) >> 1
 }
 
 // Position of the most significant 1 bit
@@ -51,7 +51,7 @@ func log2(x nodeCount) uint {
 }
 
 // Position of the least significant 0 bit
-func level(x nodeIndex) uint {
+func level(x NodeIndex) uint {
 	if x&0x01 == 0 {
 		return 0
 	}
@@ -64,23 +64,23 @@ func level(x nodeIndex) uint {
 }
 
 // Number of nodes for a tree of size N
-func nodeWidth(n leafCount) nodeCount {
+func nodeWidth(n LeafCount) nodeCount {
 	return nodeCount(2*n - 1)
 }
 
 // Number of leaves for a tree with N nodes
-func leafWidth(n nodeCount) leafCount {
-	return leafCount((n + 1) >> 1)
+func leafWidth(n nodeCount) LeafCount {
+	return LeafCount((n + 1) >> 1)
 }
 
 // Index of the root of the tree with N leaves
-func root(n leafCount) nodeIndex {
+func root(n LeafCount) NodeIndex {
 	w := nodeWidth(n)
-	return nodeIndex((1 << log2(w)) - 1)
+	return NodeIndex((1 << log2(w)) - 1)
 }
 
 // Left child of x
-func left(x nodeIndex) nodeIndex {
+func left(x NodeIndex) NodeIndex {
 	if level(x) == 0 {
 		return x
 	}
@@ -89,12 +89,12 @@ func left(x nodeIndex) nodeIndex {
 }
 
 // Right child of x
-func right(x nodeIndex, n leafCount) nodeIndex {
+func right(x NodeIndex, n LeafCount) NodeIndex {
 	if level(x) == 0 {
 		return x
 	}
 
-	w := nodeIndex(nodeWidth(n))
+	w := NodeIndex(nodeWidth(n))
 	r := x ^ (0x03 << (level(x) - 1))
 	for r >= w {
 		r = left(r)
@@ -103,21 +103,21 @@ func right(x nodeIndex, n leafCount) nodeIndex {
 }
 
 // Immediate parent of x; may not exist in tree
-func parent_step(x nodeIndex) nodeIndex {
+func parent_step(x NodeIndex) NodeIndex {
 	// xy01 -> x011
 	k := level(x)
 	one := uint(1)
-	return nodeIndex((uint(x) | (one << k)) & ^(one << (k + 1)))
+	return NodeIndex((uint(x) | (one << k)) & ^(one << (k + 1)))
 }
 
 // Parent of x
-func parent(x nodeIndex, n leafCount) nodeIndex {
+func parent(x NodeIndex, n LeafCount) NodeIndex {
 	// root's parent is itself
 	if x == root(n) {
 		return x
 	}
 
-	w := nodeIndex(nodeWidth(n))
+	w := NodeIndex(nodeWidth(n))
 	p := parent_step(x)
 	for p >= w {
 		p = parent_step(p)
@@ -126,7 +126,7 @@ func parent(x nodeIndex, n leafCount) nodeIndex {
 }
 
 // Sibling of x
-func sibling(x nodeIndex, n leafCount) nodeIndex {
+func sibling(x NodeIndex, n LeafCount) NodeIndex {
 	p := parent(x, n)
 	if x < p {
 		return right(p, n)
@@ -140,8 +140,8 @@ func sibling(x nodeIndex, n leafCount) nodeIndex {
 
 // Direct path for x
 // Ordered from leaf to root, excluding leaf, including root
-func dirpath(x nodeIndex, n leafCount) []nodeIndex {
-	d := []nodeIndex{}
+func dirpath(x NodeIndex, n LeafCount) []NodeIndex {
+	d := []NodeIndex{}
 	p := parent(x, n)
 	r := root(n)
 	for p != r {
@@ -157,16 +157,16 @@ func dirpath(x nodeIndex, n leafCount) []nodeIndex {
 
 // Copath for x
 // Ordered from leaf to root
-func copath(x nodeIndex, n leafCount) []nodeIndex {
+func copath(x NodeIndex, n LeafCount) []NodeIndex {
 	d := dirpath(x, n)
 	if len(d) == 0 {
-		return []nodeIndex{}
+		return []NodeIndex{}
 	}
 
-	d = append([]nodeIndex{x}, d[:len(d)-1]...)
+	d = append([]NodeIndex{x}, d[:len(d)-1]...)
 
 	r := root(n)
-	c := make([]nodeIndex, len(d))
+	c := make([]NodeIndex, len(d))
 	for i, x := range d {
 		// Don't include the root
 		if x == r {
@@ -180,7 +180,7 @@ func copath(x nodeIndex, n leafCount) []nodeIndex {
 }
 
 // Common ancestor of two leaves
-func ancestor(l, r leafIndex) nodeIndex {
+func ancestor(l, r LeafIndex) NodeIndex {
 	ln, rn := toNodeIndex(l), toNodeIndex(r)
 
 	k := uint(0)
