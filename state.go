@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
-	"time"
 
 	"github.com/bifurcation/mint/syntax"
 )
@@ -96,18 +95,11 @@ func NewEmptyStateWithExtensions(groupID []byte, kp KeyPackage, ext ExtensionLis
 }
 
 func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, LeafIndex, []byte, error) {
-	tic := time.Now()
-
 	// Decrypt the GroupInfo
 	gi, err := welcome.Decrypt(suite, epochSecret)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-
-	toc := time.Now()
-	elapsed := toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.1)", elapsed)
-	tic = time.Now()
 
 	// Construct the new state
 	s := &State{
@@ -122,15 +114,10 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
 	}
 
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.2)", elapsed)
-
 	return s, gi.SignerIndex, gi.Confirmation, nil
 }
 
 func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
-	tic := time.Now()
 	var keyPackage KeyPackage
 	var encGroupSecrets EncryptedGroupSecrets
 	var found = false
@@ -177,11 +164,6 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
 	}
 
-	toc := time.Now()
-	elapsed := toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(1)", elapsed)
-	tic = time.Now()
-
 	var groupSecrets GroupSecrets
 	_, err = syntax.Unmarshal(pt, &groupSecrets)
 	if err != nil {
@@ -196,11 +178,6 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 
 	s.IdentityPriv = *keyPackage.Credential.privateKey
 	s.Scheme = keyPackage.Credential.Scheme()
-
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2)", elapsed)
-	tic = time.Now()
 
 	// Verify that the joiner supports the group's extensions
 	for _, ext := range s.Extensions.Entries {
@@ -231,11 +208,6 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 
 	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
 
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(3)", elapsed)
-	tic = time.Now()
-
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
@@ -243,10 +215,6 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 	if !bytes.Equal(localConfirmation, confirmation) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
-
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(4)", elapsed)
 
 	return s, nil
 }

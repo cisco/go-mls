@@ -775,8 +775,6 @@ func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
 }
 
 func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, error) {
-	tic := time.Now()
-
 	gikn := groupInfoKeyAndNonce(suite, epochSecret)
 
 	aead, err := suite.newAEAD(gikn.Key)
@@ -789,37 +787,18 @@ func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, err
 		return nil, fmt.Errorf("mls.state: unable to decrypt groupInfo: %v", err)
 	}
 
-	toc := time.Now()
-	elapsed := toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.1.1)", elapsed)
-	tic = time.Now()
-
 	gi := new(GroupInfo)
 	_, err = syntax.Unmarshal(data, gi)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: unable to unmarshal groupInfo: %v", err)
 	}
 
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.1.2)", elapsed)
-	tic = time.Now()
-
 	gi.Tree.Suite = suite
 	gi.Tree.SetHashAll()
-
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.1.3)", elapsed)
-	tic = time.Now()
 
 	if err = gi.verify(); err != nil {
 		return nil, fmt.Errorf("mls.state: invalid groupInfo")
 	}
-
-	toc = time.Now()
-	elapsed = toc.Sub(tic)
-	fmt.Printf("%18s:%18v\n", "Join(2.1.4)", elapsed)
 
 	gi.Tree.Suite = suite
 
