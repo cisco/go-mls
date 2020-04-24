@@ -179,6 +179,30 @@ func copath(x NodeIndex, n LeafCount) []NodeIndex {
 	return c
 }
 
+func inPath(x, y NodeIndex) bool {
+	lx, ly := level(x), level(y)
+	return lx <= ly && x>>(ly+1) == y>>(ly+1)
+}
+
+func fullAncestor(l, r NodeIndex) NodeIndex {
+	ll, lr := level(l)+1, level(r)+1
+	if ll <= lr && l>>lr == r>>lr {
+		return r
+	}
+	if lr <= ll && l>>ll == r>>ll {
+		return l
+	}
+
+	k := uint(0)
+	ln, rn := l, r
+	for ln != rn {
+		ln, rn = ln>>1, rn>>1
+		k += 1
+	}
+
+	return (ln << k) + (1 << (k - 1)) - 1
+}
+
 // Common ancestor of two leaves
 func ancestor(l, r LeafIndex) NodeIndex {
 	ln, rn := toNodeIndex(l), toNodeIndex(r)
