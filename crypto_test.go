@@ -178,6 +178,15 @@ func TestSignVerify(t *testing.T) {
 	}
 }
 
+func TestCipherSuite_String(t *testing.T) {
+	for _, suite := range supportedSuites {
+		require.True(t, len(suite.String()) >  0)
+	}
+
+	var badCipherSuite CipherSuite = 0x0009
+	require.Equal(t, badCipherSuite.String(),"UnknownCipherSuite")
+}
+
 ///
 /// Test Vectors
 ///

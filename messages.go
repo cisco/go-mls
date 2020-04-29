@@ -534,14 +534,15 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	return s.Data()
 }
 
-func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) {
+func (pt *MLSPlaintext) sign(ctx GroupContext, priv SignaturePrivateKey, scheme SignatureScheme) error {
 	tbs := pt.toBeSigned(ctx)
 	sig, err := scheme.Sign(&priv, tbs)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	pt.Signature = Signature{sig}
+	return nil
 }
 
 func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme SignatureScheme) bool {

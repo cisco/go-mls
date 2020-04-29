@@ -28,4 +28,26 @@ func TestCredentialErrorCases(t *testing.T) {
 	require.Panics(t, func() { cred.PublicKey() })
 	require.Panics(t, func() { cred.Scheme() })
 	require.Panics(t, func() { syntax.Marshal(cred) })
+
+}
+
+func TestCredentialPrivateKey(t *testing.T) {
+	identity := []byte("res ipsa")
+	scheme := Ed25519
+	priv, err := scheme.Generate()
+	require.Nil(t, err)
+
+	cred := NewBasicCredential(identity, scheme, &priv)
+	priv, ok := cred.PrivateKey()
+	require.True(t, ok)
+	require.NotEmpty(t, priv)
+
+
+	// remove sensitive info before exporting
+	cred.RemovePrivateKey()
+	require.Nil(t, cred.privateKey)
+
+	priv, ok = cred.PrivateKey()
+	require.False(t, ok)
+	require.Empty(t, priv)
 }
