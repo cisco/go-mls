@@ -21,7 +21,7 @@ func TestBasicCredential(t *testing.T) {
 }
 
 func TestCredentialErrorCases(t *testing.T) {
-	cred := Credential{nil, nil}
+	cred := Credential{nil, nil, nil}
 
 	require.Panics(t, func() { cred.Equals(cred) })
 	require.Panics(t, func() { cred.Type() })
@@ -41,7 +41,6 @@ func TestCredentialPrivateKey(t *testing.T) {
 	priv, ok := cred.PrivateKey()
 	require.True(t, ok)
 	require.NotEmpty(t, priv)
-
 
 	// remove sensitive info before exporting
 	cred.RemovePrivateKey()
