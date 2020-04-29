@@ -289,29 +289,37 @@ func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 			KeyPackage: kp,
 		},
 	}
-	return s.sign(addProposal), nil
+	
+	return s.sign(addProposal)
 }
 
-func (s State) Update(kp KeyPackage) *MLSPlaintext {
+func (s State) Update(kp KeyPackage) (*MLSPlaintext, error) {
 	updateProposal := Proposal{
 		Update: &UpdateProposal{
 			KeyPackage: kp,
 		},
 	}
 
-	pt := s.sign(updateProposal)
+	pt, err := s.sign(updateProposal)
+	if err != nil {
+		return nil, err
+	}
 	ref := toRef(s.proposalID(*pt))
 	s.UpdateKeys[ref] = *kp.privateKey
-	return pt
+	return pt, nil
 }
 
-func (s *State) Remove(removed LeafIndex) *MLSPlaintext {
+func (s *State) Remove(removed LeafIndex) (*MLSPlaintext, error) {
 	removeProposal := Proposal{
 		Remove: &RemoveProposal{
 			Removed: removed,
 		},
 	}
-	return s.sign(removeProposal)
+	pt, err := s.sign(removeProposal)
+	if err != nil {
+		return nil, err
+	}
+	return pt, nil
 }
 
 func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, error) {
@@ -563,7 +571,7 @@ func (s State) groupContext() GroupContext {
 	}
 }
 
-func (s State) sign(p Proposal) *MLSPlaintext {
+func (s State) sign(p Proposal) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -573,8 +581,11 @@ func (s State) sign(p Proposal) *MLSPlaintext {
 		},
 	}
 
-	pt.sign(s.groupContext(), s.IdentityPriv, s.Scheme)
-	return pt
+	err := pt.sign(s.groupContext(), s.IdentityPriv, s.Scheme)
+	if err != nil {
+		return nil, err
+	}
+	return pt, nil
 }
 
 func (s *State) updateEpochSecrets(secret []byte) {
@@ -622,7 +633,10 @@ func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupC
 
 	// sign the MLSPlainText and update state hashes
 	// as a result of ratcheting.
-	pt.sign(prevGrpCtx, s.IdentityPriv, s.Scheme)
+	err := pt.sign(prevGrpCtx, s.IdentityPriv, s.Scheme)
+	if err != nil {
+		return nil, err
+	}
 
 	authData, err := pt.commitAuthData()
 	if err != nil {
@@ -920,7 +934,10 @@ func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
 		},
 	}
 
-	pt.sign(s.groupContext(), s.IdentityPriv, s.Scheme)
+	err := pt.sign(s.groupContext(), s.IdentityPriv, s.Scheme)
+	if err != nil {
+		return nil, err
+	}
 	return s.encrypt(pt)
 }
 

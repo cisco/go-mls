@@ -60,7 +60,7 @@ func (cs CipherSuite) String() string {
 		return "X448_CHACHA20POLY1305_SHA512_Ed448"
 	}
 
-	return "UknownCiphersuite"
+	return "UnknownCipherSuite"
 }
 
 type cipherConstants struct {

@@ -8,7 +8,7 @@ import (
 type CredentialType uint8
 
 const (
-	CredentialTypeInvalid CredentialType = 0xff
+	CredentialTypeInvalid CredentialType = 255
 	CredentialTypeBasic   CredentialType = 0
 	CredentialTypeX509    CredentialType = 1
 )

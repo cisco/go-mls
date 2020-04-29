@@ -1,6 +1,8 @@
 Message Layer Security
 ======================
 
+[![Coverage Status](https://coveralls.io/repos/github/bifurcation/mls/badge.svg)](https://coveralls.io/github/bifurcation/mls)
+
 This is a protocol to do group key establishment in an asynchronous,
 message-oriented setting.  Its core ideas borrow a lot from
 [Asynchronous Ratchet Trees](https://eprint.iacr.org/2017/666.pdf).
