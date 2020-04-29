@@ -114,7 +114,7 @@ var (
 			Commit: &CommitData{
 				Commit: *commit,
 				Confirmation: Confirmation{
-					Data: []byte{0x0C, 0X00, 0x03, 0x03, 0x01, 0x0f},
+					Data: []byte{0x0C, 0x00, 0x03, 0x03, 0x01, 0x0f},
 				},
 			},
 		},
@@ -248,16 +248,15 @@ func TestKeyPackageErrorCases(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, priv)
 
-
-    // sign a kp with nil private key
-    err = kp.Sign()
-    require.NotNil(t, err)
+	// sign a kp with nil private key
+	err = kp.Sign()
+	require.NotNil(t, err)
 
 }
 
 func TestProposalErrorCases(t *testing.T) {
 	p := Proposal{Add: nil, Update: nil, Remove: nil}
-	require.Panics(t, func() {p.Type()})
+	require.Panics(t, func() { p.Type() })
 	require.Panics(t, func() { syntax.Marshal(p) })
 }
 
@@ -275,7 +274,6 @@ func TestDirectPath(t *testing.T) {
 	dp := DirectPath{}
 	dp.addNode(n)
 	require.Equal(t, len(dp.Nodes), 1)
-	dp.dump()
 }
 
 ///
