@@ -93,11 +93,11 @@ func (c Credential) PrivateKey() (SignaturePrivateKey, bool) {
 	return *c.privateKey, true
 }
 
-func (c Credential) PublicKey() *SignaturePublicKey {
+func (c Credential) Identity() []byte {
 	switch {
 	// TODO(#35) case c.X509 != nil:
 	case c.Basic != nil:
-		return &c.Basic.SignaturePublicKey
+		return c.Basic.Identity
 	default:
 		panic("mls.credential: Can't retrieve PublicKey")
 	}
@@ -110,6 +110,16 @@ func (c Credential) Scheme() SignatureScheme {
 		return c.Basic.SignatureScheme
 	default:
 		panic("mls.credential: Can't retrieve SignatureScheme")
+	}
+}
+
+func (c Credential) PublicKey() *SignaturePublicKey {
+	switch {
+	// TODO(#35) case c.X509 != nil:
+	case c.Basic != nil:
+		return &c.Basic.SignaturePublicKey
+	default:
+		panic("mls.credential: Can't retrieve PublicKey")
 	}
 }
 
