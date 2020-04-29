@@ -13,10 +13,10 @@ import (
 // tree-based key derivation works
 /*
 func TestTreeBaseKeySource(t *testing.T) {
-	size := leafCount(11)
+	size := LeafCount(11)
 	root := unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 	tbks := newTreeBaseKeySource(P256_SHA256_AES128GCM, size, root)
-	for i := leafIndex(0); i < leafIndex(size); i += 1 {
+	for i := LeafIndex(0); i < LeafIndex(size); i += 1 {
 		tbks.Get(i)
 		tbks.dump()
 	}
@@ -32,11 +32,11 @@ func TestKeySchedule(t *testing.T) {
 	keySize := suite.constants().KeySize
 	nonceSize := suite.constants().NonceSize
 
-	size1 := leafCount(5)
+	size1 := LeafCount(5)
 	epochSecret1 := unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 	context1 := []byte("first")
 
-	size2 := leafCount(11)
+	size2 := LeafCount(11)
 	psk2 := []byte("psk")
 	commitSecret2 := unhex("404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f")
 	context2 := []byte("second")
@@ -44,7 +44,7 @@ func TestKeySchedule(t *testing.T) {
 	exportSize := 128
 	targetGeneration := uint32(3)
 
-	checkEpoch := func(epoch *keyScheduleEpoch, size leafCount) {
+	checkEpoch := func(epoch *keyScheduleEpoch, size LeafCount) {
 		require.Equal(t, epoch.Suite, suite)
 		require.Equal(t, len(epoch.EpochSecret), secretSize)
 		require.Equal(t, len(epoch.SenderDataSecret), secretSize)
@@ -60,7 +60,7 @@ func TestKeySchedule(t *testing.T) {
 		exportedKey := epoch.Export("test", []byte{0, 1, 2, 3}, exportSize)
 		require.Equal(t, len(exportedKey), exportSize)
 
-		for i := leafIndex(0); i < leafIndex(size); i += 1 {
+		for i := LeafIndex(0); i < LeafIndex(size); i += 1 {
 			// Test successful generation
 			hs, err := epoch.HandshakeKeys.Get(i, targetGeneration)
 			require.Nil(t, err)
@@ -130,7 +130,7 @@ func TestKeySchedule(t *testing.T) {
 ///
 
 type KsEpoch struct {
-	NumMembers   leafCount
+	NumMembers   LeafCount
 	PSK          []byte `tls:"head=1"`
 	CommitSecret []byte `tls:"head=1"`
 
@@ -201,15 +201,15 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 
 			psk := []byte(fmt.Sprintf("psk @ %d", i))
 			commitSecret := []byte(fmt.Sprintf("commitSecret @ %d", i))
-			epoch = epoch.Next(leafCount(nMembers), psk, commitSecret, ctx)
+			epoch = epoch.Next(LeafCount(nMembers), psk, commitSecret, ctx)
 
 			var handshakeKeys []keyAndNonce
 			var applicationKeys []keyAndNonce
 			appSecret := dup(epoch.ApplicationSecret)
 			for j := 0; j < nMembers; j++ {
-				hs, _ := epoch.HandshakeKeys.Get(leafIndex(j), tv.TargetGeneration)
+				hs, _ := epoch.HandshakeKeys.Get(LeafIndex(j), tv.TargetGeneration)
 				handshakeKeys = append(handshakeKeys, hs)
-				as, _ := epoch.ApplicationKeys.Get(leafIndex(j), tv.TargetGeneration)
+				as, _ := epoch.ApplicationKeys.Get(LeafIndex(j), tv.TargetGeneration)
 				applicationKeys = append(applicationKeys, as)
 			}
 
@@ -219,7 +219,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 				PSK:          psk,
 				CommitSecret: commitSecret,
 
-				NumMembers:       leafCount(nMembers),
+				NumMembers:       LeafCount(nMembers),
 				EpochSecret:      epoch.EpochSecret,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
@@ -277,13 +277,13 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 			require.Equal(t, exportedSecret, epoch.ExportedSecret)
 
 			// check the keys
-			for i := 0; leafCount(i) < epoch.NumMembers; i++ {
-				hs, err := myEpoch.HandshakeKeys.Get(leafIndex(i), tv.TargetGeneration)
+			for i := 0; LeafCount(i) < epoch.NumMembers; i++ {
+				hs, err := myEpoch.HandshakeKeys.Get(LeafIndex(i), tv.TargetGeneration)
 				require.Nil(t, err)
 				require.Equal(t, hs.Key, epoch.HandshakeKeys[i].Key)
 				require.Equal(t, hs.Nonce, epoch.HandshakeKeys[i].Nonce)
 
-				as, err := myEpoch.ApplicationKeys.Get(leafIndex(i), tv.TargetGeneration)
+				as, err := myEpoch.ApplicationKeys.Get(LeafIndex(i), tv.TargetGeneration)
 				require.Nil(t, err)
 				require.Equal(t, as.Key, epoch.AppKeys[i].Key)
 				require.Equal(t, as.Nonce, epoch.AppKeys[i].Nonce)

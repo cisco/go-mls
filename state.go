@@ -49,7 +49,7 @@ type State struct {
 	Extensions              ExtensionList
 
 	// Per-participant non-secret state
-	Index            leafIndex           `tls:"omit"`
+	Index            LeafIndex           `tls:"omit"`
 	IdentityPriv     SignaturePrivateKey `tls:"omit"`
 	Scheme           SignatureScheme     `tls:"omit"`
 	PendingProposals []MLSPlaintext      `tls:"omit"`
@@ -94,7 +94,7 @@ func NewEmptyStateWithExtensions(groupID []byte, kp KeyPackage, ext ExtensionLis
 	return s, nil
 }
 
-func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, leafIndex, []byte, error) {
+func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome) (*State, LeafIndex, []byte, error) {
 	// Decrypt the GroupInfo
 	gi, err := welcome.Decrypt(suite, epochSecret)
 	if err != nil {
@@ -206,7 +206,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		return nil, fmt.Errorf("mls.state: groupCtx marshal failure %v", err)
 	}
 
-	s.Keys = newKeyScheduleEpoch(suite, leafCount(s.Tree.size()), groupSecrets.EpochSecret, encGrpCtx)
+	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
 
 	// confirmation verification
 	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
@@ -309,7 +309,7 @@ func (s State) Update(kp KeyPackage) (*MLSPlaintext, error) {
 	return pt, nil
 }
 
-func (s *State) Remove(removed leafIndex) (*MLSPlaintext, error) {
+func (s *State) Remove(removed LeafIndex) (*MLSPlaintext, error) {
 	removeProposal := Proposal{
 		Remove: &RemoveProposal{
 			Removed: removed,
@@ -466,10 +466,10 @@ func (s *State) applyAddProposal(add *AddProposal) error {
 }
 
 func (s *State) applyRemoveProposal(remove *RemoveProposal) error {
-	return s.Tree.BlankPath(leafIndex(remove.Removed))
+	return s.Tree.BlankPath(LeafIndex(remove.Removed))
 }
 
-func (s *State) applyUpdateProposal(target leafIndex, update *UpdateProposal) error {
+func (s *State) applyUpdateProposal(target LeafIndex, update *UpdateProposal) error {
 	if update.KeyPackage.CipherSuite != s.CipherSuite {
 		panic(fmt.Errorf("mls.state: update kp does not use group ciphersuite %v != %v", update.KeyPackage.CipherSuite, s.CipherSuite))
 	}
@@ -507,7 +507,7 @@ func (s *State) applyProposals(ids []ProposalID, processed map[string]bool) erro
 				return fmt.Errorf("mls.state: update from non-member")
 			}
 
-			senderIndex := leafIndex(pt.Sender.Sender)
+			senderIndex := LeafIndex(pt.Sender.Sender)
 			err := s.applyUpdateProposal(senderIndex, proposal.Update)
 			if err != nil {
 				return err
@@ -600,7 +600,7 @@ func (s *State) updateEpochSecrets(secret []byte) {
 	}
 
 	// TODO(RLB) Provide an API to provide PSKs
-	s.Keys = s.Keys.Next(leafCount(s.Tree.size()), nil, secret, ctx)
+	s.Keys = s.Keys.Next(LeafCount(s.Tree.Size()), nil, secret, ctx)
 }
 
 func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupContext) (*MLSPlaintext, error) {
@@ -654,7 +654,7 @@ func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupC
 func (s State) signerPublicKey(sender Sender) (*SignaturePublicKey, error) {
 	switch sender.Type {
 	case SenderTypeMember:
-		kp, ok := s.Tree.KeyPackage(leafIndex(sender.Sender))
+		kp, ok := s.Tree.KeyPackage(LeafIndex(sender.Sender))
 		if !ok {
 			return nil, fmt.Errorf("mls.state: Received from blank leaf")
 		}
@@ -699,12 +699,12 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: commit from non-member")
 	}
 
-	if leafIndex(pt.Sender.Sender) == s.Index {
+	if LeafIndex(pt.Sender.Sender) == s.Index {
 		return nil, fmt.Errorf("mls.state: handle own commits with caching")
 	}
 
 	// apply the commit and discard any remaining pending proposals
-	senderIndex := leafIndex(pt.Sender.Sender)
+	senderIndex := LeafIndex(pt.Sender.Sender)
 	commitData := pt.Content.Commit
 	next := s.Clone()
 	err = next.apply(commitData.Commit)
@@ -862,7 +862,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	}
 
 	// parse the senderData
-	var sender leafIndex
+	var sender LeafIndex
 	var generation uint32
 	var reuseGuard [4]byte
 	stream := NewReadStream(sd)
@@ -1054,7 +1054,7 @@ type StateSecrets struct {
 	CipherSuite CipherSuite
 
 	// Per-participant non-secret state
-	Index            leafIndex
+	Index            LeafIndex
 	InitPriv         HPKEPrivateKey
 	IdentityPriv     SignaturePrivateKey
 	Scheme           SignatureScheme

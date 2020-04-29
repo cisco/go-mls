@@ -30,7 +30,7 @@ func zeroize(data []byte) {
 
 type hashRatchet struct {
 	Suite          CipherSuite
-	Node           nodeIndex
+	Node           NodeIndex
 	NextSecret     []byte `tls:"head=1"`
 	NextGeneration uint32
 	Cache          map[uint32]keyAndNonce `tls:"head=4"`
@@ -39,7 +39,7 @@ type hashRatchet struct {
 	SecretSize     uint32
 }
 
-func newHashRatchet(suite CipherSuite, node nodeIndex, baseSecret []byte) *hashRatchet {
+func newHashRatchet(suite CipherSuite, node NodeIndex, baseSecret []byte) *hashRatchet {
 	return &hashRatchet{
 		Suite:          suite,
 		Node:           node,
@@ -101,7 +101,7 @@ func (hr *hashRatchet) Erase(generation uint32) {
 
 type baseKeySource interface {
 	Suite() CipherSuite
-	Get(sender leafIndex) []byte
+	Get(sender LeafIndex) []byte
 }
 
 type noFSBaseKeySource struct {
@@ -117,7 +117,7 @@ func (nfbks *noFSBaseKeySource) Suite() CipherSuite {
 	return nfbks.CipherSuite
 }
 
-func (nfbks *noFSBaseKeySource) Get(sender leafIndex) []byte {
+func (nfbks *noFSBaseKeySource) Get(sender LeafIndex) []byte {
 	secretSize := nfbks.CipherSuite.constants().SecretSize
 	return nfbks.CipherSuite.deriveAppSecret(nfbks.RootSecret, "hs-secret", toNodeIndex(sender), 0, secretSize)
 }
@@ -139,18 +139,18 @@ func (b Bytes1) UnmarshalTLS(data []byte) (int, error) {
 type treeBaseKeySource struct {
 	CipherSuite CipherSuite
 	SecretSize  uint32
-	Root        nodeIndex
-	Size        leafCount
-	Secrets     map[nodeIndex]Bytes1 `tls:"head=4"`
+	Root        NodeIndex
+	Size        LeafCount
+	Secrets     map[NodeIndex]Bytes1 `tls:"head=4"`
 }
 
-func newTreeBaseKeySource(suite CipherSuite, size leafCount, rootSecret []byte) *treeBaseKeySource {
+func newTreeBaseKeySource(suite CipherSuite, size LeafCount, rootSecret []byte) *treeBaseKeySource {
 	tbks := &treeBaseKeySource{
 		CipherSuite: suite,
 		SecretSize:  uint32(suite.constants().SecretSize),
 		Root:        root(size),
 		Size:        size,
-		Secrets:     map[nodeIndex]Bytes1{},
+		Secrets:     map[NodeIndex]Bytes1{},
 	}
 
 	tbks.Secrets[tbks.Root] = rootSecret
@@ -161,11 +161,11 @@ func (tbks *treeBaseKeySource) Suite() CipherSuite {
 	return tbks.CipherSuite
 }
 
-func (tbks *treeBaseKeySource) Get(sender leafIndex) []byte {
+func (tbks *treeBaseKeySource) Get(sender LeafIndex) []byte {
 	// Find an ancestor that is populated
 	senderNode := toNodeIndex(sender)
 	d := dirpath(senderNode, tbks.Size)
-	d = append([]nodeIndex{senderNode}, d...)
+	d = append([]NodeIndex{senderNode}, d...)
 	found := false
 	curr := 0
 	for i, node := range d {
@@ -203,7 +203,7 @@ func (tbks *treeBaseKeySource) Get(sender leafIndex) []byte {
 func (tbks *treeBaseKeySource) dump() {
 	w := nodeWidth(tbks.Size)
 	fmt.Println("=== tbks ===")
-	for i := nodeIndex(0); i < nodeIndex(w); i += 1 {
+	for i := NodeIndex(0); i < NodeIndex(w); i += 1 {
 		s, ok := tbks.Secrets[i]
 		if ok {
 			fmt.Printf("  %3x [%x]\n", i, s)
@@ -219,10 +219,10 @@ func (tbks *treeBaseKeySource) dump() {
 
 type groupKeySource struct {
 	Base     baseKeySource
-	Ratchets map[leafIndex]*hashRatchet
+	Ratchets map[LeafIndex]*hashRatchet
 }
 
-func (gks groupKeySource) ratchet(sender leafIndex) *hashRatchet {
+func (gks groupKeySource) ratchet(sender LeafIndex) *hashRatchet {
 	if r, ok := gks.Ratchets[sender]; ok {
 		return r
 	}
@@ -232,15 +232,15 @@ func (gks groupKeySource) ratchet(sender leafIndex) *hashRatchet {
 	return gks.Ratchets[sender]
 }
 
-func (gks groupKeySource) Next(sender leafIndex) (uint32, keyAndNonce) {
+func (gks groupKeySource) Next(sender LeafIndex) (uint32, keyAndNonce) {
 	return gks.ratchet(sender).Next()
 }
 
-func (gks groupKeySource) Get(sender leafIndex, generation uint32) (keyAndNonce, error) {
+func (gks groupKeySource) Get(sender LeafIndex, generation uint32) (keyAndNonce, error) {
 	return gks.ratchet(sender).Get(generation)
 }
 
-func (gks groupKeySource) Erase(sender leafIndex, generation uint32) {
+func (gks groupKeySource) Erase(sender LeafIndex, generation uint32) {
 	gks.ratchet(sender).Erase(generation)
 }
 
@@ -283,14 +283,14 @@ type keyScheduleEpoch struct {
 	HandshakeBaseKeys   *noFSBaseKeySource
 	ApplicationBaseKeys *treeBaseKeySource
 
-	HandshakeRatchets   map[leafIndex]*hashRatchet `tls:"head=4"`
-	ApplicationRatchets map[leafIndex]*hashRatchet `tls:"head=4"`
+	HandshakeRatchets   map[LeafIndex]*hashRatchet `tls:"head=4"`
+	ApplicationRatchets map[LeafIndex]*hashRatchet `tls:"head=4"`
 
 	ApplicationKeys *groupKeySource `tls:"omit"`
 	HandshakeKeys   *groupKeySource `tls:"omit"`
 }
 
-func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context []byte) keyScheduleEpoch {
+func newKeyScheduleEpoch(suite CipherSuite, size LeafCount, epochSecret, context []byte) keyScheduleEpoch {
 	senderDataSecret := suite.deriveSecret(epochSecret, "sender data", context)
 	handshakeSecret := suite.deriveSecret(epochSecret, "handshake", context)
 	applicationSecret := suite.deriveSecret(epochSecret, "app", context)
@@ -318,8 +318,8 @@ func newKeyScheduleEpoch(suite CipherSuite, size leafCount, epochSecret, context
 		HandshakeBaseKeys:   handshakeBaseKeys,
 		ApplicationBaseKeys: applicationBaseKeys,
 
-		HandshakeRatchets:   map[leafIndex]*hashRatchet{},
-		ApplicationRatchets: map[leafIndex]*hashRatchet{},
+		HandshakeRatchets:   map[LeafIndex]*hashRatchet{},
+		ApplicationRatchets: map[LeafIndex]*hashRatchet{},
 	}
 
 	kse.enableKeySources()
@@ -332,7 +332,7 @@ func (kse *keyScheduleEpoch) enableKeySources() {
 	kse.ApplicationKeys = &groupKeySource{kse.ApplicationBaseKeys, kse.ApplicationRatchets}
 }
 
-func (kse *keyScheduleEpoch) Next(size leafCount, pskIn, commitSecret, context []byte) keyScheduleEpoch {
+func (kse *keyScheduleEpoch) Next(size LeafCount, pskIn, commitSecret, context []byte) keyScheduleEpoch {
 	psk := pskIn
 	if len(psk) == 0 {
 		psk = kse.Suite.zero()

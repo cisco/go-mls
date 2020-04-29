@@ -28,13 +28,13 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Ratc
 	// Build trees from the keyPackages
 	tree := NewRatchetTree(suite)
 	for i := range keyPackages {
-		err := tree.AddLeaf(leafIndex(i), *keyPackages[i])
+		err := tree.AddLeaf(LeafIndex(i), *keyPackages[i])
 		require.Nil(t, err)
 	}
 
 	// Encap to fill in the tree
 	for i := range keyPackages {
-		_, _, _, err := tree.Encap(leafIndex(i), []byte{}, []byte{byte(i)})
+		_, _, _, err := tree.Encap(LeafIndex(i), []byte{}, []byte{byte(i)})
 		require.Nil(t, err)
 	}
 
@@ -66,7 +66,7 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 	trees := make([]*RatchetTree, groupSize)
 	for i := range trees {
 		trees[i] = NewRatchetTree(suite)
-		err := trees[i].AddLeaf(leafIndex(i), *keyPackages[i])
+		err := trees[i].AddLeaf(LeafIndex(i), *keyPackages[i])
 		require.Nil(t, err)
 
 		keyPackages[i].privateKey = nil
@@ -78,7 +78,7 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 				continue
 			}
 
-			err := trees[i].AddLeaf(leafIndex(j), *keyPackages[j])
+			err := trees[i].AddLeaf(LeafIndex(j), *keyPackages[j])
 			require.Nil(t, err)
 		}
 	}
@@ -91,7 +91,7 @@ func TestRatchetTreeEncapDecap(t *testing.T) {
 
 	// Encap and re-sign from each one, decap at all the others
 	for i := range trees {
-		from := leafIndex(i)
+		from := LeafIndex(i)
 		context := []byte{}
 		leafSecret := []byte{byte(i)}
 		path, leafParentHash, secretE, err := trees[i].Encap(from, context, leafSecret)

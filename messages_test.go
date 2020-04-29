@@ -114,7 +114,7 @@ var (
 			Commit: &CommitData{
 				Commit: *commit,
 				Confirmation: Confirmation{
-					Data: []byte{0x0C, 0X00, 0x03, 0x03, 0x01, 0x0f},
+					Data: []byte{0x0C, 0x00, 0x03, 0x03, 0x01, 0x0f},
 				},
 			},
 		},
@@ -198,7 +198,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	groupSize := 2
 	secrets := [][]byte{randomBytes(32), randomBytes(32)}
 	treeAB := newTestRatchetTree(t, suite, secrets)
-	require.Equal(t, treeAB.size(), leafCount(groupSize))
+	require.Equal(t, treeAB.Size(), LeafCount(groupSize))
 
 	cs := supportedSuites[0]
 	secret := randomBytes(32)
@@ -248,16 +248,15 @@ func TestKeyPackageErrorCases(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, priv)
 
-
-    // sign a kp with nil private key
-    err = kp.Sign()
-    require.NotNil(t, err)
+	// sign a kp with nil private key
+	err = kp.Sign()
+	require.NotNil(t, err)
 
 }
 
 func TestProposalErrorCases(t *testing.T) {
 	p := Proposal{Add: nil, Update: nil, Remove: nil}
-	require.Panics(t, func() {p.Type()})
+	require.Panics(t, func() { p.Type() })
 	require.Panics(t, func() { syntax.Marshal(p) })
 }
 
@@ -275,7 +274,6 @@ func TestDirectPath(t *testing.T) {
 	dp := DirectPath{}
 	dp.addNode(n)
 	require.Equal(t, len(dp.Nodes), 1)
-	dp.dump()
 }
 
 ///
@@ -301,8 +299,8 @@ type MessageTestCase struct {
 type MessageTestVectors struct {
 	Epoch        Epoch
 	SenderType   SenderType
-	SignerIndex  leafIndex
-	Removed      leafIndex
+	SignerIndex  LeafIndex
+	Removed      LeafIndex
 	UserId       []byte            `tls:"head=1"`
 	GroupID      []byte            `tls:"head=1"`
 	KeyPackageId []byte            `tls:"head=1"`
@@ -317,8 +315,8 @@ func generateMessageVectors(t *testing.T) []byte {
 	tv := MessageTestVectors{
 		Epoch:        0xA0A1A2A3,
 		SenderType:   SenderTypeMember,
-		SignerIndex:  leafIndex(0xB0B1B2B3),
-		Removed:      leafIndex(0xC0C1C2C3),
+		SignerIndex:  LeafIndex(0xB0B1B2B3),
+		Removed:      LeafIndex(0xC0C1C2C3),
 		UserId:       bytes.Repeat([]byte{0xD1}, 16),
 		GroupID:      bytes.Repeat([]byte{0xD2}, 16),
 		KeyPackageId: bytes.Repeat([]byte{0xD3}, 16),
@@ -354,10 +352,10 @@ func generateMessageVectors(t *testing.T) []byte {
 		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
 		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(leafIndex(2))
+		err = ratchetTree.BlankPath(LeafIndex(2))
 		require.Nil(t, err)
 
-		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -546,10 +544,10 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
 		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(leafIndex(2))
+		err = ratchetTree.BlankPath(LeafIndex(2))
 		require.Nil(t, err)
 
-		dp, _, _, err := ratchetTree.Encap(leafIndex(0), []byte{}, tv.Random)
+		dp, _, _, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random)
 		require.Nil(t, err)
 
 		// KeyPackage

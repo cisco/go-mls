@@ -254,7 +254,7 @@ type UpdateProposal struct {
 }
 
 type RemoveProposal struct {
-	Removed leafIndex
+	Removed LeafIndex
 }
 
 type Proposal struct {
@@ -349,18 +349,6 @@ type DirectPathNode struct {
 
 type DirectPath struct {
 	Nodes []DirectPathNode `tls:"head=2"`
-}
-
-func (p DirectPath) dump() {
-	fmt.Printf("\n++++ DirectPath ++++\n")
-	fmt.Printf("Num Nodes %d\n", len(p.Nodes))
-	for _, n := range p.Nodes {
-		fmt.Printf("\tPubKey %x\n", n.PublicKey)
-		for _, e := range n.EncryptedPathSecrets {
-			fmt.Printf("\t\tPathSecret %x\n", e)
-		}
-	}
-	fmt.Printf("\n++++ DirectPath ++++\n")
 }
 
 func (p *DirectPath) addNode(n DirectPathNode) {
@@ -603,7 +591,7 @@ type GroupInfo struct {
 	InterimTranscriptHash   []byte `tls:"head=1"`
 	Extensions              ExtensionList
 	Confirmation            []byte `tls:"head=1"`
-	SignerIndex             leafIndex
+	SignerIndex             LeafIndex
 	Signature               []byte `tls:"head=2"`
 }
 
@@ -626,7 +614,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
 		Confirmation            []byte `tls:"head=1"`
-		SignerIndex             leafIndex
+		SignerIndex             LeafIndex
 	}{
 		GroupID:                 gi.GroupID,
 		Epoch:                   gi.Epoch,
@@ -638,7 +626,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	})
 }
 
-func (gi *GroupInfo) sign(index leafIndex, priv *SignaturePrivateKey) error {
+func (gi *GroupInfo) sign(index LeafIndex, priv *SignaturePrivateKey) error {
 	// Verify that priv corresponds to tree[index]
 	kp, ok := gi.Tree.KeyPackage(index)
 	if !ok {

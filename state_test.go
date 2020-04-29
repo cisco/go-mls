@@ -367,7 +367,7 @@ func TestStateUpdate(t *testing.T) {
 func TestStateRemove(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i := groupSize - 2; i > 0; i-- {
-		remove, err := stateTest.states[i].Remove(leafIndex(i + 1))
+		remove, err := stateTest.states[i].Remove(LeafIndex(i + 1))
 		require.Nil(t, err)
 		stateTest.states[i].Handle(remove)
 		secret := randomBytes(32)
