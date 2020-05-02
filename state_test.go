@@ -107,12 +107,14 @@ func TestStateTwoPerson(t *testing.T) {
 	secret := randomBytes(32)
 	_, welcome, first1, err := first0.Commit(secret)
 	require.Nil(t, err)
+	require.Equal(t, first1.NewCredentials, map[LeafIndex]bool{1: true})
 
 	// Initialize the second participant from the Welcome
 	err = stateTest.keyPackages[1].SetPrivateKey(stateTest.initPrivs[1])
 	require.Nil(t, err)
 	second1, err := NewJoinedState([]KeyPackage{stateTest.keyPackages[1]}, *welcome)
 	require.Nil(t, err)
+	require.Equal(t, second1.NewCredentials, map[LeafIndex]bool{0: true, 1: true})
 
 	// Verify that the two states are equivalent
 	require.True(t, first1.Equals(*second1))
@@ -336,7 +338,10 @@ func TestStateCipherNegotiation(t *testing.T) {
 func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
-		newKP, err := NewKeyPackage(suite, &stateTest.keyPackages[i].Credential)
+		oldCred := stateTest.keyPackages[i].Credential
+		newPriv, _ := oldCred.Scheme().Generate()
+		newCred := NewBasicCredential(oldCred.Identity(), oldCred.Scheme(), &newPriv)
+		newKP, err := NewKeyPackage(suite, newCred)
 		require.Nil(t, err)
 
 		update, err := state.Update(*newKP)
@@ -359,6 +364,7 @@ func TestStateUpdate(t *testing.T) {
 				stateTest.states[j] = *newState
 			}
 
+			require.Equal(t, stateTest.states[j].NewCredentials, map[LeafIndex]bool{LeafIndex(i): true})
 			require.True(t, stateTest.states[0].Equals(stateTest.states[j]))
 		}
 	}
