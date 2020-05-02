@@ -219,15 +219,15 @@ func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePr
 	return &Credential{Basic: basicCredential, privateKey: priv}
 }
 
-func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) *Credential {
+func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*Credential, error) {
 	x509Credential := &X509Credential{
 		Chain: chain,
 	}
 
 	if !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
-		panic("Malformed Credential: private key")
+		return nil, fmt.Errorf("Malformed Credential: private key")
 	}
-	return &Credential{X509: x509Credential, privateKey: priv}
+	return &Credential{X509: x509Credential, privateKey: priv}, nil
 }
 
 // compare the public aspects

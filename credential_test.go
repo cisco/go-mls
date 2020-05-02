@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"math/big"
 	"testing"
 	"time"
@@ -14,136 +13,96 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func reverseChain(chain []*x509.Certificate) {
-	for left, right := 0, len(chain)-1; left < right; left, right = left+1, right-1 {
-		chain[left], chain[right] = chain[right], chain[left]
+var (
+	caTemplate = &x509.Certificate{
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 	}
+
+	leafTemplate = &x509.Certificate{
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+	}
+)
+
+func newEd25519(t *testing.T) ed25519.PrivateKey {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.Nil(t, err)
+	return priv
 }
 
-func makeSerialNumber() (*big.Int, error) {
-	serialNumberLimit := big.NewInt(0).Lsh(big.NewInt(1), 128)
-	return rand.Int(rand.Reader, serialNumberLimit)
-}
-
-func makeNBNA() (notBefore time.Time, notAfter time.Time) {
+func makeCert(t *testing.T, template, parent *x509.Certificate, parentPriv crypto.Signer, addSKI bool) (crypto.Signer, *x509.Certificate) {
 	backdate := time.Hour
 	lifetime := 24 * time.Hour
-	now := time.Now()
-	notBefore = now.Add(-backdate)
-	notAfter = now.Add(lifetime - backdate)
-	return
-}
+	skiSize := 4 // bytes
 
-func newEd25519(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
-	pub , priv, err := ed25519.GenerateKey(rand.Reader)
-	require.Nil(t, err)
-	return pub, priv
-}
+	// Set expiry
+	template.NotBefore = time.Now().Add(-backdate)
+	template.NotAfter = template.NotBefore.Add(lifetime)
 
-// Handy function to create the leaf cert
-func makeLeafCert(t *testing.T, parent *x509.Certificate,  parentPrivate interface{}) *x509.Certificate{
-	notBefore, notAfter := makeNBNA()
-	sn, err := makeSerialNumber()
+	// Set serial number
+	serialNumberLimit := big.NewInt(0).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	require.Nil(t, err)
-	certTemplate := &x509.Certificate{
-		SerialNumber: sn,
-		NotBefore: notBefore,
-		NotAfter: notAfter,
-		Subject: pkix.Name{
-			CommonName: "alice@example.com",
-		},
-		BasicConstraintsValid: true,
-		IsCA: false,
-		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageDataEncipherment,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		SubjectKeyId: []byte{0},
+	template.SerialNumber = serialNumber
+
+	// Add random SKI if requried
+	template.SubjectKeyId = nil
+	if addSKI {
+		template.SubjectKeyId = make([]byte, skiSize)
+		rand.Read(template.SubjectKeyId)
 	}
 
-	_, priv := newEd25519(t)
-	certData, err := x509.CreateCertificate(rand.Reader, certTemplate, parent, priv.Public(), parentPrivate)
+	// Generate and parse the certificate
+	priv := parentPriv
+	realParent := template
+	if parent != nil {
+		priv = newEd25519(t)
+		realParent = parent
+	}
+
+	certData, err := x509.CreateCertificate(rand.Reader, template, realParent, priv.Public(), parentPriv)
 	require.Nil(t, err)
 	cert, err := x509.ParseCertificate(certData)
 	require.Nil(t, err)
-	return cert
+	return priv, cert
 }
 
-func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int) []*x509.Certificate {
-	chain := []*x509.Certificate{}
+func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int, addSKI bool) (*SignaturePrivateKey, *x509.Certificate, []*x509.Certificate) {
+	chain := make([]*x509.Certificate, depth)
 
-	notBefore, notAfter := makeNBNA()
-	sn, err := makeSerialNumber()
-	require.Nil(t, err)
+	_, rootCert := makeCert(t, caTemplate, nil, rootPriv, addSKI)
 
-	level := depth
-	// template for non leaf certs
-	caTemplate := &x509.Certificate{
-		SerialNumber: sn,
-		NotBefore: notBefore,
-		NotAfter: notAfter,
-		BasicConstraintsValid: true,
-		IsCA: true,
-		KeyUsage: x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		SubjectKeyId: []byte{byte(level)},
-	}
-
-	rootCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, rootPriv.Public(), rootPriv)
-	require.Nil(t, err)
-
-	rootCert, err := x509.ParseCertificate(rootCertData)
-	require.Nil(t, err)
-
-	chain = append(chain, rootCert)
-
-	// Add intermediate certs
 	currPriv := rootPriv
-	_, nextPriv := newEd25519(t)
-	for len(chain) < depth {
-		level -= 1
-		caTemplate.SubjectKeyId = []byte{byte(level)}
-		intCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, chain[len(chain)-1], nextPriv.Public(), currPriv)
-		require.Nil(t, err)
-
-		intCert, err := x509.ParseCertificate(intCertData)
-		require.Nil(t, err)
-
-		chain = append(chain, intCert)
-
-		currPriv = nextPriv
-		_, nextPriv = newEd25519(t)
+	cert := rootCert
+	for i := depth - 1; i > 0; i-- {
+		currPriv, cert = makeCert(t, caTemplate, cert, currPriv, addSKI)
+		chain[i] = cert
 	}
 
-	leaf := makeLeafCert(t, chain[len(chain)-1], currPriv)
-	chain = append(chain, leaf)
-	return chain
-}
+	currPriv, cert = makeCert(t, leafTemplate, cert, currPriv, addSKI)
+	chain[0] = cert
 
-func makeX509Credential(t *testing.T, priv *SignaturePrivateKey, skipSkid bool) (*Credential, []*x509.Certificate) {
-	rootPub, rootPriv := newEd25519(t)
-	sigPriv := SignaturePrivateKey{
-		Data: rootPriv,
+	sigPriv := &SignaturePrivateKey{
+		Data: currPriv.(ed25519.PrivateKey),
 		PublicKey: SignaturePublicKey{
-			Data: rootPub,
+			Data: currPriv.Public().(ed25519.PublicKey),
 		},
 	}
 
-	// setup cert chain to create x.509 MLS credential
-	chain := makeCertChain(t, rootPriv, 3)
-
-	// enforces pool verification via AKID or next in the chain flows
-	if skipSkid {
-		for _, cert := range chain {
-			cert.SubjectKeyId = nil
-		}
-	}
-
-	if priv != nil {
-		// for error flow simulation
-		return NewX509Credential(chain, priv), chain
-	}
-
-	return NewX509Credential(chain, &sigPriv), chain
+	return sigPriv, rootCert, chain
 }
 
+func makeX509Credential(t *testing.T, addSKI bool) (*Credential, *x509.Certificate) {
+	rootPriv := newEd25519(t)
+	leafPriv, rootCert, chain := makeCertChain(t, rootPriv, 3, addSKI)
+
+	cred, err := NewX509Credential(chain, leafPriv)
+	require.Nil(t, err)
+	return cred, rootCert
+}
 
 func TestBasicCredential(t *testing.T) {
 	identity := []byte("res ipsa")
@@ -159,7 +118,7 @@ func TestBasicCredential(t *testing.T) {
 }
 
 func TestX509Credential(t *testing.T) {
-	cred, _ := makeX509Credential(t, nil, true)
+	cred, _ := makeX509Credential(t, true)
 
 	require.NotNil(t, cred)
 	require.True(t, cred.Equals(*cred))
@@ -168,33 +127,17 @@ func TestX509Credential(t *testing.T) {
 	require.NotNil(t, cred.PublicKey())
 }
 
-func TestX509Credential_VerifyNextInChain(t *testing.T) {
-	cred, chain := makeX509Credential(t, nil, true)
-
-	require.NotNil(t, cred)
-
-	// chain goes from root -> leaf
-	// trusted goes from leaf -> root
-	trusted := chain[:]
-	reverseChain(trusted)
-
+func TestX509CredentialVerifyByName(t *testing.T) {
+	cred, root := makeX509Credential(t, false)
+	trusted := []*x509.Certificate{root}
 	require.Nil(t, cred.X509.Verify(trusted))
 }
 
-func TestX509Credential_VerifyViaAKID(t *testing.T) {
-	// include SubKeyId in the cert
-	cred, chain := makeX509Credential(t, nil, false)
-
-	require.NotNil(t, cred)
-
-	// chain goes from root -> leaf
-	// trusted goes from leaf -> root
-	trusted := chain[:]
-	reverseChain(trusted)
-
+func TestX509CredentialVerifyBySKI(t *testing.T) {
+	cred, root := makeX509Credential(t, true)
+	trusted := []*x509.Certificate{root}
 	require.Nil(t, cred.X509.Verify(trusted))
 }
-
 
 func TestCredentialErrorCases(t *testing.T) {
 	cred := Credential{nil, nil, nil}
@@ -205,11 +148,14 @@ func TestCredentialErrorCases(t *testing.T) {
 	require.Panics(t, func() { cred.Scheme() })
 	require.Panics(t, func() { syntax.Marshal(cred) })
 
-	// wrong priv key
-	scheme := Ed25519
-	priv, err := scheme.Generate()
+	// wrong priv key for X.509 Credential
+	rootPriv := newEd25519(t)
+	_, _, chain := makeCertChain(t, rootPriv, 3, false)
+	altPriv, err := Ed25519.Generate()
 	require.Nil(t, err)
-	require.Panics(t, func() { makeX509Credential(t, &priv, false) })
+
+	_, err = NewX509Credential(chain, &altPriv)
+	require.Error(t, err)
 }
 
 func TestCredentialPrivateKey(t *testing.T) {
