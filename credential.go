@@ -220,13 +220,18 @@ func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePr
 }
 
 func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*Credential, error) {
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("Malformed credential: At least one certificate is required")
+	}
+
 	x509Credential := &X509Credential{
 		Chain: chain,
 	}
 
 	if !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
-		return nil, fmt.Errorf("Malformed Credential: private key")
+		return nil, fmt.Errorf("Malformed credential: incorrect private key")
 	}
+
 	return &Credential{X509: x509Credential, privateKey: priv}, nil
 }
 

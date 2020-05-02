@@ -148,13 +148,17 @@ func TestCredentialErrorCases(t *testing.T) {
 	require.Panics(t, func() { cred.Scheme() })
 	require.Panics(t, func() { syntax.Marshal(cred) })
 
-	// wrong priv key for X.509 Credential
+	// Wrong priv key for X.509 Credential
 	rootPriv := newEd25519(t)
 	_, _, chain := makeCertChain(t, rootPriv, 3, false)
 	altPriv, err := Ed25519.Generate()
 	require.Nil(t, err)
 
 	_, err = NewX509Credential(chain, &altPriv)
+	require.Error(t, err)
+
+	// No certificate chain for X.509 Credential
+	_, err = NewX509Credential(nil, &altPriv)
 	require.Error(t, err)
 }
 
