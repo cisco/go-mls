@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
-	"strconv"
 	"testing"
 	"time"
 
@@ -84,7 +83,7 @@ func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int) []*x509.Cert
 		BasicConstraintsValid: true,
 		IsCA: true,
 		KeyUsage: x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		SubjectKeyId: []byte(strconv.Itoa(level)),
+		SubjectKeyId: []byte{byte(level)},
 	}
 
 	rootCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, rootPriv.Public(), rootPriv)
@@ -100,7 +99,7 @@ func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int) []*x509.Cert
 	_, nextPriv := newEd25519(t)
 	for len(chain) < depth {
 		level -= 1
-		caTemplate.SubjectKeyId = []byte(strconv.Itoa(level))
+		caTemplate.SubjectKeyId = []byte{byte(level)}
 		intCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, chain[len(chain)-1], nextPriv.Public(), currPriv)
 		require.Nil(t, err)
 
