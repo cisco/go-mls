@@ -57,6 +57,9 @@ type State struct {
 	// Secret state
 	UpdateKeys map[ProposalRef]HPKEPrivateKey `tls:"omit"`
 	Keys       keyScheduleEpoch               `tls:"omit"`
+
+	// Helpful information
+	NewCredentials map[LeafIndex]bool
 }
 
 func NewEmptyState(groupID []byte, kp KeyPackage) (*State, error) {
@@ -90,6 +93,7 @@ func NewEmptyStateWithExtensions(groupID []byte, kp KeyPackage, ext ExtensionLis
 		ConfirmedTranscriptHash: []byte{},
 		InterimTranscriptHash:   []byte{},
 		Extensions:              ext,
+		NewCredentials:          map[LeafIndex]bool{},
 	}
 	return s, nil
 }
@@ -112,6 +116,13 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 		Extensions:              gi.Extensions,
 		PendingProposals:        []MLSPlaintext{},
 		UpdateKeys:              map[ProposalRef]HPKEPrivateKey{},
+		NewCredentials:          map[LeafIndex]bool{},
+	}
+
+	// At this point, every leaf in the tree is new
+	// XXX(RLB) ... except our own
+	for i := LeafIndex(0); i < LeafIndex(s.Tree.Size()); i++ {
+		s.NewCredentials[i] = true
 	}
 
 	return s, gi.SignerIndex, gi.Confirmation, nil
@@ -267,15 +278,6 @@ func negotiateWithPeer(groupID []byte, myKPs, otherKPs []KeyPackage, commitSecre
 	return welcome, newState, nil
 }
 
-func (s State) KeyPackage() KeyPackage {
-	kp, ok := s.Tree.KeyPackage(s.Index)
-	if !ok {
-		panic("Malformed state")
-	}
-
-	return kp
-}
-
 func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 	// Verify that the new member supports the group's extensions
 	for _, ext := range s.Extensions.Entries {
@@ -289,7 +291,7 @@ func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 			KeyPackage: kp,
 		},
 	}
-	
+
 	return s.sign(addProposal)
 }
 
@@ -364,7 +366,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	// Update the leaf for this member
-	kp := s.KeyPackage()
+	kp, _ := s.Tree.KeyPackage(s.Index)
 	err = kp.UpdateInitKey()
 	if err != nil {
 		return nil, nil, nil, err
@@ -462,6 +464,7 @@ func (s *State) applyAddProposal(add *AddProposal) error {
 	}
 
 	target := s.Tree.LeftmostFree()
+	s.NewCredentials[target] = true
 	return s.Tree.AddLeaf(target, add.KeyPackage)
 }
 
@@ -476,6 +479,15 @@ func (s *State) applyUpdateProposal(target LeafIndex, update *UpdateProposal) er
 
 	if !update.KeyPackage.Verify() {
 		return fmt.Errorf("mls.state: Invalid kp")
+	}
+
+	currKP, ok := s.Tree.KeyPackage(target)
+	if !ok {
+		return fmt.Errorf("mls.state: Attempt to update an empty leaf")
+	}
+
+	if !update.KeyPackage.Credential.Equals(currKP.Credential) {
+		s.NewCredentials[target] = true
 	}
 
 	return s.Tree.UpdateLeaf(target, update.KeyPackage)
@@ -1026,6 +1038,7 @@ func (s State) Clone() *State {
 		Scheme:                  s.Scheme,
 		UpdateKeys:              s.UpdateKeys,
 		PendingProposals:        make([]MLSPlaintext, len(s.PendingProposals)),
+		NewCredentials:          map[LeafIndex]bool{},
 	}
 
 	copy(clone.PendingProposals, s.PendingProposals)
@@ -1099,7 +1112,8 @@ func (s *State) SetSecrets(ss StateSecrets) {
 }
 
 func (s State) GetSecrets() StateSecrets {
-	initPriv, _ := s.KeyPackage().PrivateKey()
+	initKP, _ := s.Tree.KeyPackage(s.Index)
+	initPriv, _ := initKP.PrivateKey()
 
 	return StateSecrets{
 		CipherSuite:      s.CipherSuite,
