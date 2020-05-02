@@ -1,11 +1,110 @@
 package mls
 
 import (
+	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/bifurcation/mint/syntax"
 	"github.com/stretchr/testify/require"
 )
+
+func makeSerialNumber() (*big.Int, error) {
+	serialNumberLimit := big.NewInt(0).Lsh(big.NewInt(1), 128)
+	return rand.Int(rand.Reader, serialNumberLimit)
+}
+
+func makeNBNA() (notBefore time.Time, notAfter time.Time) {
+	backdate := time.Hour
+	lifetime := 24 * time.Hour
+	now := time.Now()
+	notBefore = now.Add(-backdate)
+	notAfter = now.Add(lifetime - backdate)
+	return
+}
+
+func newEd25519(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
+	pub , priv, err := ed25519.GenerateKey(rand.Reader)
+	require.Nil(t, err)
+	return pub, priv
+}
+
+// Handy function to create the leaf cert
+func makeLeafCert(t *testing.T, parent *x509.Certificate,  parentPrivate interface{}) *x509.Certificate{
+	notBefore, notAfter := makeNBNA()
+	sn, err := makeSerialNumber()
+	require.Nil(t, err)
+	certTemplate := &x509.Certificate{
+		SerialNumber: sn,
+		NotBefore: notBefore,
+		NotAfter: notAfter,
+		Subject: pkix.Name{
+			CommonName: "alice@example.com",
+		},
+		BasicConstraintsValid: true,
+		IsCA: false,
+		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageDataEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	_, priv := newEd25519(t)
+	certData, err := x509.CreateCertificate(rand.Reader, certTemplate, parent, priv.Public(), parentPrivate)
+	require.Nil(t, err)
+	cert, err := x509.ParseCertificate(certData)
+	require.Nil(t, err)
+	return cert
+}
+
+func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int) []*x509.Certificate {
+	chain := []*x509.Certificate{}
+
+	notBefore, notAfter := makeNBNA()
+	sn, err := makeSerialNumber()
+	require.Nil(t, err)
+
+	// template for non leaf certs
+	caTemplate := &x509.Certificate{
+		SerialNumber: sn,
+		NotBefore: notBefore,
+		NotAfter: notAfter,
+		BasicConstraintsValid: true,
+		IsCA: true,
+		KeyUsage: x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+	}
+
+	rootCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, rootPriv.Public(), rootPriv)
+	require.Nil(t, err)
+
+	rootCert, err := x509.ParseCertificate(rootCertData)
+	require.Nil(t, err)
+
+	chain = append(chain, rootCert)
+
+	// Add intermediate certs
+	currPriv := rootPriv
+	_, nextPriv := newEd25519(t)
+	for len(chain) < depth {
+		intCertData, err := x509.CreateCertificate(rand.Reader, caTemplate, chain[len(chain)-1], nextPriv.Public(), currPriv)
+		require.Nil(t, err)
+
+		intCert, err := x509.ParseCertificate(intCertData)
+		require.Nil(t, err)
+
+		chain = append(chain, intCert)
+
+		currPriv = nextPriv
+		_, nextPriv = newEd25519(t)
+	}
+
+	leaf := makeLeafCert(t, chain[len(chain)-1], nextPriv)
+	chain = append(chain, leaf)
+	return chain
+}
 
 func TestBasicCredential(t *testing.T) {
 	identity := []byte("res ipsa")
@@ -18,6 +117,23 @@ func TestBasicCredential(t *testing.T) {
 	require.Equal(t, cred.Type(), CredentialTypeBasic)
 	require.Equal(t, cred.Scheme(), scheme)
 	require.Equal(t, *cred.PublicKey(), priv.PublicKey)
+}
+
+func TestX509Credential(t *testing.T) {
+	rootPub, rootPriv := newEd25519(t)
+	sigPriv := SignaturePrivateKey{
+		Data: rootPriv,
+		PublicKey: SignaturePublicKey{
+			Data: rootPub,
+		},
+	}
+	chain := makeCertChain(t, rootPriv, 3)
+	cred := NewX509Credential(chain, &sigPriv)
+	require.NotNil(t, cred)
+	require.True(t, cred.Equals(*cred))
+	require.Equal(t, cred.Type(), CredentialTypeX509)
+	require.Equal(t, cred.Scheme(), Ed25519)
+	require.Equal(t, *cred.PublicKey(), sigPriv.PublicKey)
 }
 
 func TestCredentialErrorCases(t *testing.T) {
