@@ -106,6 +106,27 @@ func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int) []*x509.Cert
 	return chain
 }
 
+func makeX509Credential(t *testing.T, priv *SignaturePrivateKey) (*Credential, []*x509.Certificate) {
+	rootPub, rootPriv := newEd25519(t)
+	sigPriv := SignaturePrivateKey{
+		Data: rootPriv,
+		PublicKey: SignaturePublicKey{
+			Data: rootPub,
+		},
+	}
+
+	// setup cert chain to create x.509 MLS credential
+	chain := makeCertChain(t, rootPriv, 1)
+
+	if priv != nil {
+		// for error flow simulation
+		return NewX509Credential(chain, priv), chain
+	}
+
+	return NewX509Credential(chain, &sigPriv), chain
+}
+
+
 func TestBasicCredential(t *testing.T) {
 	identity := []byte("res ipsa")
 	scheme := Ed25519
@@ -120,20 +141,22 @@ func TestBasicCredential(t *testing.T) {
 }
 
 func TestX509Credential(t *testing.T) {
-	rootPub, rootPriv := newEd25519(t)
-	sigPriv := SignaturePrivateKey{
-		Data: rootPriv,
-		PublicKey: SignaturePublicKey{
-			Data: rootPub,
-		},
-	}
-	chain := makeCertChain(t, rootPriv, 3)
-	cred := NewX509Credential(chain, &sigPriv)
+	cred, chain := makeX509Credential(t, nil)
+
 	require.NotNil(t, cred)
 	require.True(t, cred.Equals(*cred))
 	require.Equal(t, cred.Type(), CredentialTypeX509)
 	require.Equal(t, cred.Scheme(), Ed25519)
-	require.Equal(t, *cred.PublicKey(), sigPriv.PublicKey)
+	require.NotNil(t, cred.PublicKey())
+
+	// chain goes from root -> leaf
+	// trusted goes form leaf -> root
+	trusted := chain[:]
+	for left, right := 0, len(trusted)-1; left < right; left, right = left+1, right-1 {
+		trusted[left], trusted[right] = trusted[right], trusted[left]
+	}
+	require.Nil(t, cred.X509.Verify(trusted))
+
 }
 
 func TestCredentialErrorCases(t *testing.T) {
@@ -145,9 +168,15 @@ func TestCredentialErrorCases(t *testing.T) {
 	require.Panics(t, func() { cred.Scheme() })
 	require.Panics(t, func() { syntax.Marshal(cred) })
 
+	// wrong priv key
+	scheme := Ed25519
+	priv, err := scheme.Generate()
+	require.Nil(t, err)
+	require.Panics(t, func() { makeX509Credential(t, &priv) })
 }
 
 func TestCredentialPrivateKey(t *testing.T) {
+
 	identity := []byte("res ipsa")
 	scheme := Ed25519
 	priv, err := scheme.Generate()
