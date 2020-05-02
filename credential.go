@@ -173,7 +173,7 @@ func (cred X509Credential) Verify(trusted []*x509.Certificate) error {
 
 		// If there is a valid signature from a trusted certificate, the chain is valid
 		parent, ok := pool.parent(curr)
-		if ok && cred.Chain[i].CheckSignatureFrom(parent) == nil {
+		if ok && curr.CheckSignatureFrom(parent) == nil {
 			return nil
 		}
 
@@ -220,9 +220,12 @@ func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePr
 }
 
 func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) *Credential {
-	// TODO verify that priv matches public key in certificate
 	x509Credential := &X509Credential{
 		Chain: chain,
+	}
+
+	if !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
+		panic("Malformed Credential: private key")
 	}
 	return &Credential{X509: x509Credential, privateKey: priv}
 }
