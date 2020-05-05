@@ -120,7 +120,7 @@ func TestBasicCredential(t *testing.T) {
 	require.Nil(t, err)
 
 	cred2 := new(Credential)
-	_, err := syntax.Unmarshal(credData, cred2)
+	_, err = syntax.Unmarshal(credData, cred2)
 	require.Nil(t, err)
 }
 
@@ -137,7 +137,7 @@ func TestX509Credential(t *testing.T) {
 	require.Nil(t, err)
 
 	cred2 := new(Credential)
-	_, err := syntax.Unmarshal(credData, cred2)
+	_, err = syntax.Unmarshal(credData, cred2)
 	require.Nil(t, err)
 }
 
