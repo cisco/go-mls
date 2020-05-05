@@ -20,7 +20,7 @@ const (
 )
 
 func (ct CredentialType) ValidForTLS() error {
-	return validateEnum(ct, CredentialTypeBasic)
+	return validateEnum(ct, CredentialTypeBasic, CredentialTypeX509)
 }
 
 // struct {
@@ -228,7 +228,7 @@ func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*C
 		Chain: chain,
 	}
 
-	if !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
+	if priv != nil && !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
 		return nil, fmt.Errorf("Malformed credential: incorrect private key")
 	}
 

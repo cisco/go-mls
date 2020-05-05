@@ -115,6 +115,13 @@ func TestBasicCredential(t *testing.T) {
 	require.Equal(t, cred.Type(), CredentialTypeBasic)
 	require.Equal(t, cred.Scheme(), scheme)
 	require.Equal(t, *cred.PublicKey(), priv.PublicKey)
+
+	credData, err := syntax.Marshal(cred)
+	require.Nil(t, err)
+
+	cred2 := new(Credential)
+	_, err = syntax.Unmarshal(credData, cred2)
+	require.Nil(t, err)
 }
 
 func TestX509Credential(t *testing.T) {
@@ -125,6 +132,13 @@ func TestX509Credential(t *testing.T) {
 	require.Equal(t, cred.Type(), CredentialTypeX509)
 	require.Equal(t, cred.Scheme(), Ed25519)
 	require.NotNil(t, cred.PublicKey())
+
+	credData, err := syntax.Marshal(cred)
+	require.Nil(t, err)
+
+	cred2 := new(Credential)
+	_, err = syntax.Unmarshal(credData, cred2)
+	require.Nil(t, err)
 }
 
 func TestX509CredentialVerifyByName(t *testing.T) {
