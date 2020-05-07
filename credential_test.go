@@ -95,9 +95,9 @@ func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int, addSKI bool)
 	return sigPriv, rootCert, chain
 }
 
-func makeX509Credential(t *testing.T, addSKI bool) (*Credential, *x509.Certificate) {
+func makeX509Credential(t *testing.T, depth int, addSKI bool) (*Credential, *x509.Certificate) {
 	rootPriv := newEd25519(t)
-	leafPriv, rootCert, chain := makeCertChain(t, rootPriv, 3, addSKI)
+	leafPriv, rootCert, chain := makeCertChain(t, rootPriv, depth, addSKI)
 
 	cred, err := NewX509Credential(chain, leafPriv)
 	require.Nil(t, err)
@@ -125,7 +125,7 @@ func TestBasicCredential(t *testing.T) {
 }
 
 func TestX509Credential(t *testing.T) {
-	cred, _ := makeX509Credential(t, true)
+	cred, _ := makeX509Credential(t, 3, true)
 
 	require.NotNil(t, cred)
 	require.True(t, cred.Equals(*cred))
@@ -141,14 +141,20 @@ func TestX509Credential(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestX509CredentialOne(t *testing.T) {
+	cred, root := makeX509Credential(t, 1, false)
+	trusted := []*x509.Certificate{root}
+	require.Nil(t, cred.X509.Verify(trusted))
+}
+
 func TestX509CredentialVerifyByName(t *testing.T) {
-	cred, root := makeX509Credential(t, false)
+	cred, root := makeX509Credential(t, 3, false)
 	trusted := []*x509.Certificate{root}
 	require.Nil(t, cred.X509.Verify(trusted))
 }
 
 func TestX509CredentialVerifyBySKI(t *testing.T) {
-	cred, root := makeX509Credential(t, true)
+	cred, root := makeX509Credential(t, 3, true)
 	trusted := []*x509.Certificate{root}
 	require.Nil(t, cred.X509.Verify(trusted))
 }

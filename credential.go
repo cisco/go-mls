@@ -186,7 +186,7 @@ func (cred X509Credential) Verify(trusted []*x509.Certificate) error {
 	// If no previous certificate has been signed under a trusted certificate,
 	// then the last certificate in the chain must be signed by a trusted
 	// certificate
-	last := next
+	last := cred.Chain[len(cred.Chain)-1]
 	parent, ok := pool.parent(last)
 	if !ok {
 		return fmt.Errorf("No candidate trust anchor found")
