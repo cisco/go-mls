@@ -219,6 +219,18 @@ func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePr
 	return &Credential{Basic: basicCredential, privateKey: priv}
 }
 
+func NewX509CredentialFromPublicKey(chain []*x509.Certificate) (*Credential, error) {
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("Malformed credential: At least one certificate is required")
+	}
+
+	x509Credential := &X509Credential{
+		Chain: chain,
+	}
+
+	return &Credential{X509: x509Credential, privateKey: nil}, nil
+}
+
 func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*Credential, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("Malformed credential: At least one certificate is required")

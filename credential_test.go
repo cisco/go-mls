@@ -141,6 +141,16 @@ func TestX509Credential(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestX509CredentialFromPublicKey(t *testing.T) {
+	rootPriv := newEd25519(t)
+	_, _, chain := makeCertChain(t, rootPriv, 1, false)
+
+	cred, err := NewX509CredentialFromPublicKey(chain)
+	require.Nil(t, err)
+	require.NotNil(t, cred.PublicKey())
+	require.Nil(t, cred.privateKey)
+}
+
 func TestX509CredentialOne(t *testing.T) {
 	cred, root := makeX509Credential(t, 1, false)
 	trusted := []*x509.Certificate{root}
