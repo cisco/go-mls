@@ -119,10 +119,17 @@ func TestStateTwoPerson(t *testing.T) {
 	// Verify that the two states are equivalent
 	require.True(t, first1.Equals(*second1))
 
-	/// Verify that they can exchange protected messages
+	// Verify that they can exchange protected messages
 	ct, err := first1.Protect(testMessage)
 	require.Nil(t, err)
 	pt, err := second1.Unprotect(ct)
+	require.Nil(t, err)
+	require.Equal(t, pt, testMessage)
+
+	// Verify that they can exchange anonymous messages
+	ct, err = first1.ProtectAnonymous(testMessage)
+	require.Nil(t, err)
+	pt, err = second1.UnprotectAnonymous(ct)
 	require.Nil(t, err)
 	require.Equal(t, pt, testMessage)
 }

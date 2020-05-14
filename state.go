@@ -974,6 +974,33 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 	return pt.Content.Application.Data, nil
 }
 
+func (s *State) ProtectAnonymous(data []byte) (*MLSCiphertext, error) {
+	pt := &MLSPlaintext{
+		GroupID: s.GroupID,
+		Epoch:   s.Epoch,
+		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
+		Content: MLSPlaintextContent{
+			Application: &ApplicationData{
+				Data: data,
+			},
+		},
+	}
+
+	return s.encrypt(pt)
+}
+
+func (s *State) UnprotectAnonymous(ct *MLSCiphertext) ([]byte, error) {
+	pt, err := s.decrypt(ct)
+	if err != nil {
+		return nil, err
+	}
+
+	if pt.Content.Type() != ContentTypeApplication {
+		return nil, fmt.Errorf("unprotect attempted on non-application message")
+	}
+	return pt.Content.Application.Data, nil
+}
+
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
 	s := NewWriteStream()
 	err := s.Write(struct {
