@@ -2,11 +2,13 @@ package mls
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"fmt"
 	"math/rand"
 	"reflect"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 ///
@@ -798,7 +800,7 @@ func applyGuard(nonceIn []byte, reuseGuard [4]byte) []byte {
 	return nonceOut
 }
 
-func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
+func (s *State) encrypt(pt *MLSPlaintext) ([]byte, error) {
 	var generation uint32
 	var keys keyAndNonce
 	switch pt.Content.Type() {
@@ -810,65 +812,93 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 		return nil, fmt.Errorf("mls.state: encrypt unknown content type")
 	}
 
+	// sender data encryption
 	var reuseGuard [4]byte
 	rand.Read(reuseGuard[:])
 
-	stream := NewWriteStream()
-	err := stream.WriteAll(s.Index, generation, reuseGuard)
+	sdStream := NewWriteStream()
+	err := sdStream.WriteAll(s.Index, generation, reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
 	}
+	senderData := sdStream.Data()
 
-	senderData := stream.Data()
 	senderDataNonce := make([]byte, s.CipherSuite.constants().NonceSize)
 	rand.Read(senderDataNonce)
-	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
-	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
-	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
+
+	ctStream := NewWriteStream()
+	err = ctStream.WriteAll(Vec1{s.GroupID}, s.Epoch, pt.Content.Type(), Vec4{pt.AuthenticatedData}, Vec1{senderDataNonce})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: sender data AAD marshal failure %v", err)
+	}
+	sdAAD := ctStream.Data()
+
+	sdAEAD, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
+	sdCT := sdAEAD.Seal(nil, senderDataNonce, senderData, sdAAD)
+
+	err = ctStream.Write(Vec1{sdCT})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: Error writing encrypted sender data %v", err)
+	}
 
 	// content data
-	stream = NewWriteStream()
-	err = stream.Write(pt.Content)
-	if err == nil {
-		err = stream.Write(pt.Signature)
-	}
+	contentStream := NewWriteStream()
+	err = contentStream.WriteAll(pt.Content, pt.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content marshal failure %v", err)
 	}
-	content := stream.Data()
+	content := contentStream.Data()
 
-	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
-		pt.AuthenticatedData, senderDataNonce, sdCt)
+	aad := ctStream.Data()
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
+	contentCT := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
 
-	// set up MLSCipherText
-	ct := &MLSCiphertext{
-		GroupID:             s.GroupID,
-		Epoch:               s.Epoch,
-		ContentType:         pt.Content.Type(),
-		AuthenticatedData:   pt.AuthenticatedData,
-		SenderDataNonce:     senderDataNonce,
-		EncryptedSenderData: sdCt,
-		Ciphertext:          contentCt,
-	}
-
-	return ct, nil
+	err = ctStream.Write(Vec4{contentCT})
+	return ctStream.Data(), err
 }
 
-func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
-	if !bytes.Equal(ct.GroupID, s.GroupID) {
-		return nil, fmt.Errorf("mls.state: ciphertext not from this group")
+func (s *State) decrypt(ct []byte) (*MLSPlaintext, error) {
+	ctStream := NewReadStream(ct)
+
+	// Parse the ciphertext in chunks, storing pointers to relevant AAD parts
+	var groupID Vec1
+	var epoch Epoch
+	var contentType ContentType
+	var authenticatedData Vec4
+	var senderDataNonce Vec1
+	_, err := ctStream.ReadAll(&groupID, &epoch, &contentType, &authenticatedData, &senderDataNonce)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: error unmarshaling ciphertext header")
 	}
 
-	if ct.Epoch != s.Epoch {
+	sdAAD := ct[:ctStream.Position()]
+
+	var encryptedSenderData Vec1
+	_, err = ctStream.Read(&encryptedSenderData)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: error unmarshaling encrypted sender data")
+	}
+
+	contentAAD := ct[:ctStream.Position()]
+
+	var contentCT Vec4
+	_, err = ctStream.Read(&contentCT)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: error unmarshaling encrypted content")
+	}
+
+	// check the groupID and epoch
+	if !bytes.Equal(groupID.Data, s.GroupID) {
+		return nil, fmt.Errorf("mls.state: ciphertext not from this group %x %x", groupID, s.GroupID)
+	}
+
+	if epoch != s.Epoch {
 		return nil, fmt.Errorf("mls.state: ciphertext not from this epoch")
 	}
 
 	// handle sender data
-	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.SenderDataNonce)
 	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
-	sd, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
+	sd, err := sdAead.Open(nil, senderDataNonce.Data, encryptedSenderData.Data, sdAAD)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData decryption failure %v", err)
 	}
@@ -877,14 +907,13 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	var sender LeafIndex
 	var generation uint32
 	var reuseGuard [4]byte
-	stream := NewReadStream(sd)
-	_, err = stream.ReadAll(&sender, &generation, &reuseGuard)
+	sdStream := NewReadStream(sd)
+	_, err = sdStream.ReadAll(&sender, &generation, &reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
 
 	var keys keyAndNonce
-	contentType := ContentType(ct.ContentType)
 	switch contentType {
 	case ContentTypeApplication:
 		keys, err = s.Keys.ApplicationKeys.Get(sender, generation)
@@ -902,39 +931,100 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		return nil, fmt.Errorf("mls.state: unsupported content type")
 	}
 
-	aad := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
-		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
 	aead, _ := s.CipherSuite.newAEAD(keys.Key)
-	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), ct.Ciphertext, aad)
+	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), contentCT.Data, contentAAD)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
 
 	// parse the Content and Signature
-	stream = NewReadStream(content)
-	var mlsContent MLSPlaintextContent
+	contentStream := NewReadStream(content)
+	var innerContent MLSPlaintextContent
 	var signature Signature
-	_, err = stream.Read(&mlsContent)
-	if err == nil {
-		_, err = stream.Read(&signature)
-	}
+	_, err = contentStream.ReadAll(&innerContent, &signature)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content unmarshal failure %v", err)
 	}
-	_, _ = syntax.Unmarshal(content, &mlsContent)
 
 	pt := &MLSPlaintext{
-		GroupID:           s.GroupID,
-		Epoch:             s.Epoch,
+		GroupID:           groupID.Data,
+		Epoch:             epoch,
 		Sender:            Sender{SenderTypeMember, uint32(sender)},
-		AuthenticatedData: ct.AuthenticatedData,
-		Content:           mlsContent,
+		AuthenticatedData: authenticatedData.Data,
+		Content:           innerContent,
 		Signature:         signature,
 	}
 	return pt, nil
 }
 
-func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
+type slimCiphertext struct {
+	GroupID    []byte `tls:"head=1"`
+	Epoch      uint64
+	SenderID   uint32
+	Generation uint32
+	Ciphertext []byte `tls:"none"`
+}
+
+func (s State) ProtectSlim(pt []byte) ([]byte, error) {
+	generation, keys := s.Keys.ApplicationKeys.Next(s.Index)
+
+	stream := NewWriteStream()
+	err := stream.WriteAll(Vec1{s.GroupID}, s.Epoch, s.Index, generation)
+	if err != nil {
+		return nil, err
+	}
+
+	aad := stream.Data()
+	aead, _ := s.CipherSuite.newAEAD(keys.Key)
+	contentCT := aead.Seal(nil, keys.Nonce, pt, aad)
+	stream.Append(contentCT)
+
+	return stream.Data(), nil
+}
+
+func (s State) UnprotectSlim(ct []byte) ([]byte, error) {
+	var groupID Vec1
+	var epoch uint64
+	var sender uint32
+	var generation uint32
+	stream := NewReadStream(ct)
+	read, err := stream.ReadAll(&groupID, &epoch, &sender, &generation)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO check groupID, epoch
+
+	keys, err := s.Keys.ApplicationKeys.Get(LeafIndex(sender), generation)
+	if err != nil {
+		return nil, err
+	}
+
+	aad := ct[:read]
+	aead, _ := s.CipherSuite.newAEAD(keys.Key)
+	return aead.Open(nil, keys.Nonce, ct[read:], aad)
+}
+
+func (s State) ProtectBase(pt []byte) []byte {
+	key := []byte("sixteen byte key")
+	nonce := make([]byte, 12)
+
+	block, _ := aes.NewCipher(key)
+	gcm, _ := cipher.NewGCM(block)
+
+	ct := gcm.Seal(nil, nonce, pt, nil)
+	return append(nonce, ct...)
+}
+
+// Unprotect verifies signature and decrypts the cipher text and returns the plain text while returning error for failures
+func (s State) UnprotectBase(ct []byte) ([]byte, error) {
+	key := []byte("sixteen byte key")
+	block, _ := aes.NewCipher(key)
+	gcm, _ := cipher.NewGCM(block)
+	return gcm.Open(nil, ct[:12], ct[12:], nil)
+}
+
+func (s *State) Protect(data []byte) ([]byte, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -953,7 +1043,7 @@ func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
 	return s.encrypt(pt)
 }
 
-func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
+func (s *State) Unprotect(ct []byte) ([]byte, error) {
 	pt, err := s.decrypt(ct)
 	if err != nil {
 		return nil, err
@@ -974,7 +1064,7 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 	return pt.Content.Application.Data, nil
 }
 
-func (s *State) ProtectAnonymous(data []byte) (*MLSCiphertext, error) {
+func (s *State) ProtectAnonymous(data []byte) ([]byte, error) {
 	pt := &MLSPlaintext{
 		GroupID: s.GroupID,
 		Epoch:   s.Epoch,
@@ -989,7 +1079,7 @@ func (s *State) ProtectAnonymous(data []byte) (*MLSCiphertext, error) {
 	return s.encrypt(pt)
 }
 
-func (s *State) UnprotectAnonymous(ct *MLSCiphertext) ([]byte, error) {
+func (s *State) UnprotectAnonymous(ct []byte) ([]byte, error) {
 	pt, err := s.decrypt(ct)
 	if err != nil {
 		return nil, err
@@ -1004,10 +1094,11 @@ func (s *State) UnprotectAnonymous(ct *MLSCiphertext) ([]byte, error) {
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
 	s := NewWriteStream()
 	err := s.Write(struct {
-		GroupID         []byte `tls:"head=1"`
-		Epoch           Epoch
-		ContentType     ContentType
-		SenderDataNonce []byte `tls:"head=1"`
+		GroupID           []byte `tls:"head=1"`
+		Epoch             Epoch
+		ContentType       ContentType
+		AuthenticatedData []byte `tls:"head=4"`
+		SenderDataNonce   []byte `tls:"head=1"`
 	}{
 		GroupID:         gid,
 		Epoch:           epoch,

@@ -1,6 +1,6 @@
 package mls
 
-import "github.com/bifurcation/mint/syntax"
+import "github.com/cisco/go-tls-syntax"
 
 // TODO(suhasHere): move this file to mint/syntax once it looks good for its purpose
 

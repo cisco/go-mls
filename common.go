@@ -18,3 +18,11 @@ func validateEnum(v interface{}, known ...interface{}) error {
 	}
 	return fmt.Errorf("Unknown enum value: %v", v)
 }
+
+type Vec1 struct {
+	Data []byte `tls:"head=1"`
+}
+
+type Vec4 struct {
+	Data []byte `tls:"head=4"`
+}
