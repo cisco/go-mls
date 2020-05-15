@@ -15,7 +15,7 @@ import (
 	"hash"
 	"math/big"
 
-	"github.com/bifurcation/hpke"
+	"github.com/cisco/go-hpke"
 	"github.com/cisco/go-tls-syntax"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/ed25519"
