@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"reflect"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 ///

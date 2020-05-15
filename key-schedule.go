@@ -3,7 +3,7 @@ package mls
 import (
 	"fmt"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 type keyAndNonce struct {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 )
 
 type NodeType uint8

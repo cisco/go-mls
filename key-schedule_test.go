@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 	"github.com/stretchr/testify/require"
 )
 
