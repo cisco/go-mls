@@ -16,7 +16,7 @@ import (
 	"math/big"
 
 	"github.com/bifurcation/hpke"
-	"github.com/bifurcation/mint/syntax"
+	"github.com/cisco/go-tls-syntax"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/ed25519"
 )
