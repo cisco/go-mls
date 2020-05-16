@@ -147,17 +147,17 @@ func (cs CipherSuite) newDigest() hash.Hash {
 	panic("Unsupported ciphersuite")
 }
 
-func (cs CipherSuite) digest(data []byte) []byte {
+func (cs CipherSuite) Digest(data []byte) []byte {
 	d := cs.newDigest()
 	d.Write(data)
 	return d.Sum(nil)
 }
 
-func (cs CipherSuite) newHMAC(key []byte) hash.Hash {
+func (cs CipherSuite) NewHMAC(key []byte) hash.Hash {
 	return hmac.New(cs.newDigest, key)
 }
 
-func (cs CipherSuite) newAEAD(key []byte) (cipher.AEAD, error) {
+func (cs CipherSuite) NewAEAD(key []byte) (cipher.AEAD, error) {
 	switch cs {
 	case X25519_AES128GCM_SHA256_Ed25519, P256_AES128GCM_SHA256_P256:
 		fallthrough
@@ -176,7 +176,7 @@ func (cs CipherSuite) newAEAD(key []byte) (cipher.AEAD, error) {
 }
 
 func (cs CipherSuite) hkdfExtract(salt, ikm []byte) []byte {
-	mac := cs.newHMAC(salt)
+	mac := cs.NewHMAC(salt)
 	mac.Write(ikm)
 	return mac.Sum(nil)
 }
@@ -186,7 +186,7 @@ func (cs CipherSuite) hkdfExpand(secret, info []byte, size int) []byte {
 	buf := []byte{}
 	counter := byte(1)
 	for len(buf) < size {
-		mac := cs.newHMAC(secret)
+		mac := cs.NewHMAC(secret)
 		mac.Write(last)
 		mac.Write(info)
 		mac.Write([]byte{counter})
@@ -214,7 +214,7 @@ func (cs CipherSuite) hkdfExpandLabel(secret []byte, label string, context []byt
 }
 
 func (cs CipherSuite) deriveSecret(secret []byte, label string, context []byte) []byte {
-	contextHash := cs.digest(context)
+	contextHash := cs.Digest(context)
 	size := cs.Constants().SecretSize
 	return cs.hkdfExpandLabel(secret, label, contextHash, size)
 }

@@ -44,7 +44,7 @@ func TestDigest(t *testing.T) {
 			out = out512
 		}
 
-		d := suite.digest(in)
+		d := suite.Digest(in)
 		require.Equal(t, d, out)
 	}
 }
@@ -107,7 +107,7 @@ func TestEncryptDecrypt(t *testing.T) {
 				key, nonce, aad, pt, ct = key256, nonce256, aad256, pt256, ct256
 			}
 
-			aead, err := suite.newAEAD(key)
+			aead, err := suite.NewAEAD(key)
 			require.Nil(t, err)
 
 			// Test encryption

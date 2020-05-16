@@ -346,6 +346,6 @@ func (kse *keyScheduleEpoch) Next(size LeafCount, pskIn, commitSecret, context [
 
 func (kse *keyScheduleEpoch) Export(label string, context []byte, keyLength int) []byte {
 	exporterBase := kse.Suite.deriveSecret(kse.ExporterSecret, label, kse.GroupContext)
-	hctx := kse.Suite.digest(context)
+	hctx := kse.Suite.Digest(context)
 	return kse.Suite.hkdfExpandLabel(exporterBase, "exporter", hctx, keyLength)
 }
