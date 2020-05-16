@@ -820,7 +820,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	}
 
 	senderData := stream.Data()
-	senderDataNonce := make([]byte, s.CipherSuite.constants().NonceSize)
+	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
 	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)

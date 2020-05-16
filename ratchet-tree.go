@@ -760,7 +760,7 @@ func (t RatchetTree) rootIndex() NodeIndex {
 }
 
 func (t RatchetTree) pathStep(pathSecret []byte) []byte {
-	ps := t.Suite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.Suite.constants().SecretSize)
+	ps := t.Suite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.Suite.Constants().SecretSize)
 	return ps
 }
 

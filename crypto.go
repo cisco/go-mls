@@ -72,7 +72,7 @@ type cipherConstants struct {
 	HPKEAEAD   hpke.AEADID
 }
 
-func (cs CipherSuite) constants() cipherConstants {
+func (cs CipherSuite) Constants() cipherConstants {
 	switch cs {
 	case X25519_AES128GCM_SHA256_Ed25519:
 		return cipherConstants{
@@ -115,7 +115,7 @@ func (cs CipherSuite) constants() cipherConstants {
 	panic("Unsupported ciphersuite")
 }
 
-func (cs CipherSuite) scheme() SignatureScheme {
+func (cs CipherSuite) Scheme() SignatureScheme {
 	switch cs {
 	case X25519_AES128GCM_SHA256_Ed25519:
 		return Ed25519
@@ -215,7 +215,7 @@ func (cs CipherSuite) hkdfExpandLabel(secret []byte, label string, context []byt
 
 func (cs CipherSuite) deriveSecret(secret []byte, label string, context []byte) []byte {
 	contextHash := cs.digest(context)
-	size := cs.constants().SecretSize
+	size := cs.Constants().SecretSize
 	return cs.hkdfExpandLabel(secret, label, contextHash, size)
 }
 
@@ -234,7 +234,7 @@ func (cs CipherSuite) deriveAppSecret(secret []byte, label string, node NodeInde
 }
 
 func (cs CipherSuite) hpke() HPKEInstance {
-	cc := cs.constants()
+	cc := cs.Constants()
 	suite, err := hpke.AssembleCipherSuite(cc.HPKEKEM, cc.HPKEKDF, cc.HPKEAEAD)
 	if err != nil {
 		panic("Unable to construct HPKE ciphersuite")
@@ -285,7 +285,7 @@ func (h HPKEInstance) Generate() (HPKEPrivateKey, error) {
 
 func (h HPKEInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
 	keyPairSecretSize := 0
-	switch h.BaseSuite.constants().HPKEKEM {
+	switch h.BaseSuite.Constants().HPKEKEM {
 	case hpke.DHKEM_X25519:
 		keyPairSecretSize = 32
 	case hpke.DHKEM_P256:
@@ -301,7 +301,7 @@ func (h HPKEInstance) Derive(seed []byte) (HPKEPrivateKey, error) {
 
 	var priv hpke.KEMPrivateKey
 	var err error
-	switch h.BaseSuite.constants().HPKEKEM {
+	switch h.BaseSuite.Constants().HPKEKEM {
 	case hpke.DHKEM_P256, hpke.DHKEM_P521, hpke.DHKEM_X25519:
 		priv, err = h.Suite.KEM.UnmarshalPrivate(keyPairSecret)
 	case hpke.DHKEM_X448:

@@ -46,9 +46,9 @@ func newHashRatchet(suite CipherSuite, node NodeIndex, baseSecret []byte) *hashR
 		NextSecret:     baseSecret,
 		NextGeneration: 0,
 		Cache:          map[uint32]keyAndNonce{},
-		KeySize:        uint32(suite.constants().KeySize),
-		NonceSize:      uint32(suite.constants().NonceSize),
-		SecretSize:     uint32(suite.constants().SecretSize),
+		KeySize:        uint32(suite.Constants().KeySize),
+		NonceSize:      uint32(suite.Constants().NonceSize),
+		SecretSize:     uint32(suite.Constants().SecretSize),
 	}
 }
 
@@ -118,7 +118,7 @@ func (nfbks *noFSBaseKeySource) Suite() CipherSuite {
 }
 
 func (nfbks *noFSBaseKeySource) Get(sender LeafIndex) []byte {
-	secretSize := nfbks.CipherSuite.constants().SecretSize
+	secretSize := nfbks.CipherSuite.Constants().SecretSize
 	return nfbks.CipherSuite.deriveAppSecret(nfbks.RootSecret, "hs-secret", toNodeIndex(sender), 0, secretSize)
 }
 
@@ -147,7 +147,7 @@ type treeBaseKeySource struct {
 func newTreeBaseKeySource(suite CipherSuite, size LeafCount, rootSecret []byte) *treeBaseKeySource {
 	tbks := &treeBaseKeySource{
 		CipherSuite: suite,
-		SecretSize:  uint32(suite.constants().SecretSize),
+		SecretSize:  uint32(suite.Constants().SecretSize),
 		Root:        root(size),
 		Size:        size,
 		Secrets:     map[NodeIndex]Bytes1{},
@@ -249,9 +249,9 @@ func (gks groupKeySource) Erase(sender LeafIndex, generation uint32) {
 ///
 
 func groupInfoKeyAndNonce(suite CipherSuite, epochSecret []byte) keyAndNonce {
-	secretSize := suite.constants().SecretSize
-	keySize := suite.constants().KeySize
-	nonceSize := suite.constants().NonceSize
+	secretSize := suite.Constants().SecretSize
+	keySize := suite.Constants().KeySize
+	nonceSize := suite.Constants().NonceSize
 
 	groupInfoSecret := suite.hkdfExpandLabel(epochSecret, "group info", []byte{}, secretSize)
 	groupInfoKey := suite.hkdfExpandLabel(groupInfoSecret, "key", []byte{}, keySize)
@@ -298,7 +298,7 @@ func newKeyScheduleEpoch(suite CipherSuite, size LeafCount, epochSecret, context
 	confirmationKey := suite.deriveSecret(epochSecret, "confirm", context)
 	initSecret := suite.deriveSecret(epochSecret, "init", context)
 
-	senderDataKey := suite.hkdfExpandLabel(senderDataSecret, "sd key", []byte{}, suite.constants().KeySize)
+	senderDataKey := suite.hkdfExpandLabel(senderDataSecret, "sd key", []byte{}, suite.Constants().KeySize)
 	handshakeBaseKeys := newNoFSBaseKeySource(suite, handshakeSecret)
 	applicationBaseKeys := newTreeBaseKeySource(suite, size, applicationSecret)
 

@@ -174,7 +174,7 @@ func (kp KeyPackage) Verify() bool {
 
 	// Verify the signature
 	scheme := kp.Credential.Scheme()
-	if scheme != kp.CipherSuite.scheme() {
+	if scheme != kp.CipherSuite.Scheme() {
 		return false
 	}
 
@@ -633,7 +633,7 @@ func (gi *GroupInfo) sign(index LeafIndex, priv *SignaturePrivateKey) error {
 		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
 	}
 
-	scheme := kp.CipherSuite.scheme()
+	scheme := kp.CipherSuite.Scheme()
 	pub := kp.Credential.PublicKey()
 	if !pub.Equals(priv.PublicKey) {
 		return fmt.Errorf("mls.groupInfo: Incorrect private key for index")
@@ -663,7 +663,7 @@ func (gi GroupInfo) verify() error {
 		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
 	}
 
-	scheme := kp.CipherSuite.scheme()
+	scheme := kp.CipherSuite.Scheme()
 	pub := kp.Credential.PublicKey()
 
 	// Marshal the contents of the GroupInfo

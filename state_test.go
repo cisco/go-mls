@@ -27,7 +27,7 @@ type StateTest struct {
 func setup(t *testing.T) StateTest {
 	stateTest := StateTest{}
 	stateTest.keyPackages = make([]KeyPackage, groupSize)
-	scheme := suite.scheme()
+	scheme := suite.Scheme()
 
 	for i := 0; i < groupSize; i++ {
 		// cred gen
@@ -291,7 +291,7 @@ func TestStateMulti(t *testing.T) {
 
 func TestStateCipherNegotiation(t *testing.T) {
 	// Alice supports P-256 and X25519
-	scheme := suite.scheme()
+	scheme := suite.Scheme()
 	alicePriv, _ := scheme.Generate()
 	aliceBc := &BasicCredential{
 		Identity:           []byte{0x01, 0x02, 0x03, 0x04},

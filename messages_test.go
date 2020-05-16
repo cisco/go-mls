@@ -170,7 +170,7 @@ func TestMessagesMarshalUnmarshal(t *testing.T) {
 
 func TestKeyPackageExpiry(t *testing.T) {
 	// Prepare a new key package, which should be valid
-	scheme := suite.scheme()
+	scheme := suite.Scheme()
 	priv, err := scheme.Generate()
 	require.Nil(t, err)
 

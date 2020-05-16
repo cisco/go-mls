@@ -28,9 +28,9 @@ func TestTreeBaseKeySource(t *testing.T) {
 // do actual interop testing.  There's not much between here and there.
 func TestKeySchedule(t *testing.T) {
 	suite := P256_AES128GCM_SHA256_P256
-	secretSize := suite.constants().SecretSize
-	keySize := suite.constants().KeySize
-	nonceSize := suite.constants().NonceSize
+	secretSize := suite.Constants().SecretSize
+	keySize := suite.Constants().KeySize
+	nonceSize := suite.Constants().NonceSize
 
 	size1 := LeafCount(5)
 	epochSecret1 := unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
