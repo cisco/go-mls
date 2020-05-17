@@ -174,7 +174,7 @@ func (kp KeyPackage) Verify() bool {
 
 	// Verify the signature
 	scheme := kp.Credential.Scheme()
-	if scheme != kp.CipherSuite.scheme() {
+	if scheme != kp.CipherSuite.Scheme() {
 		return false
 	}
 
@@ -633,7 +633,7 @@ func (gi *GroupInfo) sign(index LeafIndex, priv *SignaturePrivateKey) error {
 		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
 	}
 
-	scheme := kp.CipherSuite.scheme()
+	scheme := kp.CipherSuite.Scheme()
 	pub := kp.Credential.PublicKey()
 	if !pub.Equals(priv.PublicKey) {
 		return fmt.Errorf("mls.groupInfo: Incorrect private key for index")
@@ -663,7 +663,7 @@ func (gi GroupInfo) verify() error {
 		return fmt.Errorf("mls.groupInfo: Attempt to sign from unoccupied leaf")
 	}
 
-	scheme := kp.CipherSuite.scheme()
+	scheme := kp.CipherSuite.Scheme()
 	pub := kp.Credential.PublicKey()
 
 	// Marshal the contents of the GroupInfo
@@ -727,7 +727,7 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 	}
 
 	kn := groupInfoKeyAndNonce(cs, epochSecret)
-	aead, err := cs.newAEAD(kn.Key)
+	aead, err := cs.NewAEAD(kn.Key)
 	if err != nil {
 		panic(fmt.Errorf("mls.welcome: error creating AEAD: %v", err))
 	}
@@ -749,7 +749,7 @@ func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
 		panic(fmt.Errorf("mls.welcome: kp marshal failure %v", err))
 	}
 
-	kpHash := w.CipherSuite.digest(data)
+	kpHash := w.CipherSuite.Digest(data)
 
 	// Encrypt the group init secret to new member's public key
 	gs := GroupSecrets{
@@ -778,7 +778,7 @@ func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
 func (w Welcome) Decrypt(suite CipherSuite, epochSecret []byte) (*GroupInfo, error) {
 	gikn := groupInfoKeyAndNonce(suite, epochSecret)
 
-	aead, err := suite.newAEAD(gikn.Key)
+	aead, err := suite.NewAEAD(gikn.Key)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: error creating AEAD: %v", err)
 	}

@@ -139,7 +139,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: kp %d marshal failure %v", idx, err)
 		}
-		kphash := welcome.CipherSuite.digest(data)
+		kphash := welcome.CipherSuite.Digest(data)
 		// parse the encryptedKeyPackage to find our right kp
 		for _, egs := range welcome.Secrets {
 			found = bytes.Equal(kphash, egs.KeyPackageHash)
@@ -220,7 +220,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
 
 	// confirmation verification
-	hmac := suite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := suite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	localConfirmation := hmac.Sum(nil)
 	if !bytes.Equal(localConfirmation, confirmation) {
@@ -569,7 +569,7 @@ func (s State) proposalID(plaintext MLSPlaintext) ProposalID {
 
 	}
 	return ProposalID{
-		Hash: s.CipherSuite.digest(enc),
+		Hash: s.CipherSuite.Digest(enc),
 	}
 }
 
@@ -639,7 +639,7 @@ func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupC
 
 	// generate the confirmation based on the new keys
 	commit := pt.Content.Commit
-	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	commit.Confirmation.Data = hmac.Sum(nil)
 
@@ -781,7 +781,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 func (s State) verifyConfirmation(confirmation []byte) bool {
 	// confirmation verification
-	hmac := s.CipherSuite.newHMAC(s.Keys.ConfirmationKey)
+	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)
 	if !bytes.Equal(confirm, confirmation) {
@@ -820,10 +820,10 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	}
 
 	senderData := stream.Data()
-	senderDataNonce := make([]byte, s.CipherSuite.constants().NonceSize)
+	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
-	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
+	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
 	// content data
@@ -839,7 +839,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 
 	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
-	aead, _ := s.CipherSuite.newAEAD(keys.Key)
+	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
 	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
 
 	// set up MLSCipherText
@@ -867,7 +867,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 	// handle sender data
 	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.SenderDataNonce)
-	sdAead, _ := s.CipherSuite.newAEAD(s.Keys.SenderDataKey)
+	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sd, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData decryption failure %v", err)
@@ -904,7 +904,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 	aad := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
-	aead, _ := s.CipherSuite.newAEAD(keys.Key)
+	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
 	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), ct.Ciphertext, aad)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)

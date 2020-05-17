@@ -309,7 +309,7 @@ func (n *OptionalNode) ParentHash(suite CipherSuite) ([]byte, error) {
 		return nil, err
 	}
 
-	return suite.digest(data), nil
+	return suite.Digest(data), nil
 }
 
 func (n *OptionalNode) setNodeHash(suite CipherSuite, input interface{}) error {
@@ -318,7 +318,7 @@ func (n *OptionalNode) setNodeHash(suite CipherSuite, input interface{}) error {
 		return err
 	}
 
-	n.Hash = suite.digest(data)
+	n.Hash = suite.Digest(data)
 	return nil
 }
 
@@ -760,7 +760,7 @@ func (t RatchetTree) rootIndex() NodeIndex {
 }
 
 func (t RatchetTree) pathStep(pathSecret []byte) []byte {
-	ps := t.Suite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.Suite.constants().SecretSize)
+	ps := t.Suite.hkdfExpandLabel(pathSecret, "path", []byte{}, t.Suite.Constants().SecretSize)
 	return ps
 }
 

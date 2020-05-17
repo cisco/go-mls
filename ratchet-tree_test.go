@@ -7,7 +7,7 @@ import (
 )
 
 func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *RatchetTree {
-	scheme := suite.scheme()
+	scheme := suite.Scheme()
 
 	keyPackages := make([]*KeyPackage, len(secrets))
 	for i := range keyPackages {
@@ -44,7 +44,7 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Ratc
 func TestRatchetTreeEncapDecap(t *testing.T) {
 	// Create keyPackages
 	groupSize := 5
-	scheme := suite.scheme()
+	scheme := suite.Scheme()
 	sigPrivs := make([]SignaturePrivateKey, groupSize)
 	initPrivs := make([]HPKEPrivateKey, groupSize)
 	keyPackages := make([]*KeyPackage, groupSize)
