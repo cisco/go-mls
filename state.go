@@ -813,7 +813,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var reuseGuard [4]byte
 	rand.Read(reuseGuard[:])
 
-	stream := NewWriteStream()
+	stream := syntax.NewWriteStream()
 	err := stream.WriteAll(s.Index, generation, reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
@@ -827,7 +827,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
 	// content data
-	stream = NewWriteStream()
+	stream = syntax.NewWriteStream()
 	err = stream.Write(pt.Content)
 	if err == nil {
 		err = stream.Write(pt.Signature)
@@ -877,7 +877,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	var sender LeafIndex
 	var generation uint32
 	var reuseGuard [4]byte
-	stream := NewReadStream(sd)
+	stream := syntax.NewReadStream(sd)
 	_, err = stream.ReadAll(&sender, &generation, &reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
@@ -911,7 +911,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	}
 
 	// parse the Content and Signature
-	stream = NewReadStream(content)
+	stream = syntax.NewReadStream(content)
 	var mlsContent MLSPlaintextContent
 	var signature Signature
 	_, err = stream.Read(&mlsContent)
@@ -975,7 +975,7 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 }
 
 func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.Write(struct {
 		GroupID         []byte `tls:"head=1"`
 		Epoch           Epoch
@@ -999,7 +999,7 @@ func contentAAD(gid []byte, epoch Epoch,
 	contentType ContentType, authenticatedData []byte,
 	nonce []byte, encSenderData []byte) []byte {
 
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.Write(struct {
 		GroupID             []byte `tls:"head=1"`
 		Epoch               Epoch
