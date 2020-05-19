@@ -3,7 +3,7 @@ package mls
 import (
 	"testing"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,7 +86,7 @@ func (etc ExtensionTestCase) run(t *testing.T) {
 }
 
 var (
-	expirationExtension ExpirationExtension = 0xA0A0A0A0A0A0A0A0
+	lifetimeExtension = LifetimeExtension{NotBefore: 0, NotAfter: 0xA0A0A0A0A0A0A0A0}
 )
 
 var validExtensionTestCases = map[string]ExtensionTestCase{
@@ -105,11 +105,11 @@ var validExtensionTestCases = map[string]ExtensionTestCase{
 		}},
 		marshaledHex: "0400010002",
 	},
-	"Expiration": {
-		extensionType: ExtensionTypeExpiration,
-		blank:         new(ExpirationExtension),
-		unmarshaled:   &expirationExtension,
-		marshaledHex:  "a0a0a0a0a0a0a0a0",
+	"Lifetime": {
+		extensionType: ExtensionTypeLifetime,
+		blank:         new(LifetimeExtension),
+		unmarshaled:   &lifetimeExtension,
+		marshaledHex:  "0000000000000000a0a0a0a0a0a0a0a0",
 	},
 	"ParentHash": {
 		extensionType: ExtensionTypeParentHash,
