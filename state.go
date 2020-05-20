@@ -208,9 +208,11 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 		return nil, err
 	}
 
-	// implant the provided path secrets in the tree
-	commonAncestor := ancestor(s.Index, signerIndex)
-	_, err = s.Tree.Implant(commonAncestor, groupSecrets.PathSecret)
+	// implant the provided path secrets in the tree, if present
+	if groupSecrets.PathSecret != nil {
+		commonAncestor := ancestor(s.Index, signerIndex)
+		_, err = s.Tree.Implant(commonAncestor, groupSecrets.PathSecret.Data)
+	}
 
 	encGrpCtx, err := syntax.Marshal(s.groupContext())
 	if err != nil {
@@ -220,10 +222,7 @@ func NewJoinedState(kps []KeyPackage, welcome Welcome) (*State, error) {
 	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
 
 	// confirmation verification
-	hmac := suite.NewHMAC(s.Keys.ConfirmationKey)
-	hmac.Write(s.ConfirmedTranscriptHash)
-	localConfirmation := hmac.Sum(nil)
-	if !bytes.Equal(localConfirmation, confirmation) {
+	if !s.verifyConfirmation(confirmation) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 
@@ -353,42 +352,49 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	// reset after commit the proposals
 	next.PendingProposals = nil
 
-	// KEM new entropy to the new group
-	ctx, err := syntax.Marshal(next.groupContext())
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	// KEM new entropy to the new group if needed
+	commitSecret := s.CipherSuite.zero()
+	pathSecrets := map[NodeIndex][]byte{}
+	if commit.PathRequired() {
+		ctx, err := syntax.Marshal(next.groupContext())
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	var leafParentHash, commitSecret []byte
-	path, leafParentHash, commitSecret, err := next.Tree.Encap(s.Index, ctx, leafSecret)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+		var path DirectPath
+		var leafParentHash []byte
+		path, leafParentHash, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	commit.Path = &path
+		commit.Path = &path
 
-	// Update the leaf for this member
-	kp, _ := s.Tree.KeyPackage(s.Index)
-	err = kp.UpdateInitKey()
-	if err != nil {
-		return nil, nil, nil, err
-	}
+		// Update the leaf for this member
+		kp, _ := s.Tree.KeyPackage(s.Index)
+		err = kp.UpdateInitKey()
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	phe := ParentHashExtension{leafParentHash}
-	err = kp.SetExtensions([]ExtensionBody{phe})
-	if err != nil {
-		return nil, nil, nil, err
-	}
+		phe := ParentHashExtension{leafParentHash}
+		err = kp.SetExtensions([]ExtensionBody{phe})
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	err = kp.Sign()
-	if err != nil {
-		return nil, nil, nil, err
-	}
+		err = kp.Sign()
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	commit.Path.KeyPackage = kp
-	err = next.Tree.SetLeaf(s.Index, kp)
-	if err != nil {
-		return nil, nil, nil, err
+		commit.Path.KeyPackage = kp
+		err = next.Tree.SetLeaf(s.Index, kp)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		pathSecrets = next.Tree.PathSecrets(toNodeIndex(next.Index), leafSecret)
 	}
 
 	// Create the Commit message and advance the transcripts / key schedule
@@ -412,7 +418,6 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	welcome := newWelcome(s.CipherSuite, next.Keys.EpochSecret, gi)
-	pathSecrets := next.Tree.PathSecrets(toNodeIndex(next.Index), leafSecret)
 	for _, kp := range joiners {
 		leaf, ok := next.Tree.Find(kp)
 		if !ok {
@@ -420,11 +425,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 
 		commonAncestor := ancestor(leaf, next.Index)
-		pathSecret, ok := pathSecrets[commonAncestor]
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
-		}
-
+		pathSecret := pathSecrets[commonAncestor]
 		welcome.EncryptTo(kp, pathSecret)
 	}
 
@@ -728,26 +729,29 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	next.PendingProposals = next.PendingProposals[:0]
 
-	// apply the direct path
-	ctx, err := syntax.Marshal(GroupContext{
-		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch,
-		TreeHash:                next.Tree.RootHash(),
-		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
-	}
+	// apply the direct path, if provided
+	commitSecret := s.CipherSuite.zero()
+	if commitData.Commit.Path != nil {
+		ctx, err := syntax.Marshal(GroupContext{
+			GroupID:                 next.GroupID,
+			Epoch:                   next.Epoch,
+			TreeHash:                next.Tree.RootHash(),
+			ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mls.state: failure to create context %v", err)
+		}
 
-	commitSecret, err := next.Tree.Decap(senderIndex, ctx, *commitData.Commit.Path)
-	if err != nil {
-		return nil, err
-	}
+		commitSecret, err = next.Tree.Decap(senderIndex, ctx, *commitData.Commit.Path)
+		if err != nil {
+			return nil, err
+		}
 
-	// Apply the update in the commit
-	err = next.Tree.SetLeaf(senderIndex, commitData.Commit.Path.KeyPackage)
-	if err != nil {
-		return nil, err
+		// Apply the update in the commit
+		err = next.Tree.SetLeaf(senderIndex, commitData.Commit.Path.KeyPackage)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Update the confirmed transcript hash
@@ -782,7 +786,6 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 ///// protect/unprotect and helpers
 
 func (s State) verifyConfirmation(confirmation []byte) bool {
-	// confirmation verification
 	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)

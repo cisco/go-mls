@@ -803,8 +803,8 @@ func (t *RatchetTree) setHashPath(index LeafIndex) ([]byte, error) {
 	n := toNodeIndex(index)
 	dp := dirpath(n, t.Size())
 	if len(dp) == 0 {
-		// Nothing to do if we have a zero- or one-member tree
-		return nil, nil
+		// If there's only one member, just set its hash
+		return nil, t.setHash(n)
 	}
 
 	// Set parent hashes down the tree
