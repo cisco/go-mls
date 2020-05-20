@@ -360,10 +360,12 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	}
 
 	var leafParentHash, commitSecret []byte
-	commit.Path, leafParentHash, commitSecret, err = next.Tree.Encap(s.Index, ctx, leafSecret)
+	path, leafParentHash, commitSecret, err := next.Tree.Encap(s.Index, ctx, leafSecret)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	commit.Path = &path
 
 	// Update the leaf for this member
 	kp, _ := s.Tree.KeyPackage(s.Index)
@@ -383,7 +385,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, err
 	}
 
-	commit.KeyPackage = kp
+	commit.Path.KeyPackage = kp
 	err = next.Tree.SetLeaf(s.Index, kp)
 	if err != nil {
 		return nil, nil, nil, err
@@ -737,13 +739,13 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	commitSecret, err := next.Tree.Decap(senderIndex, ctx, commitData.Commit.Path)
+	commitSecret, err := next.Tree.Decap(senderIndex, ctx, *commitData.Commit.Path)
 	if err != nil {
 		return nil, err
 	}
 
 	// Apply the update in the commit
-	err = next.Tree.SetLeaf(senderIndex, commitData.Commit.KeyPackage)
+	err = next.Tree.SetLeaf(senderIndex, commitData.Commit.Path.KeyPackage)
 	if err != nil {
 		return nil, err
 	}

@@ -348,7 +348,8 @@ type DirectPathNode struct {
 }
 
 type DirectPath struct {
-	Nodes []DirectPathNode `tls:"head=2"`
+	KeyPackage KeyPackage
+	Nodes      []DirectPathNode `tls:"head=2"`
 }
 
 func (p *DirectPath) addNode(n DirectPathNode) {
@@ -360,8 +361,7 @@ type Commit struct {
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
 
-	KeyPackage KeyPackage
-	Path       DirectPath
+	Path *DirectPath `tls:"optional"`
 }
 
 ///

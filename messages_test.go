@@ -85,11 +85,10 @@ var (
 	}
 
 	commit = &Commit{
-		Updates:    []ProposalID{{Hash: []byte{0x00, 0x01}}},
-		Removes:    []ProposalID{{Hash: []byte{0x02, 0x03}}},
-		Adds:       []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		KeyPackage: *keyPackage,
-		Path:       DirectPath{Nodes: nodes},
+		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
+		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
+		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
+		Path:    &DirectPath{KeyPackage: *keyPackage, Nodes: nodes},
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
@@ -367,6 +366,8 @@ func generateMessageVectors(t *testing.T) []byte {
 			Signature:   Signature{tv.Random},
 		}
 
+		dp.KeyPackage = kp
+
 		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
 
@@ -473,11 +474,10 @@ func generateMessageVectors(t *testing.T) []byte {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates:    proposal,
-			Removes:    proposal,
-			Adds:       proposal,
-			KeyPackage: kp,
-			Path:       dp,
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Path:    &dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -559,6 +559,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Extensions:  NewExtensionList(),
 			Signature:   Signature{tv.Random},
 		}
+
+		dp.KeyPackage = kp
+
 		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
 		require.Equal(t, kpM, tc.KeyPackage)
@@ -666,19 +669,21 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates:    proposal,
-			Removes:    proposal,
-			Adds:       proposal,
-			KeyPackage: kp,
-			Path:       dp,
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Path:    &dp,
 		}
+
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		require.Nil(t, err)
 		require.Equal(t, commit.Adds, commitWire.Adds)
 		require.Equal(t, commit.Removes, commitWire.Removes)
 		require.Equal(t, commit.Updates, commitWire.Updates)
-		require.Equal(t, commit.KeyPackage, commitWire.KeyPackage)
+		require.Nil(t, commit.Path.KeyPackage.privateKey)
+		require.Nil(t, commitWire.Path.KeyPackage.privateKey)
+		require.Equal(t, commit.Path.KeyPackage, commitWire.Path.KeyPackage)
 		// Path not verified because HPKE is randomized
 
 		//MlsCiphertext
