@@ -221,7 +221,7 @@ func TestAncestor(t *testing.T) {
 				t.Fatalf("Incorrect ancestor: %d %d => %d != %d", l, r, lr, answer)
 			}
 
-			if lr != answer {
+			if rl != answer {
 				t.Fatalf("Asymmetric ancestor: %d %d => %d != %d", l, r, rl, lr)
 			}
 		}
@@ -232,6 +232,10 @@ func TestAncestor(t *testing.T) {
 /// Test Vectors
 ///
 
+type Nodes struct {
+	Data []NodeIndex `tls:"head=4"`
+}
+
 type TreeMathTestVectors struct {
 	NumLeaves LeafCount
 	Root      []NodeIndex `tls:"head=4"`
@@ -239,6 +243,9 @@ type TreeMathTestVectors struct {
 	Right     []NodeIndex `tls:"head=4"`
 	Parent    []NodeIndex `tls:"head=4"`
 	Sibling   []NodeIndex `tls:"head=4"`
+	DirPath   []Nodes     `tls:"head=4"`
+	CoPath    []Nodes     `tls:"head=4"`
+	Ancestor  []Nodes     `tls:"head=4"`
 }
 
 func generateTreeMathVectors(t *testing.T) []byte {
@@ -251,6 +258,9 @@ func generateTreeMathVectors(t *testing.T) []byte {
 		Right:     make([]NodeIndex, numNodes),
 		Parent:    make([]NodeIndex, numNodes),
 		Sibling:   make([]NodeIndex, numNodes),
+		DirPath:   make([]Nodes, numNodes),
+		CoPath:    make([]Nodes, numNodes),
+		Ancestor:  make([]Nodes, numNodes),
 	}
 
 	for i := range tv.Root {
@@ -262,6 +272,18 @@ func generateTreeMathVectors(t *testing.T) []byte {
 		tv.Right[i] = right(NodeIndex(i), numLeaves)
 		tv.Parent[i] = parent(NodeIndex(i), numLeaves)
 		tv.Sibling[i] = sibling(NodeIndex(i), numLeaves)
+		tv.DirPath[i] = Nodes{Data: dirpath(NodeIndex(i), numLeaves)}
+		tv.CoPath[i] = Nodes{Data: copath(NodeIndex(i), numLeaves)}
+	}
+
+	// ancestor
+	for l := LeafIndex(0); l < LeafIndex(numLeaves-1); l += 1 {
+		a := []NodeIndex{}
+		for r := l + 1; r < LeafIndex(numLeaves); r += 1 {
+			lr := ancestor(l, r)
+			a = append(a, lr)
+		}
+		tv.Ancestor[l].Data = a
 	}
 
 	vec, err := syntax.Marshal(tv)
@@ -276,7 +298,8 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 
 	tvLen := int(nodeWidth(tv.NumLeaves))
 	if len(tv.Root) != int(tv.NumLeaves) || len(tv.Left) != tvLen ||
-		len(tv.Right) != tvLen || len(tv.Parent) != tvLen || len(tv.Sibling) != tvLen {
+		len(tv.Right) != tvLen || len(tv.Parent) != tvLen || len(tv.Sibling) != tvLen ||
+		len(tv.DirPath) != tvLen || len(tv.CoPath) != tvLen {
 		t.Fatalf("Malformed tree math test vectors: Incorrect vector sizes")
 	}
 
@@ -289,7 +312,20 @@ func verifyTreeMathVectors(t *testing.T, data []byte) {
 		require.Equal(t, tv.Right[i], right(NodeIndex(i), tv.NumLeaves))
 		require.Equal(t, tv.Parent[i], parent(NodeIndex(i), tv.NumLeaves))
 		require.Equal(t, tv.Sibling[i], sibling(NodeIndex(i), tv.NumLeaves))
+		require.Equal(t, tv.DirPath[i].Data, dirpath(NodeIndex(i), tv.NumLeaves))
+		require.Equal(t, tv.CoPath[i].Data, copath(NodeIndex(i), tv.NumLeaves))
 	}
+
+	// ancestor
+	for l := LeafIndex(0); l < LeafIndex(tv.NumLeaves-1); l += 1 {
+		a := []NodeIndex{}
+		for r := l + 1; r < LeafIndex(tv.NumLeaves); r += 1 {
+			lr := ancestor(l, r)
+			a = append(a, lr)
+		}
+		require.Equal(t, tv.Ancestor[l].Data, a)
+	}
+
 }
 
 func TestTreeMathErrorCases(t *testing.T) {
