@@ -130,10 +130,9 @@ func (kp *KeyPackage) SetExtensions(exts []ExtensionBody) error {
 	return nil
 }
 
-func (kp *KeyPackage) Sign() error {
-	priv := kp.Credential.privateKey
-	if priv == nil {
-		return fmt.Errorf("No private key available for signing")
+func (kp *KeyPackage) Sign(priv SignaturePrivateKey) error {
+	if !priv.PublicKey.Equals(*kp.Credential.PublicKey()) {
+		return fmt.Errorf("Public key mismatch")
 	}
 
 	tbs, err := kp.toBeSigned()
@@ -141,7 +140,7 @@ func (kp *KeyPackage) Sign() error {
 		return err
 	}
 
-	sig, err := kp.Credential.Scheme().Sign(priv, tbs)
+	sig, err := kp.Credential.Scheme().Sign(&priv, tbs)
 	if err != nil {
 		return err
 	}
@@ -222,7 +221,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *C
 	}
 
 	// Sign
-	err = kp.Sign()
+	err = kp.Sign(*cred.privateKey)
 	if err != nil {
 		return nil, err
 	}

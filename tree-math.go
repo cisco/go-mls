@@ -184,6 +184,21 @@ func inPath(x, y NodeIndex) bool {
 	return lx <= ly && x>>(ly+1) == y>>(ly+1)
 }
 
+func ancestorIndex(x, y LeafIndex, n LeafCount) (NodeIndex, int) {
+	if x == y {
+		panic("Invalid ancestorIndex call")
+	}
+
+	nx, ny := toNodeIndex(x), toNodeIndex(y)
+	for i, p := range dirpath(ny, n) {
+		if inPath(nx, p) {
+			return p, i
+		}
+	}
+
+	return 0, 0
+}
+
 func fullAncestor(l, r NodeIndex) NodeIndex {
 	ll, lr := level(l)+1, level(r)+1
 	if ll <= lr && l>>lr == r>>lr {

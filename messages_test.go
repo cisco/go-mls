@@ -186,7 +186,7 @@ func TestKeyPackageExpiry(t *testing.T) {
 	alreadyExpired := ExpirationExtension(time.Now().Add(-24 * time.Hour).Unix())
 	err = kp.SetExtensions([]ExtensionBody{alreadyExpired})
 	require.Nil(t, err)
-	err = kp.Sign()
+	err = kp.Sign(priv)
 	require.Nil(t, err)
 
 	ver = kp.Verify()
@@ -247,11 +247,6 @@ func TestKeyPackageErrorCases(t *testing.T) {
 	priv, ok := kp.PrivateKey()
 	require.False(t, ok)
 	require.Empty(t, priv)
-
-	// sign a kp with nil private key
-	err = kp.Sign()
-	require.NotNil(t, err)
-
 }
 
 func TestProposalErrorCases(t *testing.T) {

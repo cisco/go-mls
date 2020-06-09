@@ -253,6 +253,15 @@ func newLeafNode(keyPkg KeyPackage) OptionalNode {
 	return OptionalNode{Node: &Node{Leaf: &keyPkg}}
 }
 
+func newParentNodeFromPublicKey(pub HPKEPublicKey) OptionalNode {
+	parentNode := &ParentNode{
+		PublicKey:      pub,
+		UnmergedLeaves: []LeafIndex{},
+		ParentHash:     []byte{},
+	}
+	return OptionalNode{Node: &Node{Parent: parentNode}}
+}
+
 func newParentNode(suite CipherSuite, pathSecret []byte) (OptionalNode, error) {
 	parent := ParentNode{
 		UnmergedLeaves: []LeafIndex{},

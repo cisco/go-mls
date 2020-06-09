@@ -152,7 +152,7 @@ func TestStateExtensions(t *testing.T) {
 	// Check that NewEmptyStateWithExtensions succeeds with exetnsion support
 	err = kpA.SetExtensions(clientExtensions)
 	require.Nil(t, err)
-	err = kpA.Sign()
+	err = kpA.Sign(stateTest.identityPrivs[0])
 	require.Nil(t, err)
 
 	alice0, err := NewEmptyStateWithExtensions(groupID, kpA, groupExtensions)
@@ -167,7 +167,7 @@ func TestStateExtensions(t *testing.T) {
 	// Check that Add succeeds with extension support
 	err = kpB.SetExtensions(clientExtensions)
 	require.Nil(t, err)
-	err = kpB.Sign()
+	err = kpB.Sign(stateTest.identityPrivs[1])
 	require.Nil(t, err)
 
 	_, err = alice0.Add(kpB)

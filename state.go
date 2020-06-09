@@ -378,7 +378,7 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		return nil, nil, nil, err
 	}
 
-	err = kp.Sign()
+	err = kp.Sign(s.IdentityPriv)
 	if err != nil {
 		return nil, nil, nil, err
 	}
