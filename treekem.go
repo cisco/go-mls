@@ -1,6 +1,7 @@
 package mls
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/cisco/go-tls-syntax"
@@ -24,9 +25,9 @@ func (path TreeKEMPath) ParentHashes(suite CipherSuite) ([][]byte, error) {
 
 	var err error
 	var lastHash []byte
-	for i := len(path.Steps) - 1; i > 0; i-- {
+	for i := len(path.Steps) - 1; i >= 0; i-- {
 		parentNode := ParentNode{
-			PublicKey:  path.Steps[i+1].PublicKey,
+			PublicKey:  path.Steps[i].PublicKey,
 			ParentHash: lastHash,
 		}
 
@@ -35,15 +36,42 @@ func (path TreeKEMPath) ParentHashes(suite CipherSuite) ([][]byte, error) {
 			return nil, err
 		}
 
-		ph[i] = dup(lastHash)
+		ph[i] = suite.Digest(lastHash)
 	}
 
 	return ph, nil
 }
 
+func (path TreeKEMPath) ParentHashValid(suite CipherSuite) error {
+	leafParentHash := []byte{}
+	if len(path.Steps) > 0 {
+		ph, err := path.ParentHashes(suite)
+		if err != nil {
+			return err
+		}
+
+		leafParentHash = ph[0]
+	}
+
+	phe := ParentHashExtension{}
+	found, err := path.LeafKeyPackage.Extensions.Find(&phe)
+	switch {
+	case err != nil:
+		return err
+
+	case !found:
+		return fmt.Errorf("No ParentHash extension")
+
+	case !bytes.Equal(leafParentHash, phe.ParentHash):
+		return fmt.Errorf("Incorrect parent hash")
+	}
+
+	return nil
+}
+
 func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv SignaturePrivateKey, opts *KeyPackageOpts) error {
 	// Compute parent hashes down the tree from the root
-	leafParentHash := []byte(nil)
+	leafParentHash := []byte{}
 	if len(path.Steps) > 0 {
 		ph, err := path.ParentHashes(suite)
 		if err != nil {
@@ -71,77 +99,77 @@ func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv 
 ////////////////////////////////////////////////////////////
 
 type TreeKEMPrivateKey struct {
-	Suite       CipherSuite
-	Index       LeafIndex
-	PathSecrets map[NodeIndex][]byte
-	PrivateKeys map[NodeIndex]HPKEPrivateKey
+	Suite           CipherSuite
+	Index           LeafIndex
+	UpdateSecret    []byte
+	PathSecrets     map[NodeIndex][]byte
+	privateKeyCache map[NodeIndex]HPKEPrivateKey
 }
 
-func NewTreeKEMPrivateKeyForJoiner(suite CipherSuite, index LeafIndex, size LeafCount, leafSecret []byte, intersect NodeIndex, pathSecret []byte) (*TreeKEMPrivateKey, error) {
+func NewTreeKEMPrivateKeyForJoiner(suite CipherSuite, index LeafIndex, size LeafCount, leafSecret []byte, intersect NodeIndex, pathSecret []byte) *TreeKEMPrivateKey {
 	priv := &TreeKEMPrivateKey{
-		Suite:       suite,
-		Index:       index,
-		PathSecrets: map[NodeIndex][]byte{},
-		PrivateKeys: map[NodeIndex]HPKEPrivateKey{},
+		Suite:           suite,
+		Index:           index,
+		PathSecrets:     map[NodeIndex][]byte{},
+		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
-	var err error
-	ni := toNodeIndex(index)
-	priv.PathSecrets[ni] = dup(pathSecret)
-	priv.PrivateKeys[ni], err = priv.Suite.hpke().Derive(leafSecret)
-	if err != nil {
-		return nil, err
-	}
-
-	err = priv.setPathSecrets(intersect, size, pathSecret)
-	if err != nil {
-		return nil, err
-	}
-
-	return priv, nil
+	priv.PathSecrets[toNodeIndex(index)] = dup(leafSecret)
+	priv.setPathSecrets(intersect, size, pathSecret)
+	return priv
 }
 
-func NewTreeKEMPrivateKey(suite CipherSuite, size LeafCount, index LeafIndex, leafSecret []byte) (*TreeKEMPrivateKey, error) {
+func NewTreeKEMPrivateKey(suite CipherSuite, size LeafCount, index LeafIndex, leafSecret []byte) *TreeKEMPrivateKey {
 	priv := &TreeKEMPrivateKey{
-		Suite:       suite,
-		Index:       index,
-		PathSecrets: map[NodeIndex][]byte{},
-		PrivateKeys: map[NodeIndex]HPKEPrivateKey{},
+		Suite:           suite,
+		Index:           index,
+		PathSecrets:     map[NodeIndex][]byte{},
+		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
-	err := priv.setPathSecrets(toNodeIndex(index), size, leafSecret)
-	if err != nil {
-		return nil, err
-	}
-
-	return priv, nil
+	priv.setPathSecrets(toNodeIndex(index), size, leafSecret)
+	return priv
 }
 
 func (priv TreeKEMPrivateKey) pathStep(pathSecret []byte) []byte {
 	return priv.Suite.hkdfExpandLabel(pathSecret, "path", []byte{}, priv.Suite.Constants().SecretSize)
 }
 
-func (priv *TreeKEMPrivateKey) setPathSecrets(start NodeIndex, size LeafCount, secret []byte) error {
+func (priv *TreeKEMPrivateKey) setPathSecrets(start NodeIndex, size LeafCount, secret []byte) {
 	r := root(size)
 	pathSecret := secret
-	var err error
 	for n := start; n != r; n = parent(n, size) {
 		priv.PathSecrets[n] = dup(pathSecret)
-		priv.PrivateKeys[n], err = priv.Suite.hpke().Derive(pathSecret)
-		if err != nil {
-			return err
-		}
-
+		delete(priv.privateKeyCache, n)
 		pathSecret = priv.pathStep(pathSecret)
 	}
 
 	priv.PathSecrets[r] = dup(pathSecret)
-	priv.PrivateKeys[r], err = priv.Suite.hpke().Derive(pathSecret)
+	delete(priv.privateKeyCache, r)
 
-	return nil
+	priv.UpdateSecret = priv.pathStep(pathSecret)
 }
 
-func (priv TreeKEMPrivateKey) PathSecret(to LeafIndex) (NodeIndex, []byte, error) {
+func (priv TreeKEMPrivateKey) privateKey(n NodeIndex) (HPKEPrivateKey, error) {
+	if key, ok := priv.privateKeyCache[n]; ok {
+		return key, nil
+	}
+
+	secret, ok := priv.PathSecrets[n]
+	if !ok {
+		return HPKEPrivateKey{}, fmt.Errorf("Private key not found")
+	}
+
+	key, err := priv.Suite.hpke().Derive(secret)
+	if err != nil {
+		return HPKEPrivateKey{}, err
+	}
+
+	priv.privateKeyCache[n] = key
+	return key, nil
+}
+
+func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte, error) {
 	n := ancestor(priv.Index, to)
 	secret, ok := priv.PathSecrets[n]
 	if !ok {
@@ -151,69 +179,110 @@ func (priv TreeKEMPrivateKey) PathSecret(to LeafIndex) (NodeIndex, []byte, error
 	return n, secret, nil
 }
 
-func (priv TreeKEMPrivateKey) Decap(from LeafIndex, size LeafCount, context []byte, path TreeKEMPath) (*TreeKEMPrivateKey, error) {
+func (priv *TreeKEMPrivateKey) Decap(from LeafIndex, size LeafCount, context []byte, path TreeKEMPath) error {
 	// Decrypt a path secret
 	ancestor, iPath := ancestorIndex(priv.Index, from, size)
 
-	var err error
 	var pathSecret []byte
 	for n, ct := range path.Steps[iPath].EncryptedPathSecrets {
-		if nodePriv, ok := priv.PrivateKeys[n]; ok {
+		if _, ok := priv.PathSecrets[n]; ok {
+			nodePriv, err := priv.privateKey(n)
+			if err != nil {
+				return err
+			}
+
 			pathSecret, err = priv.Suite.hpke().Decrypt(nodePriv, context, ct)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 
 	if pathSecret == nil {
-		return nil, fmt.Errorf("Unable to decrypt path secret")
-	}
-
-	// Clone and hash toward the root
-	out := &TreeKEMPrivateKey{
-		Suite:       priv.Suite,
-		Index:       priv.Index,
-		PathSecrets: map[NodeIndex][]byte{},
-		PrivateKeys: map[NodeIndex]HPKEPrivateKey{},
-	}
-
-	err = out.setPathSecrets(ancestor, size, pathSecret)
-	if err != nil {
-		return nil, err
+		return fmt.Errorf("Unable to decrypt path secret")
 	}
 
 	// TODO Check the accuracy of the public keys in the path
 
-	// Copy in the private values not overwritten
-	for n := range priv.PathSecrets {
-		if _, ok := out.PathSecrets[n]; ok {
-			continue
-		}
+	// Hash toward the root
+	priv.setPathSecrets(ancestor, size, pathSecret)
+	return nil
+}
 
-		out.PathSecrets[n] = priv.PathSecrets[n]
-		out.PrivateKeys[n] = priv.PrivateKeys[n]
+func (priv TreeKEMPrivateKey) Clone() TreeKEMPrivateKey {
+	out := TreeKEMPrivateKey{
+		Suite:           priv.Suite,
+		Index:           priv.Index,
+		PathSecrets:     map[NodeIndex][]byte{},
+		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
-	return out, nil
+	for n := range priv.PathSecrets {
+		out.PathSecrets[n] = priv.PathSecrets[n]
+	}
+
+	for n := range priv.privateKeyCache {
+		out.privateKeyCache[n] = priv.privateKeyCache[n]
+	}
+
+	return out
 }
 
 func (priv TreeKEMPrivateKey) dump(label string) {
 	fmt.Printf("=== %s ===\n", label)
 	fmt.Printf("suite=[%d] index=[%d]\n", priv.Suite, priv.Index)
-	for n, nodePriv := range priv.PrivateKeys {
+	fmt.Printf("update=[%x]\n", priv.UpdateSecret)
+	for n := range priv.PathSecrets {
+		nodePriv, err := priv.privateKey(n)
+		if err != nil {
+			panic(err)
+		}
+
+		secret := priv.PathSecrets[n]
 		pub := nodePriv.PublicKey.Data[:4]
-		fmt.Printf("  [%d] %x...\n", n, pub)
+		fmt.Printf("  [%d] secret=%x... pub=%x...\n", n, secret, pub)
 	}
 }
 
-func (priv TreeKEMPrivateKey) Consistent(pub TreeKEMPublicKey) bool {
-	if priv.Suite != pub.Suite {
-		fmt.Printf("Different suites %d %d \n", priv.Suite, pub.Suite)
+func (priv TreeKEMPrivateKey) Consistent(other TreeKEMPrivateKey) bool {
+	if priv.Suite != other.Suite {
 		return false
 	}
 
-	for n, nodePriv := range priv.PrivateKeys {
+	if !bytes.Equal(priv.UpdateSecret, other.UpdateSecret) {
+		return false
+	}
+
+	overlap := map[NodeIndex]bool{}
+	for n := range priv.PathSecrets {
+		if _, ok := other.PathSecrets[n]; ok {
+			overlap[n] = true
+		}
+	}
+	if len(overlap) == 0 {
+		return false
+	}
+
+	for n := range overlap {
+		if !bytes.Equal(priv.PathSecrets[n], other.PathSecrets[n]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (priv TreeKEMPrivateKey) ConsistentPub(pub TreeKEMPublicKey) bool {
+	if priv.Suite != pub.Suite {
+		return false
+	}
+
+	for n := range priv.PathSecrets {
+		nodePriv, err := priv.privateKey(n)
+		if err != nil {
+			return false
+		}
+
 		if pub.Nodes[n].Blank() {
 			return false
 		}
@@ -222,7 +291,6 @@ func (priv TreeKEMPrivateKey) Consistent(pub TreeKEMPublicKey) bool {
 		rhs := pub.Nodes[n].Node.PublicKey()
 
 		if pub.Nodes[n].Blank() || !lhs.Equals(rhs) {
-			fmt.Printf("difference at node %d %x %x\n", n, lhs.Data, rhs.Data)
 			return false
 		}
 	}
@@ -298,11 +366,8 @@ type KeyPackageOpts struct {
 }
 
 func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, leafSigPriv SignaturePrivateKey, opts *KeyPackageOpts) (*TreeKEMPrivateKey, *TreeKEMPath, error) {
-	// Generate path secrets and private keys
-	priv, err := NewTreeKEMPrivateKey(pub.Suite, pub.Size(), from, leafSecret)
-	if err != nil {
-		return nil, nil, err
-	}
+	// Generate path secrets
+	priv := NewTreeKEMPrivateKey(pub.Suite, pub.Size(), from, leafSecret)
 
 	// Package into a TreeKEMPath
 	dp := dirpath(toNodeIndex(from), pub.Size())
@@ -311,12 +376,18 @@ func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, le
 		Steps:          make([]TreeKEMPathStep, len(dp)),
 	}
 	for i, n := range dp {
+		nodePriv, err := priv.privateKey(n)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		path.Steps[i] = TreeKEMPathStep{
-			PublicKey:            priv.PrivateKeys[n].PublicKey,
+			PublicKey:            nodePriv.PublicKey,
 			EncryptedPathSecrets: map[NodeIndex]HPKECiphertext{},
 		}
 
 		pathSecret := priv.PathSecrets[n]
+
 		for _, nr := range pub.resolve(n) {
 			nodePub := pub.Nodes[nr].Node.PublicKey()
 			path.Steps[i].EncryptedPathSecrets[nr], err = pub.Suite.hpke().Encrypt(nodePub, context, pathSecret)
@@ -327,8 +398,12 @@ func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, le
 	}
 
 	// Sign the TreeKEMPath
-	leafInitPub := priv.PrivateKeys[toNodeIndex(from)].PublicKey
-	err = path.Sign(pub.Suite, leafInitPub, leafSigPriv, opts)
+	leafPriv, err := priv.privateKey(toNodeIndex(from))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = path.Sign(pub.Suite, leafPriv.PublicKey, leafSigPriv, opts)
 	if err != nil {
 		return nil, nil, err
 	}
