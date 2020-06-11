@@ -232,20 +232,20 @@ func TestAncestor(t *testing.T) {
 /// Test Vectors
 ///
 
-type Nodes struct {
+type NodeIndexSlice struct {
 	Data []NodeIndex `tls:"head=4"`
 }
 
 type TreeMathTestVectors struct {
 	NumLeaves LeafCount
-	Root      []NodeIndex `tls:"head=4"`
-	Left      []NodeIndex `tls:"head=4"`
-	Right     []NodeIndex `tls:"head=4"`
-	Parent    []NodeIndex `tls:"head=4"`
-	Sibling   []NodeIndex `tls:"head=4"`
-	DirPath   []Nodes     `tls:"head=4"`
-	CoPath    []Nodes     `tls:"head=4"`
-	Ancestor  []Nodes     `tls:"head=4"`
+	Root      []NodeIndex      `tls:"head=4"`
+	Left      []NodeIndex      `tls:"head=4"`
+	Right     []NodeIndex      `tls:"head=4"`
+	Parent    []NodeIndex      `tls:"head=4"`
+	Sibling   []NodeIndex      `tls:"head=4"`
+	DirPath   []NodeIndexSlice `tls:"head=4"`
+	CoPath    []NodeIndexSlice `tls:"head=4"`
+	Ancestor  []NodeIndexSlice `tls:"head=4"`
 }
 
 func generateTreeMathVectors(t *testing.T) []byte {
@@ -258,9 +258,9 @@ func generateTreeMathVectors(t *testing.T) []byte {
 		Right:     make([]NodeIndex, numNodes),
 		Parent:    make([]NodeIndex, numNodes),
 		Sibling:   make([]NodeIndex, numNodes),
-		DirPath:   make([]Nodes, numNodes),
-		CoPath:    make([]Nodes, numNodes),
-		Ancestor:  make([]Nodes, numNodes),
+		DirPath:   make([]NodeIndexSlice, numNodes),
+		CoPath:    make([]NodeIndexSlice, numNodes),
+		Ancestor:  make([]NodeIndexSlice, numNodes),
 	}
 
 	for i := range tv.Root {
@@ -272,8 +272,8 @@ func generateTreeMathVectors(t *testing.T) []byte {
 		tv.Right[i] = right(NodeIndex(i), numLeaves)
 		tv.Parent[i] = parent(NodeIndex(i), numLeaves)
 		tv.Sibling[i] = sibling(NodeIndex(i), numLeaves)
-		tv.DirPath[i] = Nodes{Data: dirpath(NodeIndex(i), numLeaves)}
-		tv.CoPath[i] = Nodes{Data: copath(NodeIndex(i), numLeaves)}
+		tv.DirPath[i] = NodeIndexSlice{Data: dirpath(NodeIndex(i), numLeaves)}
+		tv.CoPath[i] = NodeIndexSlice{Data: copath(NodeIndex(i), numLeaves)}
 	}
 
 	// ancestor
