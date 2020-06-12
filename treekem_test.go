@@ -22,7 +22,7 @@ func newKeyPackage(t *testing.T) ([]byte, SignaturePrivateKey, *KeyPackage) {
 	return secret, sigPriv, kp
 }
 
-func TestTreeKEMMulti(t *testing.T) {
+func TestTreeKEM(t *testing.T) {
 	groupSize := 10
 	var err error
 
@@ -80,65 +80,10 @@ func TestTreeKEMMulti(t *testing.T) {
 	}
 }
 
-func TestTreeKEM(t *testing.T) {
-	context := randomBytes(32)
+func generateRatchetTreeVectors(t *testing.T) []byte {
+	return nil // TODO(RLB)
+}
 
-	// Make a new one-person pub + priv
-	pub := NewTreeKEMPublicKey(suite)
-
-	// AddLeaf + Encap + Merge
-	secretA, sigPrivA, kpA := newKeyPackage(t)
-
-	indexA := pub.AddLeaf(*kpA)
-	require.Equal(t, indexA, LeafIndex(0))
-
-	privA := NewTreeKEMPrivateKey(suite, pub.Size(), indexA, secretA)
-	require.True(t, privA.ConsistentPub(*pub))
-
-	leafA := randomBytes(32)
-	privA, path, err := pub.Encap(indexA, context, leafA, sigPrivA, nil)
-	require.Nil(t, err)
-	require.Nil(t, path.ParentHashValid(suite))
-
-	err = pub.Merge(indexA, *path)
-	require.Nil(t, err)
-	require.True(t, privA.ConsistentPub(*pub))
-
-	// AddLeaf + Encap + Decap + Merge
-	secretB, sigPrivB, kpB := newKeyPackage(t)
-
-	indexB := pub.AddLeaf(*kpB)
-	require.Equal(t, indexB, LeafIndex(1))
-
-	// Add B
-	leafA = randomBytes(32)
-	privA, path, err = pub.Encap(indexA, context, leafA, sigPrivA, nil)
-	require.Nil(t, err)
-	require.Nil(t, path.ParentHashValid(suite))
-
-	err = pub.Merge(indexA, *path)
-	require.Nil(t, err)
-	require.True(t, privA.ConsistentPub(*pub))
-
-	overlapAB, pathSecretB, ok := privA.SharedPathSecret(indexB)
-	require.True(t, ok)
-
-	privB := NewTreeKEMPrivateKeyForJoiner(suite, indexB, pub.Size(), secretB, overlapAB, pathSecretB)
-	require.True(t, privB.Consistent(*privA))
-	require.True(t, privB.ConsistentPub(*pub))
-
-	// B updates, A processes
-	leafB := randomBytes(32)
-	privB, path, err = pub.Encap(indexB, context, leafB, sigPrivB, nil)
-	require.Nil(t, err)
-	require.Nil(t, path.ParentHashValid(suite))
-
-	err = pub.Merge(indexB, *path)
-	require.Nil(t, err)
-	require.True(t, privB.ConsistentPub(*pub))
-
-	err = privA.Decap(indexB, pub.Size(), context, *path)
-	require.Nil(t, err)
-	require.True(t, privA.Consistent(*privB))
-	require.True(t, privA.ConsistentPub(*pub))
+func verifyRatchetTreeVectors(t *testing.T, data []byte) {
+	// TODO(RLB)
 }

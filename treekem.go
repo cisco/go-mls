@@ -3,10 +3,267 @@ package mls
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 
 	"github.com/cisco/go-tls-syntax"
 )
 
+type NodeType uint8
+
+const (
+	NodeTypeLeaf   NodeType = 0x00
+	NodeTypeParent NodeType = 0x01
+)
+
+///
+/// ParentNode
+///
+
+type ParentNode struct {
+	PublicKey      HPKEPublicKey
+	UnmergedLeaves []LeafIndex     `tls:"head=4"`
+	ParentHash     []byte          `tls:"head=1"`
+	PrivateKey     *HPKEPrivateKey `tls:"omit"`
+}
+
+func (n *ParentNode) Equals(other *ParentNode) bool {
+	pubKey := reflect.DeepEqual(n.PublicKey, other.PublicKey)
+	unmerged := reflect.DeepEqual(n.UnmergedLeaves, other.UnmergedLeaves)
+	parentHash := reflect.DeepEqual(n.ParentHash, other.ParentHash)
+
+	return pubKey && unmerged && parentHash
+}
+
+func (n ParentNode) Clone() ParentNode {
+	next := ParentNode{
+		PublicKey:      n.PublicKey,
+		UnmergedLeaves: make([]LeafIndex, len(n.UnmergedLeaves)),
+		ParentHash:     dup(n.ParentHash),
+		PrivateKey:     n.PrivateKey,
+	}
+
+	for i, n := range n.UnmergedLeaves {
+		next.UnmergedLeaves[i] = n
+	}
+
+	return next
+}
+
+func (n *ParentNode) AddUnmerged(l LeafIndex) {
+	n.UnmergedLeaves = append(n.UnmergedLeaves, l)
+}
+
+///
+/// Node
+///
+type Node struct {
+	Leaf   *KeyPackage
+	Parent *ParentNode
+	Hash   []byte
+}
+
+func (n *Node) Equals(other *Node) bool {
+	if n == nil || other == nil {
+		return n == other
+	}
+
+	switch n.Type() {
+	case NodeTypeLeaf:
+		return n.Leaf.Equals(*other.Leaf)
+	case NodeTypeParent:
+		return n.Parent.Equals(other.Parent)
+	default:
+		return false
+	}
+}
+
+func (n *Node) Clone() *Node {
+	if n == nil {
+		return nil
+	}
+
+	next := &Node{}
+	switch n.Type() {
+	case NodeTypeLeaf:
+		clone := n.Leaf.Clone()
+		next.Leaf = &clone
+	case NodeTypeParent:
+		clone := n.Parent.Clone()
+		next.Parent = &clone
+	default:
+		panic("Malformed node")
+	}
+
+	return next
+}
+
+func (n Node) Type() NodeType {
+	switch {
+	case n.Leaf != nil:
+		return NodeTypeLeaf
+	case n.Parent != nil:
+		return NodeTypeParent
+	default:
+		panic("Malformed node")
+	}
+}
+
+func (n Node) PublicKey() HPKEPublicKey {
+	switch n.Type() {
+	case NodeTypeLeaf:
+		return n.Leaf.InitKey
+	case NodeTypeParent:
+		return n.Parent.PublicKey
+	default:
+		panic("Malformed node")
+	}
+}
+
+func (n Node) MarshalTLS() ([]byte, error) {
+	s := NewWriteStream()
+	nodeType := n.Type()
+	err := s.Write(nodeType)
+	if err != nil {
+		return nil, err
+	}
+
+	switch nodeType {
+	case NodeTypeLeaf:
+		err = s.Write(n.Leaf)
+	case NodeTypeParent:
+		err = s.Write(n.Parent)
+	default:
+		err = fmt.Errorf("mls.node: Invalid node type")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return s.Data(), nil
+}
+
+func (n *Node) UnmarshalTLS(data []byte) (int, error) {
+	s := NewReadStream(data)
+	var nodeType NodeType
+	_, err := s.Read(&nodeType)
+	if err != nil {
+		return 0, err
+	}
+
+	switch nodeType {
+	case NodeTypeLeaf:
+		n.Leaf = new(KeyPackage)
+		_, err = s.Read(n.Leaf)
+	case NodeTypeParent:
+		n.Parent = new(ParentNode)
+		_, err = s.Read(n.Parent)
+	default:
+		err = fmt.Errorf("mls.node: Invalid node type")
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return s.Position(), nil
+}
+
+///
+/// OptionalNode
+///
+type OptionalNode struct {
+	Node *Node  `tls:"optional"`
+	Hash []byte `tls:"omit"`
+}
+
+func newLeafNode(keyPkg KeyPackage) OptionalNode {
+	return OptionalNode{Node: &Node{Leaf: &keyPkg}}
+}
+
+func newParentNode(pub HPKEPublicKey) OptionalNode {
+	parentNode := &ParentNode{
+		PublicKey:      pub,
+		UnmergedLeaves: []LeafIndex{},
+		ParentHash:     []byte{},
+	}
+	return OptionalNode{Node: &Node{Parent: parentNode}}
+}
+
+func (n OptionalNode) Clone() OptionalNode {
+	return OptionalNode{
+		Node: n.Node.Clone(),
+		Hash: dup(n.Hash),
+	}
+}
+
+func (n OptionalNode) Blank() bool {
+	return n.Node == nil
+}
+
+func (n *OptionalNode) SetToBlank() {
+	n.Node = nil
+}
+
+func (n *OptionalNode) setNodeHash(suite CipherSuite, input interface{}) error {
+	data, err := syntax.Marshal(input)
+	if err != nil {
+		return err
+	}
+
+	n.Hash = suite.Digest(data)
+	return nil
+}
+
+type LeafNodeHashInput struct {
+	LeafIndex  LeafIndex
+	KeyPackage *KeyPackage `tls:"optional"`
+}
+
+func (n *OptionalNode) SetLeafNodeHash(suite CipherSuite, index LeafIndex) error {
+	input := LeafNodeHashInput{
+		LeafIndex:  index,
+		KeyPackage: nil,
+	}
+
+	if !n.Blank() {
+		if n.Node.Type() != NodeTypeLeaf {
+			return fmt.Errorf("mls.rtn: SetLeafNodeHash on non-leaf node")
+		}
+
+		input.KeyPackage = n.Node.Leaf
+	}
+
+	return n.setNodeHash(suite, input)
+}
+
+type ParentNodeHashInput struct {
+	NodeIndex  NodeIndex
+	ParentNode *ParentNode `tls:"optional"`
+	LeftHash   []byte      `tls:"head=1"`
+	RightHash  []byte      `tls:"head=1"`
+}
+
+func (n *OptionalNode) SetParentNodeHash(suite CipherSuite, index NodeIndex, left, right []byte) error {
+	input := ParentNodeHashInput{
+		NodeIndex:  index,
+		ParentNode: nil,
+		LeftHash:   left,
+		RightHash:  right,
+	}
+
+	if !n.Blank() {
+		if n.Node.Type() != NodeTypeParent {
+			return fmt.Errorf("mls.rtn: SetParentNodeHash on non-leaf node")
+		}
+
+		input.ParentNode = n.Node.Parent
+	}
+
+	return n.setNodeHash(suite, input)
+}
+
+///
+/// TreeKEMPath
+///
 type TreeKEMPathStep struct {
 	PublicKey            HPKEPublicKey
 	EncryptedPathSecrets map[NodeIndex]HPKECiphertext `tls:"head=4"`
@@ -434,7 +691,7 @@ func (pub *TreeKEMPublicKey) Merge(from LeafIndex, path TreeKEMPath) error {
 	}
 
 	for i, n := range dp {
-		pub.Nodes[n] = newParentNodeFromPublicKey(path.Steps[i].PublicKey)
+		pub.Nodes[n] = newParentNode(path.Steps[i].PublicKey)
 	}
 
 	// XXX(RLB): Should be possible to make a more targeted change, e.g., clearHashPath(from)
