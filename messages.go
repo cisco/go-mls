@@ -359,8 +359,7 @@ type Commit struct {
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
 
-	KeyPackage KeyPackage
-	Path       DirectPath
+	Path TreeKEMPath
 }
 
 ///
@@ -585,7 +584,7 @@ type MLSCiphertext struct {
 type GroupInfo struct {
 	GroupID                 []byte `tls:"head=1"`
 	Epoch                   Epoch
-	Tree                    RatchetTree
+	Tree                    TreeKEMPublicKey
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	InterimTranscriptHash   []byte `tls:"head=1"`
 	Extensions              ExtensionList
@@ -609,7 +608,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
 		GroupID                 []byte `tls:"head=1"`
 		Epoch                   Epoch
-		Tree                    RatchetTree
+		Tree                    TreeKEMPublicKey
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
 		Confirmation            []byte `tls:"head=1"`
@@ -741,7 +740,13 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 	}
 }
 
+// TODO(RLB): Return error instead of panicking
 func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
+	// Check that the ciphersuite is acceptable
+	if kp.CipherSuite != w.CipherSuite {
+		panic(fmt.Errorf("mls.welcome: cipher suite mismatch %v != %v", kp.CipherSuite, w.CipherSuite))
+	}
+
 	// Compute the hash of the kp
 	data, err := syntax.Marshal(kp)
 	if err != nil {

@@ -130,10 +130,17 @@ func (b Bytes1) MarshalTLS() ([]byte, error) {
 	}{b})
 }
 
-func (b Bytes1) UnmarshalTLS(data []byte) (int, error) {
-	return syntax.Unmarshal(data, &struct {
+func (b *Bytes1) UnmarshalTLS(data []byte) (int, error) {
+	tmp := struct {
 		Data []byte `tls:"head=1"`
-	}{b})
+	}{}
+	read, err := syntax.Unmarshal(data, &tmp)
+	if err != nil {
+		return read, err
+	}
+
+	*b = dup(tmp.Data)
+	return read, nil
 }
 
 type treeBaseKeySource struct {

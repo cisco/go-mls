@@ -44,11 +44,11 @@ var (
 
 	extListValidIn = ExtensionList{[]Extension{extValidIn, extEmptyIn}}
 
-	ikPriv, _ = supportedSuites[0].hpke().Generate()
+	ikPriv, _ = suite.hpke().Generate()
 
 	keyPackage = &KeyPackage{
 		Version:     ProtocolVersionMLS10,
-		CipherSuite: 0x0001,
+		CipherSuite: suite,
 		InitKey:     ikPriv.PublicKey,
 		Credential:  credentialBasic,
 		Extensions:  extListValidIn,
@@ -85,11 +85,18 @@ var (
 	}
 
 	commit = &Commit{
-		Updates:    []ProposalID{{Hash: []byte{0x00, 0x01}}},
-		Removes:    []ProposalID{{Hash: []byte{0x02, 0x03}}},
-		Adds:       []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		KeyPackage: *keyPackage,
-		Path:       DirectPath{Nodes: nodes},
+		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
+		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
+		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
+		Path: TreeKEMPath{
+			LeafKeyPackage: *keyPackage,
+			Steps: []TreeKEMPathStep{
+				{
+					PublicKey:            nodePublicKey,
+					EncryptedPathSecrets: map[NodeIndex]HPKECiphertext{},
+				},
+			},
+		},
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
@@ -193,22 +200,47 @@ func TestKeyPackageExpiry(t *testing.T) {
 	require.False(t, ver)
 }
 
+func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *TreeKEMPublicKey {
+	scheme := suite.Scheme()
+
+	tree := NewTreeKEMPublicKey(suite)
+	for _, secret := range secrets {
+		initPriv, err := suite.hpke().Derive(secret)
+		require.Nil(t, err)
+
+		sigPriv, err := scheme.Derive(secret)
+		require.Nil(t, err)
+
+		cred := NewBasicCredential(userID, scheme, &sigPriv)
+
+		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv, cred)
+		require.Nil(t, err)
+
+		tree.AddLeaf(*keyPackage)
+	}
+
+	// TODO(RLB): Encap to fill in the tree
+
+	return tree
+}
+
 func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	// a tree with 2 members
-	groupSize := 2
 	secrets := [][]byte{randomBytes(32), randomBytes(32)}
-	treeAB := newTestRatchetTree(t, suite, secrets)
-	require.Equal(t, treeAB.Size(), LeafCount(groupSize))
+	tree := newTestRatchetTree(t, suite, secrets)
 
-	cs := supportedSuites[0]
-	secret := randomBytes(32)
+	keyPackage, ok := tree.KeyPackage(0)
+	require.True(t, ok)
+
+	initKey, err := suite.hpke().Derive(secrets[0])
+	require.Nil(t, err)
 
 	// setup things needed to welcome c
 	epochSecret := []byte("we welcome you c")
 	gi := &GroupInfo{
 		GroupID:                 unhex("0007"),
 		Epoch:                   121,
-		Tree:                    *treeAB,
+		Tree:                    *tree,
 		ConfirmedTranscriptHash: []byte{0x03, 0x04, 0x05, 0x06},
 		InterimTranscriptHash:   []byte{0x02, 0x03, 0x04, 0x05},
 		SignerIndex:             0,
@@ -216,8 +248,8 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 		Signature:               []byte{0xAA, 0xBB, 0xCC},
 	}
 
-	w1 := newWelcome(cs, epochSecret, gi)
-	w1.EncryptTo(*keyPackage, secret)
+	w1 := newWelcome(suite, epochSecret, gi)
+	w1.EncryptTo(keyPackage, randomBytes(32))
 	// doing this so that test can omit this field when matching w1, w2
 	w1.epochSecret = nil
 	w2 := new(Welcome)
@@ -226,7 +258,7 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	// decrypt the group init secret with C's privateKey and check if
 	// it matches.
 	egs := w2.Secrets[0]
-	pt, err := cs.hpke().Decrypt(ikPriv, []byte{}, egs.EncryptedGroupSecrets)
+	pt, err := suite.hpke().Decrypt(initKey, []byte{}, egs.EncryptedGroupSecrets)
 	require.Nil(t, err)
 
 	w2kp := new(GroupSecrets)
@@ -347,10 +379,12 @@ func generateMessageVectors(t *testing.T) []byte {
 		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
 		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(LeafIndex(2))
+		ratchetTree.BlankPath(LeafIndex(2))
+
+		treeSigPriv, err := scheme.Derive(secrets[0])
 		require.Nil(t, err)
 
-		dp, _, _, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random)
+		_, path, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -468,11 +502,10 @@ func generateMessageVectors(t *testing.T) []byte {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates:    proposal,
-			Removes:    proposal,
-			Adds:       proposal,
-			KeyPackage: kp,
-			Path:       dp,
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Path:    *path,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -539,10 +572,12 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		secrets := [][]byte{tv.Random, tv.Random, tv.Random, tv.Random}
 		ratchetTree := newTestRatchetTree(t, suite, secrets)
 
-		err = ratchetTree.BlankPath(LeafIndex(2))
+		ratchetTree.BlankPath(LeafIndex(2))
+
+		treeSigPriv, err := scheme.Derive(secrets[0])
 		require.Nil(t, err)
 
-		dp, _, _, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random)
+		_, path, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -661,20 +696,19 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		// commit
 		proposal := []ProposalID{{tv.Random}, {tv.Random}}
 		commit := Commit{
-			Updates:    proposal,
-			Removes:    proposal,
-			Adds:       proposal,
-			KeyPackage: kp,
-			Path:       dp,
+			Updates: proposal,
+			Removes: proposal,
+			Adds:    proposal,
+			Path:    *path,
 		}
+
 		var commitWire Commit
 		_, err = syntax.Unmarshal(tc.Commit, &commitWire)
 		require.Nil(t, err)
 		require.Equal(t, commit.Adds, commitWire.Adds)
 		require.Equal(t, commit.Removes, commitWire.Removes)
 		require.Equal(t, commit.Updates, commitWire.Updates)
-		require.Equal(t, commit.KeyPackage, commitWire.KeyPackage)
-		// Path not verified because HPKE is randomized
+		// Path.Steps not verified because ECDSA and HPKE are randomized
 
 		//MlsCiphertext
 		ct := MLSCiphertext{

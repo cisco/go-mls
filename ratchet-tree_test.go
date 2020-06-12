@@ -6,41 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *RatchetTree {
-	scheme := suite.Scheme()
-
-	keyPackages := make([]*KeyPackage, len(secrets))
-	for i := range keyPackages {
-		initPriv, err := suite.hpke().Derive(secrets[i])
-		require.Nil(t, err)
-
-		sigPriv, err := scheme.Derive(secrets[i])
-		require.Nil(t, err)
-
-		cred := NewBasicCredential(userID, scheme, &sigPriv)
-
-		keyPackages[i], err = NewKeyPackageWithInitKey(suite, initPriv, cred)
-		require.Nil(t, err)
-
-		keyPackages[i].privateKey = nil
-	}
-
-	// Build trees from the keyPackages
-	tree := NewRatchetTree(suite)
-	for i := range keyPackages {
-		err := tree.AddLeaf(LeafIndex(i), *keyPackages[i])
-		require.Nil(t, err)
-	}
-
-	// Encap to fill in the tree
-	for i := range keyPackages {
-		_, _, _, err := tree.Encap(LeafIndex(i), []byte{}, []byte{byte(i)})
-		require.Nil(t, err)
-	}
-
-	return tree
-}
-
 func TestRatchetTreeEncapDecap(t *testing.T) {
 	// Create keyPackages
 	groupSize := 5

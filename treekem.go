@@ -69,6 +69,11 @@ func (path TreeKEMPath) ParentHashValid(suite CipherSuite) error {
 	return nil
 }
 
+type KeyPackageOpts struct {
+	// TODO New credential
+	// TODO Extensions
+}
+
 func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv SignaturePrivateKey, opts *KeyPackageOpts) error {
 	// Compute parent hashes down the tree from the root
 	leafParentHash := []byte{}
@@ -83,6 +88,7 @@ func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv 
 
 	// Re-sign the leaf key package
 	// TODO(RLB) Apply any options from opts
+	// TODO(RLB) Move resigning logic into KeyPackage
 	phe := ParentHashExtension{leafParentHash}
 	err := path.LeafKeyPackage.SetExtensions([]ExtensionBody{phe})
 	if err != nil {
@@ -101,16 +107,16 @@ func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv 
 type TreeKEMPrivateKey struct {
 	Suite           CipherSuite
 	Index           LeafIndex
-	UpdateSecret    []byte
-	PathSecrets     map[NodeIndex][]byte
-	privateKeyCache map[NodeIndex]HPKEPrivateKey
+	UpdateSecret    []byte                       `tls:"head=1"`
+	PathSecrets     map[NodeIndex]Bytes1         `tls:"head=4"`
+	privateKeyCache map[NodeIndex]HPKEPrivateKey `tls:"omit"`
 }
 
 func NewTreeKEMPrivateKeyForJoiner(suite CipherSuite, index LeafIndex, size LeafCount, leafSecret []byte, intersect NodeIndex, pathSecret []byte) *TreeKEMPrivateKey {
 	priv := &TreeKEMPrivateKey{
 		Suite:           suite,
 		Index:           index,
-		PathSecrets:     map[NodeIndex][]byte{},
+		PathSecrets:     map[NodeIndex]Bytes1{},
 		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
@@ -123,7 +129,7 @@ func NewTreeKEMPrivateKey(suite CipherSuite, size LeafCount, index LeafIndex, le
 	priv := &TreeKEMPrivateKey{
 		Suite:           suite,
 		Index:           index,
-		PathSecrets:     map[NodeIndex][]byte{},
+		PathSecrets:     map[NodeIndex]Bytes1{},
 		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
@@ -156,7 +162,7 @@ func (priv TreeKEMPrivateKey) privateKey(n NodeIndex) (HPKEPrivateKey, error) {
 	}
 
 	secret, ok := priv.PathSecrets[n]
-	if !ok {
+	if !ok || secret == nil {
 		return HPKEPrivateKey{}, fmt.Errorf("Private key not found")
 	}
 
@@ -169,14 +175,17 @@ func (priv TreeKEMPrivateKey) privateKey(n NodeIndex) (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte, error) {
+func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte, bool) {
 	n := ancestor(priv.Index, to)
 	secret, ok := priv.PathSecrets[n]
-	if !ok {
-		return 0, nil, fmt.Errorf("Path secret not found for node %d", n)
-	}
+	return n, secret, ok
+}
 
-	return n, secret, nil
+func (priv *TreeKEMPrivateKey) SetLeafSecret(secret []byte) {
+	// TODO(RLB) Check for consistency?
+	ni := toNodeIndex(priv.Index)
+	priv.PathSecrets[ni] = dup(secret)
+	delete(priv.privateKeyCache, ni)
 }
 
 func (priv *TreeKEMPrivateKey) Decap(from LeafIndex, size LeafCount, context []byte, path TreeKEMPath) error {
@@ -213,7 +222,7 @@ func (priv TreeKEMPrivateKey) Clone() TreeKEMPrivateKey {
 	out := TreeKEMPrivateKey{
 		Suite:           priv.Suite,
 		Index:           priv.Index,
-		PathSecrets:     map[NodeIndex][]byte{},
+		PathSecrets:     map[NodeIndex]Bytes1{},
 		privateKeyCache: map[NodeIndex]HPKEPrivateKey{},
 	}
 
@@ -239,7 +248,7 @@ func (priv TreeKEMPrivateKey) dump(label string) {
 		}
 
 		secret := priv.PathSecrets[n]
-		pub := nodePriv.PublicKey.Data[:4]
+		pub := nodePriv.PublicKey.Data
 		fmt.Printf("  [%d] secret=%x... pub=%x...\n", n, secret, pub)
 	}
 }
@@ -360,11 +369,6 @@ func (pub *TreeKEMPublicKey) BlankPath(index LeafIndex) {
 	}
 }
 
-type KeyPackageOpts struct {
-	// TODO New credential
-	// TODO Extensions
-}
-
 func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, leafSigPriv SignaturePrivateKey, opts *KeyPackageOpts) (*TreeKEMPrivateKey, *TreeKEMPath, error) {
 	// Generate path secrets
 	priv := NewTreeKEMPrivateKey(pub.Suite, pub.Size(), from, leafSecret)
@@ -408,6 +412,15 @@ func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, le
 		return nil, nil, err
 	}
 
+	// Update the public key itself
+	err = pub.Merge(from, *path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// XXX(RLB): Should be possible to make a more targeted change, e.g., clearHashPath(from)
+	pub.clearHashAll()
+	pub.SetHashAll()
 	return priv, path, nil
 }
 
@@ -424,6 +437,9 @@ func (pub *TreeKEMPublicKey) Merge(from LeafIndex, path TreeKEMPath) error {
 		pub.Nodes[n] = newParentNodeFromPublicKey(path.Steps[i].PublicKey)
 	}
 
+	// XXX(RLB): Should be possible to make a more targeted change, e.g., clearHashPath(from)
+	pub.clearHashAll()
+	pub.SetHashAll()
 	return nil
 }
 
@@ -455,6 +471,15 @@ func (pub TreeKEMPublicKey) Equals(o TreeKEMPublicKey) bool {
 		}
 	}
 	return true
+}
+
+func (pub TreeKEMPublicKey) KeyPackage(index LeafIndex) (KeyPackage, bool) {
+	ni := toNodeIndex(index)
+	if pub.Nodes[ni].Blank() {
+		return KeyPackage{}, false
+	}
+
+	return *pub.Nodes[ni].Node.Leaf, true
 }
 
 func (pub TreeKEMPublicKey) Find(kp KeyPackage) (LeafIndex, bool) {
@@ -499,6 +524,12 @@ func (pub TreeKEMPublicKey) resolve(index NodeIndex) []NodeIndex {
 	return l
 }
 
+func (pub *TreeKEMPublicKey) clearHashAll() {
+	for n := range pub.Nodes {
+		pub.Nodes[n].Hash = nil
+	}
+}
+
 func (pub *TreeKEMPublicKey) clearHashPath(index LeafIndex) {
 	ni := toNodeIndex(index)
 	pub.Nodes[ni].Hash = nil
@@ -511,6 +542,10 @@ func (pub *TreeKEMPublicKey) clearHashPath(index LeafIndex) {
 func (pub TreeKEMPublicKey) RootHash() []byte {
 	r := root(pub.Size())
 	return pub.Nodes[r].Hash
+}
+
+func (pub *TreeKEMPublicKey) SetHashAll() error {
+	return pub.setHash(root(pub.Size()))
 }
 
 func (pub *TreeKEMPublicKey) setHash(index NodeIndex) error {
@@ -542,12 +577,17 @@ func (pub TreeKEMPublicKey) dump(label string) {
 	fmt.Printf("suite=[%d]\n", pub.Suite)
 
 	for i, n := range pub.Nodes {
+		hash := "-"
+		if n.Hash != nil {
+			hash = fmt.Sprintf("%x", n.Hash[:4])
+		}
+
 		if n.Blank() {
-			fmt.Printf("  [%d] _\n", i)
+			fmt.Printf("  [%d] <%s> _\n", i, hash)
 			continue
 		}
 
 		pub := n.Node.PublicKey().Data[:4]
-		fmt.Printf("  [%d] %x...\n", i, pub)
+		fmt.Printf("  [%d] <%s> %x...\n", i, hash, pub)
 	}
 }

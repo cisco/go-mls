@@ -62,8 +62,8 @@ func TestTreeKEMMulti(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, privs[i].ConsistentPub(*pub))
 
-		overlap, pathSecret, err := privs[i].SharedPathSecret(joiner)
-		require.Nil(t, err)
+		overlap, pathSecret, ok := privs[i].SharedPathSecret(joiner)
+		require.True(t, ok)
 
 		// New joiner initializes their private key
 		privs[i+1] = NewTreeKEMPrivateKeyForJoiner(suite, joiner, pub.Size(), secret, overlap, pathSecret)
@@ -120,8 +120,8 @@ func TestTreeKEM(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, privA.ConsistentPub(*pub))
 
-	overlapAB, pathSecretB, err := privA.SharedPathSecret(indexB)
-	require.Nil(t, err)
+	overlapAB, pathSecretB, ok := privA.SharedPathSecret(indexB)
+	require.True(t, ok)
 
 	privB := NewTreeKEMPrivateKeyForJoiner(suite, indexB, pub.Size(), secretB, overlapAB, pathSecretB)
 	require.True(t, privB.Consistent(*privA))
