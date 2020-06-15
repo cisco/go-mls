@@ -711,7 +711,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
 	}
 
-	err = next.TreePriv.Decap(senderIndex, next.Tree.Size(), ctx, commitData.Commit.Path)
+	err = next.TreePriv.Decap(senderIndex, next.Tree, ctx, commitData.Commit.Path)
 	if err != nil {
 		return nil, err
 	}

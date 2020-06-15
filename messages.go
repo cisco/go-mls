@@ -341,25 +341,12 @@ func (pid ProposalID) String() string {
 	return fmt.Sprintf("%x", pid.Hash)
 }
 
-type DirectPathNode struct {
-	PublicKey            HPKEPublicKey
-	EncryptedPathSecrets []HPKECiphertext `tls:"head=2"`
-}
-
-type DirectPath struct {
-	Nodes []DirectPathNode `tls:"head=2"`
-}
-
-func (p *DirectPath) addNode(n DirectPathNode) {
-	p.Nodes = append(p.Nodes, n)
-}
-
 type Commit struct {
 	Updates []ProposalID `tls:"head=2"`
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
 
-	Path TreeKEMPath
+	Path DirectPath
 }
 
 ///

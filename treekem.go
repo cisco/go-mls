@@ -262,22 +262,22 @@ func (n *OptionalNode) SetParentNodeHash(suite CipherSuite, index NodeIndex, lef
 }
 
 ///
-/// TreeKEMPath
+/// DirectPath
 ///
-type TreeKEMPathStep struct {
+type DirectPathNode struct {
 	PublicKey            HPKEPublicKey
-	EncryptedPathSecrets map[NodeIndex]HPKECiphertext `tls:"head=4"`
+	EncryptedPathSecrets []HPKECiphertext `tls:"head=4"`
 }
 
-type TreeKEMPath struct {
+type DirectPath struct {
 	LeafKeyPackage KeyPackage
-	Steps          []TreeKEMPathStep `tls:"head=4"`
+	Steps          []DirectPathNode `tls:"head=4"`
 }
 
 // This produces a list of parent hashes that are off by one with respect to the
 // steps in the path.  The path hash at position i goes with the public key at
 // position i-1, and the path hash at position 0 goes in the leaf.
-func (path TreeKEMPath) ParentHashes(suite CipherSuite) ([][]byte, error) {
+func (path DirectPath) ParentHashes(suite CipherSuite) ([][]byte, error) {
 	ph := make([][]byte, len(path.Steps))
 
 	var err error
@@ -299,7 +299,7 @@ func (path TreeKEMPath) ParentHashes(suite CipherSuite) ([][]byte, error) {
 	return ph, nil
 }
 
-func (path TreeKEMPath) ParentHashValid(suite CipherSuite) error {
+func (path DirectPath) ParentHashValid(suite CipherSuite) error {
 	leafParentHash := []byte{}
 	if len(path.Steps) > 0 {
 		ph, err := path.ParentHashes(suite)
@@ -331,7 +331,7 @@ type KeyPackageOpts struct {
 	// TODO Extensions
 }
 
-func (path *TreeKEMPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv SignaturePrivateKey, opts *KeyPackageOpts) error {
+func (path *DirectPath) Sign(suite CipherSuite, initPub HPKEPublicKey, sigPriv SignaturePrivateKey, opts *KeyPackageOpts) error {
 	// Compute parent hashes down the tree from the root
 	leafParentHash := []byte{}
 	if len(path.Steps) > 0 {
@@ -445,12 +445,42 @@ func (priv *TreeKEMPrivateKey) SetLeafSecret(secret []byte) {
 	delete(priv.privateKeyCache, ni)
 }
 
-func (priv *TreeKEMPrivateKey) Decap(from LeafIndex, size LeafCount, context []byte, path TreeKEMPath) error {
+// TODO(RLB) Onece the spec is updated to have EncryptedPathSecrets as a map,
+// change the TreeKEMPublicKey argument to just be a size.
+func (priv *TreeKEMPrivateKey) Decap(from LeafIndex, pub TreeKEMPublicKey, context []byte, path DirectPath) error {
 	// Decrypt a path secret
-	ancestor, iPath := ancestorIndex(priv.Index, from, size)
+	ni := toNodeIndex(priv.Index)
+	dp := dirpath(toNodeIndex(from), pub.Size())
+	if len(dp) != len(path.Steps) {
+		return fmt.Errorf("Malformed DirectPath %d %d", len(dp), len(path.Steps))
+	}
+
+	dpIndex := -1
+	last := toNodeIndex(from)
+	var overlap, copath NodeIndex
+	for i, n := range dp {
+		if inPath(ni, n) {
+			dpIndex = i
+			overlap = n
+			copath = sibling(last, pub.Size())
+			break
+		}
+
+		last = n
+	}
+
+	if dpIndex < 0 {
+		return fmt.Errorf("No overlap in path")
+	}
+
+	res := pub.resolve(copath)
+	if len(res) != len(path.Steps[dpIndex].EncryptedPathSecrets) {
+		return fmt.Errorf("Malformed DirectPathNode %d %d", len(res), len(path.Steps[dpIndex].EncryptedPathSecrets))
+	}
 
 	var pathSecret []byte
-	for n, ct := range path.Steps[iPath].EncryptedPathSecrets {
+	for i, ct := range path.Steps[dpIndex].EncryptedPathSecrets {
+		n := res[i]
 		if _, ok := priv.PathSecrets[n]; ok {
 			nodePriv, err := priv.privateKey(n)
 			if err != nil {
@@ -471,7 +501,7 @@ func (priv *TreeKEMPrivateKey) Decap(from LeafIndex, size LeafCount, context []b
 	// TODO Check the accuracy of the public keys in the path
 
 	// Hash toward the root
-	priv.setPathSecrets(ancestor, size, pathSecret)
+	priv.setPathSecrets(overlap, pub.Size(), pathSecret)
 	return nil
 }
 
@@ -626,39 +656,45 @@ func (pub *TreeKEMPublicKey) BlankPath(index LeafIndex) {
 	}
 }
 
-func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, leafSigPriv SignaturePrivateKey, opts *KeyPackageOpts) (*TreeKEMPrivateKey, *TreeKEMPath, error) {
+func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, leafSigPriv SignaturePrivateKey, opts *KeyPackageOpts) (*TreeKEMPrivateKey, *DirectPath, error) {
 	// Generate path secrets
 	priv := NewTreeKEMPrivateKey(pub.Suite, pub.Size(), from, leafSecret)
 
-	// Package into a TreeKEMPath
+	// Package into a DirectPath
 	dp := dirpath(toNodeIndex(from), pub.Size())
-	path := &TreeKEMPath{
+	path := &DirectPath{
 		LeafKeyPackage: *pub.Nodes[toNodeIndex(from)].Node.Leaf,
-		Steps:          make([]TreeKEMPathStep, len(dp)),
+		Steps:          make([]DirectPathNode, len(dp)),
 	}
+	last := toNodeIndex(from)
 	for i, n := range dp {
 		nodePriv, err := priv.privateKey(n)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		path.Steps[i] = TreeKEMPathStep{
+		path.Steps[i] = DirectPathNode{
 			PublicKey:            nodePriv.PublicKey,
-			EncryptedPathSecrets: map[NodeIndex]HPKECiphertext{},
+			EncryptedPathSecrets: []HPKECiphertext{},
 		}
 
 		pathSecret := priv.PathSecrets[n]
 
-		for _, nr := range pub.resolve(n) {
+		copath := sibling(last, pub.Size())
+		res := pub.resolve(copath)
+		path.Steps[i].EncryptedPathSecrets = make([]HPKECiphertext, len(res))
+		for j, nr := range res {
 			nodePub := pub.Nodes[nr].Node.PublicKey()
-			path.Steps[i].EncryptedPathSecrets[nr], err = pub.Suite.hpke().Encrypt(nodePub, context, pathSecret)
+			path.Steps[i].EncryptedPathSecrets[j], err = pub.Suite.hpke().Encrypt(nodePub, context, pathSecret)
 			if err != nil {
 				return nil, nil, err
 			}
 		}
+
+		last = n
 	}
 
-	// Sign the TreeKEMPath
+	// Sign the DirectPath
 	leafPriv, err := priv.privateKey(toNodeIndex(from))
 	if err != nil {
 		return nil, nil, err
@@ -681,13 +717,13 @@ func (pub TreeKEMPublicKey) Encap(from LeafIndex, context, leafSecret []byte, le
 	return priv, path, nil
 }
 
-func (pub *TreeKEMPublicKey) Merge(from LeafIndex, path TreeKEMPath) error {
+func (pub *TreeKEMPublicKey) Merge(from LeafIndex, path DirectPath) error {
 	ni := toNodeIndex(from)
 	pub.Nodes[ni] = newLeafNode(path.LeafKeyPackage)
 
 	dp := dirpath(ni, pub.Size())
 	if len(dp) != len(path.Steps) {
-		return fmt.Errorf("Malformed TreeKEMPath %d %d", len(dp), len(path.Steps))
+		return fmt.Errorf("Malformed DirectPath %d %d", len(dp), len(path.Steps))
 	}
 
 	for i, n := range dp {
@@ -835,7 +871,7 @@ func (pub TreeKEMPublicKey) dump(label string) {
 
 	for i, n := range pub.Nodes {
 		hash := "-"
-		if n.Hash != nil {
+		if len(n.Hash) > 0 {
 			hash = fmt.Sprintf("%x", n.Hash[:4])
 		}
 

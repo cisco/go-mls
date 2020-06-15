@@ -88,12 +88,12 @@ var (
 		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
 		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
 		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Path: TreeKEMPath{
+		Path: DirectPath{
 			LeafKeyPackage: *keyPackage,
-			Steps: []TreeKEMPathStep{
+			Steps: []DirectPathNode{
 				{
 					PublicKey:            nodePublicKey,
-					EncryptedPathSecrets: map[NodeIndex]HPKECiphertext{},
+					EncryptedPathSecrets: []HPKECiphertext{},
 				},
 			},
 		},
@@ -290,17 +290,6 @@ func TestProposalErrorCases(t *testing.T) {
 func TestMLSPlainTestErrorCases(t *testing.T) {
 	c := MLSPlaintextContent{Application: nil, Proposal: nil, Commit: nil}
 	require.Panics(t, func() { c.Type() })
-}
-
-func TestDirectPath(t *testing.T) {
-	priv, _ := supportedSuites[0].hpke().Generate()
-	n := DirectPathNode{
-		PublicKey: priv.PublicKey,
-	}
-
-	dp := DirectPath{}
-	dp.addNode(n)
-	require.Equal(t, len(dp.Nodes), 1)
 }
 
 ///

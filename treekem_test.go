@@ -41,7 +41,7 @@ func TestTreeKEM(t *testing.T) {
 	require.True(t, privs[0].ConsistentPub(*pub))
 
 	// Each member adds the next
-	var path *TreeKEMPath
+	var path *DirectPath
 	for i := 0; i < groupSize-1; i++ {
 		adder := LeafIndex(i)
 		joiner := LeafIndex(i + 1)
@@ -72,7 +72,7 @@ func TestTreeKEM(t *testing.T) {
 
 		// Other members update their private keys
 		for j := 0; j < i; j++ {
-			err = privs[j].Decap(adder, pub.Size(), context, *path)
+			err = privs[j].Decap(adder, *pub, context, *path)
 			require.Nil(t, err)
 			require.True(t, privs[j].Consistent(*privs[i]))
 			require.True(t, privs[j].ConsistentPub(*pub))
