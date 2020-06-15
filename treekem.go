@@ -59,7 +59,6 @@ func (n *ParentNode) AddUnmerged(l LeafIndex) {
 type Node struct {
 	Leaf   *KeyPackage
 	Parent *ParentNode
-	Hash   []byte
 }
 
 func (n *Node) Equals(other *Node) bool {
