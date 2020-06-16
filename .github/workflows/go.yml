@@ -18,8 +18,8 @@ jobs:
       with:
         go-version: ^1.13
       id: go
-
-    - name: Check out code into the Go module directory
+        
+    - name: Check out code
       uses: actions/checkout@v2
 
     - name: Get dependencies
@@ -40,6 +40,6 @@ jobs:
       env:
         COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        GO111MODULE=off go get github.com/mattn/goveralls
+        go get github.com/mattn/goveralls
         $(go env GOPATH)/bin/goveralls -coverprofile=profile.cov -service=github
   
