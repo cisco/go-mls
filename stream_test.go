@@ -100,5 +100,24 @@ func TestReadStream(t *testing.T) {
 	require.Equal(t, val2, val2a)
 	require.Equal(t, val3, val3a)
 	require.Equal(t, val4, val4a)
+	require.Equal(t, r2.Remaining(), 0)
 
+}
+
+func TestStreamNegativeTests(t *testing.T) {
+	w := NewWriteStream()
+
+	err := w.Write(nil)
+	require.NotNil(t, err)
+
+	err = w.WriteAll(0x1, nil)
+	require.NotNil(t, err)
+
+	r := NewReadStream(nil)
+	var val uint32
+	_, err = r.Read(&val)
+	require.NotNil(t, err)
+
+	_, err = r.ReadAll(nil)
+	require.NotNil(t, err)
 }
