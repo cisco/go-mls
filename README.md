@@ -1,7 +1,7 @@
 Message Layer Security
 ======================
 
-[![Coverage Status](https://coveralls.io/repos/github/bifurcation/mls/badge.svg)](https://coveralls.io/github/bifurcation/mls)
+![Build and Test](https://github.com/suhasHere/mls/workflows/Build%20and%20Test/badge.svg)
 
 This is a protocol to do group key establishment in an asynchronous,
 message-oriented setting.  Its core ideas borrow a lot from
