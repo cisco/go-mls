@@ -133,7 +133,8 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	return s, gi.SignerIndex, gi.Confirmation, nil
 }
 
-func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*State, error) {
+func NewJoinedState(initSecret []byte, kps []KeyPackage, welcome Welcome) (*State, error) {
+	var initPriv HPKEPrivateKey
 	var keyPackage KeyPackage
 	var encGroupSecrets EncryptedGroupSecrets
 	var found = false
@@ -149,6 +150,11 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		for _, egs := range welcome.Secrets {
 			found = bytes.Equal(kphash, egs.KeyPackageHash)
 			if found {
+				initPriv, err = kp.CipherSuite.hpke().Derive(initSecret)
+				if err != nil {
+					return nil, err
+				}
+
 				keyPackage = kp
 				encGroupSecrets = egs
 				break
@@ -167,15 +173,11 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
 	}
 
-	if keyPackage.privateKey == nil {
-		return nil, fmt.Errorf("mls.state: no private key for init key")
-	}
-
 	if keyPackage.Credential.privateKey == nil {
 		return nil, fmt.Errorf("mls.state: no signing key for init key")
 	}
 
-	pt, err := suite.hpke().Decrypt(*keyPackage.privateKey, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
+	pt, err := suite.hpke().Decrypt(initPriv, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
 	}
@@ -210,7 +212,11 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 	s.Index = index
 	commonAncestor := ancestor(s.Index, signerIndex)
 
-	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), leafSecret, commonAncestor, groupSecrets.PathSecret)
+	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), initSecret, commonAncestor, groupSecrets.PathSecret)
+	if priv, err := treePriv.privateKey(toNodeIndex(s.Index)); err != nil || !priv.PublicKey.Equals(keyPackage.InitKey) {
+		return nil, fmt.Errorf("mls.state: Mismatch between tree and KP [%v]", err)
+	}
+
 	s.TreePriv = *treePriv
 
 	// Start up the key schedule
@@ -713,6 +719,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	err = next.TreePriv.Decap(senderIndex, next.Tree, ctx, commitData.Commit.Path)
 	if err != nil {
+		fmt.Printf("decap error: %v", err)
 		return nil, err
 	}
 
@@ -1091,9 +1098,6 @@ func (s *State) SetSecrets(ss StateSecrets) {
 }
 
 func (s State) GetSecrets() StateSecrets {
-	initKP, _ := s.Tree.KeyPackage(s.Index)
-	initPriv, _ := initKP.PrivateKey()
-
 	pendingUpdates := map[ProposalRef]Bytes1{}
 	for i, secret := range s.PendingUpdates {
 		pendingUpdates[i] = secret
@@ -1102,7 +1106,6 @@ func (s State) GetSecrets() StateSecrets {
 	return StateSecrets{
 		CipherSuite:      s.CipherSuite,
 		Index:            s.Index,
-		InitPriv:         initPriv,
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
 		PendingProposals: s.PendingProposals,

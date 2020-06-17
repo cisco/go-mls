@@ -182,7 +182,7 @@ func TestKeyPackageExpiry(t *testing.T) {
 	require.Nil(t, err)
 
 	cred := NewBasicCredential(userID, scheme, &priv)
-	kp, err := NewKeyPackage(suite, cred)
+	kp, err := NewKeyPackageWithSecret(suite, randomBytes(32), cred)
 	require.Nil(t, err)
 
 	ver := kp.Verify()
@@ -213,7 +213,7 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Tree
 
 		cred := NewBasicCredential(userID, scheme, &sigPriv)
 
-		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv, cred)
+		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred)
 		require.Nil(t, err)
 
 		tree.AddLeaf(*keyPackage)
@@ -265,20 +265,6 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	_, err = syntax.Unmarshal(pt, w2kp)
 	require.Nil(t, err)
 	require.Equal(t, epochSecret, w2kp.EpochSecret)
-}
-
-func TestKeyPackageErrorCases(t *testing.T) {
-	kp := keyPackage.Clone()
-	// try setting incorrect private key
-	priv, _ := supportedSuites[0].hpke().Generate()
-	err := kp.SetPrivateKey(priv)
-	require.NotNil(t, err)
-
-	// remove priv key, verify retrieval
-	kp.RemovePrivateKey()
-	priv, ok := kp.PrivateKey()
-	require.False(t, ok)
-	require.Empty(t, priv)
 }
 
 func TestProposalErrorCases(t *testing.T) {

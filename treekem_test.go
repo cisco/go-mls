@@ -17,7 +17,7 @@ func newKeyPackage(t *testing.T) ([]byte, SignaturePrivateKey, *KeyPackage) {
 
 	cred := NewBasicCredential(userID, suite.Scheme(), &sigPriv)
 
-	kp, err := NewKeyPackageWithInitKey(suite, initPriv, cred)
+	kp, err := NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred)
 
 	return secret, sigPriv, kp
 }
