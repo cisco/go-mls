@@ -49,6 +49,18 @@ func TestWriteStream(t *testing.T) {
 	require.Equal(t, w.Data(), w2.Data())
 }
 
+func TestAppendToStream(t *testing.T) {
+	w := NewWriteStream()
+	err := w.Append([]byte{0xA0, 0xA1})
+	require.Nil(t, err)
+	err = w.Append([]byte{0xB0, 0xB1})
+	require.Nil(t, err)
+	err = w.Write(streamTestInputs.val3)
+	require.Nil(t, err)
+	encoded := unhex("A0A1B0B10003C0C0C0")
+	require.Equal(t, w.Data(), encoded)
+}
+
 func TestReadStream(t *testing.T) {
 	r := NewReadStream(streamTestInputs.encoded)
 
