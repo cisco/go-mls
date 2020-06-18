@@ -276,7 +276,7 @@ func (p Proposal) Type() ProposalType {
 }
 
 func (p Proposal) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	proposalType := p.Type()
 	err := s.Write(proposalType)
 	if err != nil {
@@ -302,7 +302,7 @@ func (p Proposal) MarshalTLS() ([]byte, error) {
 }
 
 func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var proposalType ProposalType
 	_, err := s.Read(&proposalType)
 	if err != nil {
@@ -417,7 +417,7 @@ func (c MLSPlaintextContent) Type() ContentType {
 }
 
 func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	contentType := c.Type()
 	err := s.Write(contentType)
 	if err != nil {
@@ -443,7 +443,7 @@ func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
 }
 
 func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var contentType ContentType
 	_, err := s.Read(&contentType)
 	if err != nil {
@@ -481,7 +481,7 @@ type MLSPlaintext struct {
 }
 
 func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.Write(ctx)
 	if err != nil {
 		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
@@ -546,7 +546,7 @@ func (pt MLSPlaintext) commitContent() []byte {
 }
 func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	data := pt.Content.Commit
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.WriteAll(data.Confirmation, pt.Signature)
 	if err != nil {
 		return nil, err
