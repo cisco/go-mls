@@ -36,10 +36,10 @@ func setup(t *testing.T) StateTest {
 		sigPriv, err := scheme.Derive(secret)
 		require.Nil(t, err)
 
-		cred := NewBasicCredential(userID, scheme, &sigPriv)
+		cred := NewBasicCredential(userID, scheme, sigPriv.PublicKey)
 
 		//kp gen
-		kp, err := NewKeyPackageWithSecret(suite, secret, cred)
+		kp, err := NewKeyPackageWithSecret(suite, secret, cred, sigPriv)
 		require.Nil(t, err)
 
 		// save all the materials
@@ -55,7 +55,7 @@ func setupGroup(t *testing.T) StateTest {
 	stateTest := setup(t)
 	var states []State
 	// start with the group creator
-	s0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.keyPackages[0])
+	s0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], stateTest.keyPackages[0])
 	require.Nil(t, err)
 	states = append(states, *s0)
 
@@ -74,7 +74,7 @@ func setupGroup(t *testing.T) StateTest {
 	states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := NewJoinedState(stateTest.initSecrets[i], []KeyPackage{stateTest.keyPackages[i]}, *welcome)
+		s, err := NewJoinedState(stateTest.initSecrets[i], stateTest.identityPrivs[i:i+1], stateTest.keyPackages[i:i+1], *welcome)
 		require.Nil(t, err)
 		states = append(states, *s)
 	}
@@ -93,7 +93,7 @@ func setupGroup(t *testing.T) StateTest {
 func TestStateTwoPerson(t *testing.T) {
 	stateTest := setup(t)
 	// creator's state
-	first0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.keyPackages[0])
+	first0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], stateTest.keyPackages[0])
 	require.Nil(t, err)
 
 	// add the second participant
@@ -109,7 +109,7 @@ func TestStateTwoPerson(t *testing.T) {
 	require.Equal(t, first1.NewCredentials, map[LeafIndex]bool{1: true})
 
 	// Initialize the second participant from the Welcome
-	second1, err := NewJoinedState(stateTest.initSecrets[1], []KeyPackage{stateTest.keyPackages[1]}, *welcome)
+	second1, err := NewJoinedState(stateTest.initSecrets[1], stateTest.identityPrivs[1:2], stateTest.keyPackages[1:2], *welcome)
 	require.Nil(t, err)
 	require.Equal(t, second1.NewCredentials, map[LeafIndex]bool{0: true, 1: true})
 
@@ -141,7 +141,7 @@ func TestStateExtensions(t *testing.T) {
 
 	// Check that NewEmptyStateWithExtensions fails if the KP doesn't support them
 	kpA := stateTest.keyPackages[0]
-	_, err := NewEmptyStateWithExtensions(groupID, stateTest.initSecrets[0], kpA, groupExtensions)
+	_, err := NewEmptyStateWithExtensions(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], kpA, groupExtensions)
 	require.Error(t, err)
 
 	// Check that NewEmptyStateWithExtensions succeeds with exetnsion support
@@ -150,7 +150,7 @@ func TestStateExtensions(t *testing.T) {
 	err = kpA.Sign(stateTest.identityPrivs[0])
 	require.Nil(t, err)
 
-	alice0, err := NewEmptyStateWithExtensions(groupID, stateTest.initSecrets[0], kpA, groupExtensions)
+	alice0, err := NewEmptyStateWithExtensions(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], kpA, groupExtensions)
 	require.Nil(t, err)
 	require.Equal(t, len(alice0.Extensions.Entries), 1)
 
@@ -174,7 +174,7 @@ func TestStateExtensions(t *testing.T) {
 func TestStateMarshalUnmarshal(t *testing.T) {
 	// Create Alice and have her add Bob to a group
 	stateTest := setup(t)
-	alice0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.keyPackages[0])
+	alice0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], stateTest.keyPackages[0])
 	require.Nil(t, err)
 
 	add, err := alice0.Add(stateTest.keyPackages[1])
@@ -191,12 +191,12 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	require.Nil(t, err)
 
 	// Initialize Bob generate an Update+Commit
-	bob1, err := NewJoinedState(stateTest.initSecrets[1], []KeyPackage{stateTest.keyPackages[1]}, *welcome1)
+	bob1, err := NewJoinedState(stateTest.initSecrets[1], stateTest.identityPrivs[1:2], stateTest.keyPackages[1:2], *welcome1)
 	require.Nil(t, err)
 	require.True(t, alice1.Equals(*bob1))
 
 	newSecret := randomBytes(32)
-	newKP, err := NewKeyPackageWithSecret(suite, newSecret, &stateTest.keyPackages[1].Credential)
+	newKP, err := NewKeyPackageWithSecret(suite, newSecret, &stateTest.keyPackages[1].Credential, stateTest.identityPrivs[1])
 	require.Nil(t, err)
 	update, err := bob1.Update(newSecret, *newKP)
 	require.Nil(t, err)
@@ -236,7 +236,7 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 func TestStateMulti(t *testing.T) {
 	stateTest := setup(t)
 	// start with the group creator
-	s0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.keyPackages[0])
+	s0, err := NewEmptyState(groupID, stateTest.initSecrets[0], stateTest.identityPrivs[0], stateTest.keyPackages[0])
 	require.Nil(t, err)
 	stateTest.states = append(stateTest.states, *s0)
 
@@ -255,7 +255,7 @@ func TestStateMulti(t *testing.T) {
 	stateTest.states[0] = *next
 	// initialize the new joiners from the welcome
 	for i := 1; i < groupSize; i++ {
-		s, err := NewJoinedState(stateTest.initSecrets[i], []KeyPackage{stateTest.keyPackages[i]}, *welcome)
+		s, err := NewJoinedState(stateTest.initSecrets[i], stateTest.identityPrivs[i:i+1], stateTest.keyPackages[i:i+1], *welcome)
 		require.Nil(t, err)
 		stateTest.states = append(stateTest.states, *s)
 	}
@@ -285,16 +285,11 @@ func TestStateCipherNegotiation(t *testing.T) {
 	scheme := suite.Scheme()
 	aliceSecret := randomBytes(32)
 	alicePriv, _ := scheme.Generate()
-	aliceBc := &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    scheme,
-		SignaturePublicKey: alicePriv.PublicKey,
-	}
-	aliceCred := Credential{Basic: aliceBc, privateKey: &alicePriv}
+	aliceCred := NewBasicCredential([]byte{0x01, 0x02, 0x03, 0x04}, scheme, alicePriv.PublicKey)
 	aliceSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
 	var aliceKPs []KeyPackage
 	for _, s := range aliceSuites {
-		kp, err := NewKeyPackageWithSecret(s, aliceSecret, &aliceCred)
+		kp, err := NewKeyPackageWithSecret(s, aliceSecret, aliceCred, alicePriv)
 		require.Nil(t, err)
 		aliceKPs = append(aliceKPs, *kp)
 	}
@@ -302,27 +297,22 @@ func TestStateCipherNegotiation(t *testing.T) {
 	// Bob spuports P-256 and P-521
 	bobSecret := randomBytes(32)
 	bobPriv, _ := scheme.Generate()
-	bobBc := &BasicCredential{
-		Identity:           []byte{0x04, 0x05, 0x06, 0x07},
-		SignatureScheme:    scheme,
-		SignaturePublicKey: bobPriv.PublicKey,
-	}
-	bobCred := Credential{Basic: bobBc, privateKey: &bobPriv}
+	bobCred := NewBasicCredential([]byte{0x04, 0x05, 0x06, 0x07}, scheme, bobPriv.PublicKey)
 	bobSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
 	var bobKPs []KeyPackage
 	for _, s := range bobSuites {
-		kp, err := NewKeyPackageWithSecret(s, bobSecret, &bobCred)
+		kp, err := NewKeyPackageWithSecret(s, bobSecret, bobCred, bobPriv)
 		require.Nil(t, err)
 		bobKPs = append(bobKPs, *kp)
 	}
 
 	// Bob should choose P-256
 	secret := randomBytes(32)
-	welcome, bobState, err := negotiateWithPeer(groupID, bobSecret, bobKPs, aliceKPs, secret)
+	welcome, bobState, err := negotiateWithPeer(groupID, bobSecret, bobPriv, bobKPs, aliceKPs, secret)
 	require.Nil(t, err)
 
 	// Alice should also arrive at P-256
-	aliceState, err := NewJoinedState(aliceSecret, aliceKPs, *welcome)
+	aliceState, err := NewJoinedState(aliceSecret, []SignaturePrivateKey{alicePriv}, aliceKPs, *welcome)
 	require.Nil(t, err)
 
 	require.True(t, aliceState.Equals(*bobState))
@@ -337,13 +327,13 @@ func TestStateUpdate(t *testing.T) {
 		newCred := NewBasicCredential(oldCred.Identity(), oldCred.Scheme(), &newPriv)
 		*/
 		newIdentity := append(oldCred.Identity(), []byte("-new")...)
-		newCred := NewBasicCredential(newIdentity, oldCred.Scheme(), &state.IdentityPriv)
+		newCred := NewBasicCredential(newIdentity, oldCred.Scheme(), state.IdentityPriv.PublicKey)
 
 		newSecret := randomBytes(32)
 		newInitKey, err := suite.hpke().Derive(newSecret)
 		require.Nil(t, err)
 
-		newKP, err := NewKeyPackageWithInitKey(suite, newInitKey.PublicKey, newCred)
+		newKP, err := NewKeyPackageWithInitKey(suite, newInitKey.PublicKey, newCred, state.IdentityPriv)
 		require.Nil(t, err)
 
 		update, err := state.Update(newSecret, *newKP)

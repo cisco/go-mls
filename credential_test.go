@@ -97,9 +97,9 @@ func makeCertChain(t *testing.T, rootPriv crypto.Signer, depth int, addSKI bool)
 
 func makeX509Credential(t *testing.T, depth int, addSKI bool) (*Credential, *x509.Certificate) {
 	rootPriv := newEd25519(t)
-	leafPriv, rootCert, chain := makeCertChain(t, rootPriv, depth, addSKI)
+	_, rootCert, chain := makeCertChain(t, rootPriv, depth, addSKI)
 
-	cred, err := NewX509Credential(chain, leafPriv)
+	cred, err := NewX509Credential(chain)
 	require.Nil(t, err)
 	return cred, rootCert
 }
@@ -110,7 +110,7 @@ func TestBasicCredential(t *testing.T) {
 	priv, err := scheme.Generate()
 	require.Nil(t, err)
 
-	cred := NewBasicCredential(identity, scheme, &priv)
+	cred := NewBasicCredential(identity, scheme, priv.PublicKey)
 	require.True(t, cred.Equals(*cred))
 	require.Equal(t, cred.Type(), CredentialTypeBasic)
 	require.Equal(t, cred.Scheme(), scheme)
@@ -160,7 +160,7 @@ func TestX509CredentialVerifyBySKI(t *testing.T) {
 }
 
 func TestCredentialErrorCases(t *testing.T) {
-	cred := Credential{nil, nil, nil}
+	cred := Credential{}
 
 	require.Panics(t, func() { cred.Equals(cred) })
 	require.Panics(t, func() { cred.Type() })
@@ -168,37 +168,7 @@ func TestCredentialErrorCases(t *testing.T) {
 	require.Panics(t, func() { cred.Scheme() })
 	require.Panics(t, func() { syntax.Marshal(cred) })
 
-	// Wrong priv key for X.509 Credential
-	rootPriv := newEd25519(t)
-	_, _, chain := makeCertChain(t, rootPriv, 3, false)
-	altPriv, err := Ed25519.Generate()
-	require.Nil(t, err)
-
-	_, err = NewX509Credential(chain, &altPriv)
-	require.Error(t, err)
-
 	// No certificate chain for X.509 Credential
-	_, err = NewX509Credential(nil, &altPriv)
+	_, err := NewX509Credential(nil)
 	require.Error(t, err)
-}
-
-func TestCredentialPrivateKey(t *testing.T) {
-
-	identity := []byte("res ipsa")
-	scheme := Ed25519
-	priv, err := scheme.Generate()
-	require.Nil(t, err)
-
-	cred := NewBasicCredential(identity, scheme, &priv)
-	priv, ok := cred.PrivateKey()
-	require.True(t, ok)
-	require.NotEmpty(t, priv)
-
-	// remove sensitive info before exporting
-	cred.RemovePrivateKey()
-	require.Nil(t, cred.privateKey)
-
-	priv, ok = cred.PrivateKey()
-	require.False(t, ok)
-	require.Empty(t, priv)
 }

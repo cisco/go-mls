@@ -12,9 +12,9 @@ import (
 var (
 	sigPublicKey    = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 	basicCredential = &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    0x0403,
-		SignaturePublicKey: sigPublicKey,
+		Identity:        []byte{0x01, 0x02, 0x03, 0x04},
+		SignatureScheme: 0x0403,
+		PublicKey:       sigPublicKey,
 	}
 
 	credentialBasic = Credential{
@@ -181,8 +181,8 @@ func TestKeyPackageExpiry(t *testing.T) {
 	priv, err := scheme.Generate()
 	require.Nil(t, err)
 
-	cred := NewBasicCredential(userID, scheme, &priv)
-	kp, err := NewKeyPackageWithSecret(suite, randomBytes(32), cred)
+	cred := NewBasicCredential(userID, scheme, priv.PublicKey)
+	kp, err := NewKeyPackageWithSecret(suite, randomBytes(32), cred, priv)
 	require.Nil(t, err)
 
 	ver := kp.Verify()
@@ -211,9 +211,9 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Tree
 		sigPriv, err := scheme.Derive(secret)
 		require.Nil(t, err)
 
-		cred := NewBasicCredential(userID, scheme, &sigPriv)
+		cred := NewBasicCredential(userID, scheme, sigPriv.PublicKey)
 
-		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred)
+		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred, sigPriv)
 		require.Nil(t, err)
 
 		tree.AddLeaf(*keyPackage)
@@ -345,9 +345,9 @@ func generateMessageVectors(t *testing.T) []byte {
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
-			Identity:           tv.UserId,
-			SignatureScheme:    scheme,
-			SignaturePublicKey: sigPub,
+			Identity:        tv.UserId,
+			SignatureScheme: scheme,
+			PublicKey:       sigPub,
 		}
 		cred := Credential{Basic: bc}
 
@@ -538,9 +538,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
-			Identity:           tv.UserId,
-			SignatureScheme:    scheme,
-			SignaturePublicKey: sigPub,
+			Identity:        tv.UserId,
+			SignatureScheme: scheme,
+			PublicKey:       sigPub,
 		}
 		cred := Credential{Basic: bc}
 

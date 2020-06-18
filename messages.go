@@ -150,16 +150,16 @@ func (kp KeyPackage) Verify() bool {
 	return kp.Credential.Scheme().Verify(kp.Credential.PublicKey(), tbs, kp.Signature.Data)
 }
 
-func NewKeyPackageWithSecret(suite CipherSuite, initSecret []byte, cred *Credential) (*KeyPackage, error) {
+func NewKeyPackageWithSecret(suite CipherSuite, initSecret []byte, cred *Credential, sigPriv SignaturePrivateKey) (*KeyPackage, error) {
 	initPriv, err := suite.hpke().Derive(initSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred)
+	return NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred, sigPriv)
 }
 
-func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPublicKey, cred *Credential) (*KeyPackage, error) {
+func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPublicKey, cred *Credential, sigPriv SignaturePrivateKey) (*KeyPackage, error) {
 	kp := &KeyPackage{
 		Version:     ProtocolVersionMLS10,
 		CipherSuite: suite,
@@ -185,7 +185,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPublicKey, cred *Cr
 	}
 
 	// Sign
-	err = kp.Sign(*cred.privateKey)
+	err = kp.Sign(sigPriv)
 	if err != nil {
 		return nil, err
 	}

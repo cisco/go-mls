@@ -29,9 +29,9 @@ func (ct CredentialType) ValidForTLS() error {
 //     SignaturePublicKey public_key;
 // } BasicCredential;
 type BasicCredential struct {
-	Identity           []byte `tls:"head=2"`
-	SignatureScheme    SignatureScheme
-	SignaturePublicKey SignaturePublicKey
+	Identity        []byte `tls:"head=2"`
+	SignatureScheme SignatureScheme
+	PublicKey       SignaturePublicKey
 }
 
 // case x509:
@@ -205,21 +205,20 @@ func (cred X509Credential) Verify(trusted []*x509.Certificate) error {
 //		};
 //} Credential;
 type Credential struct {
-	X509       *X509Credential
-	Basic      *BasicCredential
-	privateKey *SignaturePrivateKey
+	X509  *X509Credential
+	Basic *BasicCredential
 }
 
-func NewBasicCredential(userId []byte, scheme SignatureScheme, priv *SignaturePrivateKey) *Credential {
+func NewBasicCredential(userId []byte, scheme SignatureScheme, pub SignaturePublicKey) *Credential {
 	basicCredential := &BasicCredential{
-		Identity:           userId,
-		SignatureScheme:    scheme,
-		SignaturePublicKey: priv.PublicKey,
+		Identity:        userId,
+		SignatureScheme: scheme,
+		PublicKey:       pub,
 	}
-	return &Credential{Basic: basicCredential, privateKey: priv}
+	return &Credential{Basic: basicCredential}
 }
 
-func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*Credential, error) {
+func NewX509Credential(chain []*x509.Certificate) (*Credential, error) {
 	if len(chain) == 0 {
 		return nil, fmt.Errorf("Malformed credential: At least one certificate is required")
 	}
@@ -228,11 +227,7 @@ func NewX509Credential(chain []*x509.Certificate, priv *SignaturePrivateKey) (*C
 		Chain: chain,
 	}
 
-	if priv != nil && !priv.PublicKey.Equals(*x509Credential.PublicKey()) {
-		return nil, fmt.Errorf("Malformed credential: incorrect private key")
-	}
-
-	return &Credential{X509: x509Credential, privateKey: priv}, nil
+	return &Credential{X509: x509Credential}, nil
 }
 
 // compare the public aspects
@@ -256,22 +251,6 @@ func (c Credential) Type() CredentialType {
 	default:
 		panic("Malformed credential")
 	}
-}
-
-func (c *Credential) SetPrivateKey(priv SignaturePrivateKey) {
-	c.privateKey = &priv
-}
-
-func (c *Credential) RemovePrivateKey() {
-	c.privateKey = nil
-}
-
-func (c Credential) PrivateKey() (SignaturePrivateKey, bool) {
-	if c.privateKey == nil {
-		return SignaturePrivateKey{}, false
-	}
-
-	return *c.privateKey, true
 }
 
 func (c Credential) Identity() []byte {
@@ -301,7 +280,7 @@ func (c Credential) PublicKey() *SignaturePublicKey {
 	case CredentialTypeX509:
 		return c.X509.PublicKey()
 	case CredentialTypeBasic:
-		return &c.Basic.SignaturePublicKey
+		return &c.Basic.PublicKey
 	default:
 		panic("mls.credential: Can't retrieve PublicKey")
 	}
