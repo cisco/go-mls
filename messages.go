@@ -130,10 +130,9 @@ func (kp *KeyPackage) SetExtensions(exts []ExtensionBody) error {
 	return nil
 }
 
-func (kp *KeyPackage) Sign() error {
-	priv := kp.Credential.privateKey
-	if priv == nil {
-		return fmt.Errorf("No private key available for signing")
+func (kp *KeyPackage) Sign(priv SignaturePrivateKey) error {
+	if !priv.PublicKey.Equals(*kp.Credential.PublicKey()) {
+		return fmt.Errorf("Public key mismatch")
 	}
 
 	tbs, err := kp.toBeSigned()
@@ -141,7 +140,7 @@ func (kp *KeyPackage) Sign() error {
 		return err
 	}
 
-	sig, err := kp.Credential.Scheme().Sign(priv, tbs)
+	sig, err := kp.Credential.Scheme().Sign(&priv, tbs)
 	if err != nil {
 		return err
 	}
@@ -222,7 +221,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *C
 	}
 
 	// Sign
-	err = kp.Sign()
+	err = kp.Sign(*cred.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -342,26 +341,12 @@ func (pid ProposalID) String() string {
 	return fmt.Sprintf("%x", pid.Hash)
 }
 
-type DirectPathNode struct {
-	PublicKey            HPKEPublicKey
-	EncryptedPathSecrets []HPKECiphertext `tls:"head=2"`
-}
-
-type DirectPath struct {
-	Nodes []DirectPathNode `tls:"head=2"`
-}
-
-func (p *DirectPath) addNode(n DirectPathNode) {
-	p.Nodes = append(p.Nodes, n)
-}
-
 type Commit struct {
 	Updates []ProposalID `tls:"head=2"`
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
 
-	KeyPackage KeyPackage
-	Path       DirectPath
+	Path DirectPath
 }
 
 ///
@@ -586,7 +571,7 @@ type MLSCiphertext struct {
 type GroupInfo struct {
 	GroupID                 []byte `tls:"head=1"`
 	Epoch                   Epoch
-	Tree                    RatchetTree
+	Tree                    TreeKEMPublicKey
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	InterimTranscriptHash   []byte `tls:"head=1"`
 	Extensions              ExtensionList
@@ -610,7 +595,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
 		GroupID                 []byte `tls:"head=1"`
 		Epoch                   Epoch
-		Tree                    RatchetTree
+		Tree                    TreeKEMPublicKey
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
 		Confirmation            []byte `tls:"head=1"`
@@ -742,7 +727,13 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 	}
 }
 
+// TODO(RLB): Return error instead of panicking
 func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
+	// Check that the ciphersuite is acceptable
+	if kp.CipherSuite != w.CipherSuite {
+		panic(fmt.Errorf("mls.welcome: cipher suite mismatch %v != %v", kp.CipherSuite, w.CipherSuite))
+	}
+
 	// Compute the hash of the kp
 	data, err := syntax.Marshal(kp)
 	if err != nil {

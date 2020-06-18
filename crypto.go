@@ -106,7 +106,7 @@ func (cs CipherSuite) Constants() cipherConstants {
 			KeySize:    32,
 			NonceSize:  12,
 			SecretSize: 64,
-			HPKEKEM:    hpke.DHKEM_P256,
+			HPKEKEM:    hpke.DHKEM_P521,
 			HPKEKDF:    hpke.KDF_HKDF_SHA512,
 			HPKEAEAD:   hpke.AEAD_AESGCM256,
 		}
