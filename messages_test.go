@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 	"github.com/stretchr/testify/require"
 )
 
@@ -190,7 +190,10 @@ func TestKeyPackageExpiry(t *testing.T) {
 
 	// Change the expiration time to a time in the past and check that verify()
 	// now fails
-	alreadyExpired := ExpirationExtension(time.Now().Add(-24 * time.Hour).Unix())
+	alreadyExpired := LifetimeExtension{
+		NotBefore: 0,
+		NotAfter:  uint64(time.Now().Add(-24 * time.Hour).Unix()),
+	}
 	err = kp.SetExtensions([]ExtensionBody{alreadyExpired})
 	require.Nil(t, err)
 	err = kp.Sign(priv)

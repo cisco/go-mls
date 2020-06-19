@@ -3,7 +3,7 @@ package mls
 import (
 	"fmt"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 )
 
 type ExtensionType uint16
@@ -12,7 +12,7 @@ const (
 	ExtensionTypeInvalid               ExtensionType = 0x0000
 	ExtensionTypeSupportedVersions     ExtensionType = 0x0001
 	ExtensionTypeSupportedCipherSuites ExtensionType = 0x0002
-	ExtensionTypeExpiration            ExtensionType = 0x0003
+	ExtensionTypeLifetime              ExtensionType = 0x0003
 	ExtensionTypeKeyID                 ExtensionType = 0x0004
 	ExtensionTypeParentHash            ExtensionType = 0x0005
 )
@@ -105,10 +105,13 @@ func (sce SupportedCipherSuitesExtension) Type() ExtensionType {
 
 //////////
 
-type ExpirationExtension uint64
+type LifetimeExtension struct {
+	NotBefore uint64
+	NotAfter  uint64
+}
 
-func (ee ExpirationExtension) Type() ExtensionType {
-	return ExtensionTypeExpiration
+func (lte LifetimeExtension) Type() ExtensionType {
+	return ExtensionTypeLifetime
 }
 
 //////////
