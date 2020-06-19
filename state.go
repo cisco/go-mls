@@ -245,54 +245,6 @@ func NewJoinedState(initSecret []byte, sigPrivs []SignaturePrivateKey, kps []Key
 	return s, nil
 }
 
-func negotiateWithPeer(groupID []byte, leafSecret []byte, sigPriv SignaturePrivateKey, myKPs, otherKPs []KeyPackage, commitSecret []byte) (*Welcome, *State, error) {
-	var selected = false
-	var mySelectedKP, otherSelectedKP KeyPackage
-
-	for _, mykp := range myKPs {
-		for _, okp := range otherKPs {
-			if mykp.CipherSuite == okp.CipherSuite && mykp.Version == okp.Version {
-				selected = true
-				mySelectedKP = mykp
-				otherSelectedKP = okp
-				break
-			}
-		}
-		if selected {
-			break
-		}
-	}
-
-	if !selected {
-		return nil, nil, fmt.Errorf("mls.state: negotiation failure")
-	}
-
-	// init our state and add the negotiated peer's kp
-	s, err := NewEmptyState(groupID, leafSecret, sigPriv, mySelectedKP)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	add, err := s.Add(otherSelectedKP)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// update tree state
-	_, err = s.Handle(add)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// commit the add and generate welcome to be sent to the peer
-	_, welcome, newState, err := s.Commit(commitSecret)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return welcome, newState, nil
-}
-
 func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
 	// Verify that the new member supports the group's extensions
 	for _, ext := range s.Extensions.Entries {

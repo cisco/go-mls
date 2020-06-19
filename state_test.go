@@ -280,44 +280,6 @@ func TestStateMulti(t *testing.T) {
 	}
 }
 
-func TestStateCipherNegotiation(t *testing.T) {
-	// Alice supports P-256 and X25519
-	scheme := suite.Scheme()
-	aliceSecret := randomBytes(32)
-	alicePriv, _ := scheme.Generate()
-	aliceCred := NewBasicCredential([]byte{0x01, 0x02, 0x03, 0x04}, scheme, alicePriv.PublicKey)
-	aliceSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
-	var aliceKPs []KeyPackage
-	for _, s := range aliceSuites {
-		kp, err := NewKeyPackageWithSecret(s, aliceSecret, aliceCred, alicePriv)
-		require.Nil(t, err)
-		aliceKPs = append(aliceKPs, *kp)
-	}
-
-	// Bob spuports P-256 and P-521
-	bobSecret := randomBytes(32)
-	bobPriv, _ := scheme.Generate()
-	bobCred := NewBasicCredential([]byte{0x04, 0x05, 0x06, 0x07}, scheme, bobPriv.PublicKey)
-	bobSuites := []CipherSuite{P256_AES128GCM_SHA256_P256, X25519_AES128GCM_SHA256_Ed25519}
-	var bobKPs []KeyPackage
-	for _, s := range bobSuites {
-		kp, err := NewKeyPackageWithSecret(s, bobSecret, bobCred, bobPriv)
-		require.Nil(t, err)
-		bobKPs = append(bobKPs, *kp)
-	}
-
-	// Bob should choose P-256
-	secret := randomBytes(32)
-	welcome, bobState, err := negotiateWithPeer(groupID, bobSecret, bobPriv, bobKPs, aliceKPs, secret)
-	require.Nil(t, err)
-
-	// Alice should also arrive at P-256
-	aliceState, err := NewJoinedState(aliceSecret, []SignaturePrivateKey{alicePriv}, aliceKPs, *welcome)
-	require.Nil(t, err)
-
-	require.True(t, aliceState.Equals(*bobState))
-}
-
 func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
