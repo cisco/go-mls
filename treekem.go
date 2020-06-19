@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 )
 
 type NodeType uint8
@@ -119,7 +119,7 @@ func (n Node) PublicKey() HPKEPublicKey {
 }
 
 func (n Node) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	nodeType := n.Type()
 	err := s.Write(nodeType)
 	if err != nil {
@@ -142,7 +142,7 @@ func (n Node) MarshalTLS() ([]byte, error) {
 }
 
 func (n *Node) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var nodeType NodeType
 	_, err := s.Read(&nodeType)
 	if err != nil {
@@ -377,7 +377,9 @@ func NewTreeKEMPrivateKeyForJoiner(suite CipherSuite, index LeafIndex, size Leaf
 	}
 
 	priv.PathSecrets[toNodeIndex(index)] = dup(leafSecret)
-	priv.setPathSecrets(intersect, size, pathSecret)
+	if pathSecret != nil {
+		priv.setPathSecrets(intersect, size, pathSecret)
+	}
 	return priv
 }
 
@@ -431,10 +433,9 @@ func (priv TreeKEMPrivateKey) privateKey(n NodeIndex) (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte, bool) {
+func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte) {
 	n := ancestor(priv.Index, to)
-	secret, ok := priv.PathSecrets[n]
-	return n, secret, ok
+	return n, priv.PathSecrets[n]
 }
 
 func (priv *TreeKEMPrivateKey) SetLeafSecret(secret []byte) {
@@ -832,17 +833,51 @@ func (pub *TreeKEMPublicKey) clearHashPath(index LeafIndex) {
 }
 
 func (pub TreeKEMPublicKey) RootHash() []byte {
-	r := root(pub.Size())
-	return pub.Nodes[r].Hash
+	h, err := pub.getHash(root(pub.Size()))
+	if err != nil {
+		// XXX(RLB)
+		panic(err)
+	}
+
+	return h
 }
 
 func (pub *TreeKEMPublicKey) SetHashAll() error {
-	return pub.setHash(root(pub.Size()))
+	_, err := pub.getHash(root(pub.Size()))
+	return err
+}
+
+func (pub *TreeKEMPublicKey) getHash(index NodeIndex) ([]byte, error) {
+	if pub.Nodes[index].Hash != nil {
+		return pub.Nodes[index].Hash, nil
+	}
+
+	if level(index) == 0 {
+		err := pub.Nodes[index].SetLeafNodeHash(pub.Suite, toLeafIndex(index))
+		return pub.Nodes[index].Hash, err
+	}
+
+	lh, err := pub.getHash(left(index))
+	if err != nil {
+		return nil, err
+	}
+
+	rh, err := pub.getHash(right(index, pub.Size()))
+	if err != nil {
+		return nil, err
+	}
+
+	err = pub.Nodes[index].SetParentNodeHash(pub.Suite, index, lh, rh)
+	return pub.Nodes[index].Hash, err
 }
 
 func (pub *TreeKEMPublicKey) setHash(index NodeIndex) error {
 	if level(index) == 0 {
 		return pub.Nodes[index].SetLeafNodeHash(pub.Suite, toLeafIndex(index))
+	}
+
+	if pub.Nodes[index].Hash != nil {
+		return nil
 	}
 
 	li := left(index)
@@ -864,9 +899,9 @@ func (pub *TreeKEMPublicKey) setHash(index NodeIndex) error {
 	return pub.Nodes[index].SetParentNodeHash(pub.Suite, index, lh, rh)
 }
 
-func (pub TreeKEMPublicKey) dump(label string) {
+func (pub *TreeKEMPublicKey) dump(label string) {
 	fmt.Printf("~~~ %s ~~~\n", label)
-	fmt.Printf("suite=[%d]\n", pub.Suite)
+	fmt.Printf("&pub = %p\n", pub)
 
 	for i, n := range pub.Nodes {
 		hash := "-"
