@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 )
 
 type NodeType uint8
@@ -119,7 +119,7 @@ func (n Node) PublicKey() HPKEPublicKey {
 }
 
 func (n Node) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	nodeType := n.Type()
 	err := s.Write(nodeType)
 	if err != nil {
@@ -142,7 +142,7 @@ func (n Node) MarshalTLS() ([]byte, error) {
 }
 
 func (n *Node) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var nodeType NodeType
 	_, err := s.Read(&nodeType)
 	if err != nil {

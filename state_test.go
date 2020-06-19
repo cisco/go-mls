@@ -198,7 +198,7 @@ func TestStateMarshalUnmarshal(t *testing.T) {
 	newSecret := randomBytes(32)
 	newKP, err := NewKeyPackageWithSecret(suite, newSecret, &stateTest.keyPackages[1].Credential, stateTest.identityPrivs[1])
 	require.Nil(t, err)
-	update, err := bob1.Update(newSecret, *newKP)
+	update, err := bob1.Update(newSecret, nil, *newKP)
 	require.Nil(t, err)
 	_, err = bob1.Handle(update)
 	require.Nil(t, err)
@@ -322,12 +322,8 @@ func TestStateUpdate(t *testing.T) {
 	stateTest := setupGroup(t)
 	for i, state := range stateTest.states {
 		oldCred := stateTest.keyPackages[i].Credential
-		/* TODO(RLB): Re-enable changing credential public key
 		newPriv, _ := oldCred.Scheme().Generate()
 		newCred := NewBasicCredential(oldCred.Identity(), oldCred.Scheme(), &newPriv)
-		*/
-		newIdentity := append(oldCred.Identity(), []byte("-new")...)
-		newCred := NewBasicCredential(newIdentity, oldCred.Scheme(), state.IdentityPriv.PublicKey)
 
 		newSecret := randomBytes(32)
 		newInitKey, err := suite.hpke().Derive(newSecret)
@@ -336,7 +332,7 @@ func TestStateUpdate(t *testing.T) {
 		newKP, err := NewKeyPackageWithInitKey(suite, newInitKey.PublicKey, newCred, state.IdentityPriv)
 		require.Nil(t, err)
 
-		update, err := state.Update(newSecret, *newKP)
+		update, err := state.Update(newSecret, &newPriv, *newKP)
 		require.Nil(t, err)
 		state.Handle(update)
 

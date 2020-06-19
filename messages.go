@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 )
 
 ///
@@ -125,14 +125,19 @@ func (kp KeyPackage) Verify() bool {
 	}
 
 	// Verify that the KeyPackage has not expired
-	var expirationExt ExpirationExtension
-	found, err := kp.Extensions.Find(&expirationExt)
+	var lifetimeExt LifetimeExtension
+	found, err := kp.Extensions.Find(&lifetimeExt)
 	if !found || err != nil {
 		return false
 	}
 
-	expiry := time.Unix(int64(expirationExt), 0)
-	if time.Now().After(expiry) {
+	now := time.Now()
+	notAfter := time.Unix(int64(lifetimeExt.NotAfter), 0)
+	if now.After(notAfter) {
+		return false
+	}
+	notBefore := time.Unix(int64(lifetimeExt.NotBefore), 0)
+	if now.Before(notBefore) {
 		return false
 	}
 
@@ -178,8 +183,8 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPublicKey, cred *Cr
 		return nil, err
 	}
 
-	expiry := time.Now().Add(defaultLifetime).Unix()
-	err = kp.Extensions.Add(ExpirationExtension(expiry))
+	expiry := uint64(time.Now().Add(defaultLifetime).Unix())
+	err = kp.Extensions.Add(LifetimeExtension{NotBefore: 0, NotAfter: expiry})
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +245,7 @@ func (p Proposal) Type() ProposalType {
 }
 
 func (p Proposal) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	proposalType := p.Type()
 	err := s.Write(proposalType)
 	if err != nil {
@@ -266,7 +271,7 @@ func (p Proposal) MarshalTLS() ([]byte, error) {
 }
 
 func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var proposalType ProposalType
 	_, err := s.Read(&proposalType)
 	if err != nil {
@@ -381,7 +386,7 @@ func (c MLSPlaintextContent) Type() ContentType {
 }
 
 func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	contentType := c.Type()
 	err := s.Write(contentType)
 	if err != nil {
@@ -407,7 +412,7 @@ func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
 }
 
 func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var contentType ContentType
 	_, err := s.Read(&contentType)
 	if err != nil {
@@ -445,7 +450,7 @@ type MLSPlaintext struct {
 }
 
 func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.Write(ctx)
 	if err != nil {
 		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
@@ -510,7 +515,7 @@ func (pt MLSPlaintext) commitContent() []byte {
 }
 func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	data := pt.Content.Commit
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.WriteAll(data.Confirmation, pt.Signature)
 	if err != nil {
 		return nil, err
