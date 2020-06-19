@@ -1,4 +1,4 @@
-module github.com/suhasHere/mls
+module github.com/cisco/go-mls
 
 go 1.14
 
