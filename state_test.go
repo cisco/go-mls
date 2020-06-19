@@ -323,13 +323,13 @@ func TestStateUpdate(t *testing.T) {
 	for i, state := range stateTest.states {
 		oldCred := stateTest.keyPackages[i].Credential
 		newPriv, _ := oldCred.Scheme().Generate()
-		newCred := NewBasicCredential(oldCred.Identity(), oldCred.Scheme(), &newPriv)
+		newCred := NewBasicCredential(oldCred.Identity(), oldCred.Scheme(), newPriv.PublicKey)
 
 		newSecret := randomBytes(32)
 		newInitKey, err := suite.hpke().Derive(newSecret)
 		require.Nil(t, err)
 
-		newKP, err := NewKeyPackageWithInitKey(suite, newInitKey.PublicKey, newCred, state.IdentityPriv)
+		newKP, err := NewKeyPackageWithInitKey(suite, newInitKey.PublicKey, newCred, newPriv)
 		require.Nil(t, err)
 
 		update, err := state.Update(newSecret, &newPriv, *newKP)
