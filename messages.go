@@ -130,10 +130,9 @@ func (kp *KeyPackage) SetExtensions(exts []ExtensionBody) error {
 	return nil
 }
 
-func (kp *KeyPackage) Sign() error {
-	priv := kp.Credential.privateKey
-	if priv == nil {
-		return fmt.Errorf("No private key available for signing")
+func (kp *KeyPackage) Sign(priv SignaturePrivateKey) error {
+	if !priv.PublicKey.Equals(*kp.Credential.PublicKey()) {
+		return fmt.Errorf("Public key mismatch")
 	}
 
 	tbs, err := kp.toBeSigned()
@@ -141,7 +140,7 @@ func (kp *KeyPackage) Sign() error {
 		return err
 	}
 
-	sig, err := kp.Credential.Scheme().Sign(priv, tbs)
+	sig, err := kp.Credential.Scheme().Sign(&priv, tbs)
 	if err != nil {
 		return err
 	}
@@ -222,7 +221,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *C
 	}
 
 	// Sign
-	err = kp.Sign()
+	err = kp.Sign(*cred.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +276,7 @@ func (p Proposal) Type() ProposalType {
 }
 
 func (p Proposal) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	proposalType := p.Type()
 	err := s.Write(proposalType)
 	if err != nil {
@@ -303,7 +302,7 @@ func (p Proposal) MarshalTLS() ([]byte, error) {
 }
 
 func (p *Proposal) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var proposalType ProposalType
 	_, err := s.Read(&proposalType)
 	if err != nil {
@@ -340,20 +339,6 @@ type ProposalID struct {
 
 func (pid ProposalID) String() string {
 	return fmt.Sprintf("%x", pid.Hash)
-}
-
-type DirectPathNode struct {
-	PublicKey            HPKEPublicKey
-	EncryptedPathSecrets []HPKECiphertext `tls:"head=2"`
-}
-
-type DirectPath struct {
-	KeyPackage KeyPackage
-	Nodes      []DirectPathNode `tls:"head=2"`
-}
-
-func (p *DirectPath) addNode(n DirectPathNode) {
-	p.Nodes = append(p.Nodes, n)
 }
 
 type Commit struct {
@@ -447,7 +432,7 @@ func (c MLSPlaintextContent) Type() ContentType {
 }
 
 func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	contentType := c.Type()
 	err := s.Write(contentType)
 	if err != nil {
@@ -473,7 +458,7 @@ func (c MLSPlaintextContent) MarshalTLS() ([]byte, error) {
 }
 
 func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var contentType ContentType
 	_, err := s.Read(&contentType)
 	if err != nil {
@@ -511,7 +496,7 @@ type MLSPlaintext struct {
 }
 
 func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.Write(ctx)
 	if err != nil {
 		panic(fmt.Errorf("mls.mlsplaintext: grpCtx marshal failure %v", err))
@@ -576,7 +561,7 @@ func (pt MLSPlaintext) commitContent() []byte {
 }
 func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	data := pt.Content.Commit
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	err := s.WriteAll(data.Confirmation, pt.Signature)
 	if err != nil {
 		return nil, err
@@ -601,7 +586,7 @@ type MLSCiphertext struct {
 type GroupInfo struct {
 	GroupID                 []byte `tls:"head=1"`
 	Epoch                   Epoch
-	Tree                    RatchetTree
+	Tree                    TreeKEMPublicKey
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	InterimTranscriptHash   []byte `tls:"head=1"`
 	Extensions              ExtensionList
@@ -625,7 +610,7 @@ func (gi GroupInfo) toBeSigned() ([]byte, error) {
 	return syntax.Marshal(struct {
 		GroupID                 []byte `tls:"head=1"`
 		Epoch                   Epoch
-		Tree                    RatchetTree
+		Tree                    TreeKEMPublicKey
 		ConfirmedTranscriptHash []byte `tls:"head=1"`
 		InterimTranscriptHash   []byte `tls:"head=1"`
 		Confirmation            []byte `tls:"head=1"`
@@ -761,7 +746,13 @@ func newWelcome(cs CipherSuite, epochSecret []byte, groupInfo *GroupInfo) *Welco
 	}
 }
 
+// TODO(RLB): Return error instead of panicking
 func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
+	// Check that the ciphersuite is acceptable
+	if kp.CipherSuite != w.CipherSuite {
+		panic(fmt.Errorf("mls.welcome: cipher suite mismatch %v != %v", kp.CipherSuite, w.CipherSuite))
+	}
+
 	// Compute the hash of the kp
 	data, err := syntax.Marshal(kp)
 	if err != nil {

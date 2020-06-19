@@ -308,7 +308,7 @@ func (c Credential) PublicKey() *SignaturePublicKey {
 }
 
 func (c Credential) MarshalTLS() ([]byte, error) {
-	s := NewWriteStream()
+	s := syntax.NewWriteStream()
 	credentialType := c.Type()
 	err := s.Write(credentialType)
 	if err != nil {
@@ -331,7 +331,7 @@ func (c Credential) MarshalTLS() ([]byte, error) {
 }
 
 func (c *Credential) UnmarshalTLS(data []byte) (int, error) {
-	s := NewReadStream(data)
+	s := syntax.NewReadStream(data)
 	var credentialType CredentialType
 	_, err := s.Read(&credentialType)
 	if err != nil {
