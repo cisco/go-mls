@@ -688,8 +688,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		require.Equal(t, commit.Adds, commitWire.Adds)
 		require.Equal(t, commit.Removes, commitWire.Removes)
 		require.Equal(t, commit.Updates, commitWire.Updates)
-		require.Nil(t, commit.Path.LeafKeyPackage.privateKey)
-		require.Nil(t, commitWire.Path.LeafKeyPackage.privateKey)
 		require.Equal(t, commit.Path.LeafKeyPackage, commitWire.Path.LeafKeyPackage)
 		// Path not verified because HPKE is randomized
 

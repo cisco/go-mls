@@ -433,9 +433,10 @@ func (priv TreeKEMPrivateKey) privateKey(n NodeIndex) (HPKEPrivateKey, error) {
 	return key, nil
 }
 
-func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte) {
+func (priv TreeKEMPrivateKey) SharedPathSecret(to LeafIndex) (NodeIndex, []byte, bool) {
 	n := ancestor(priv.Index, to)
-	return n, priv.PathSecrets[n]
+	secret, ok := priv.PathSecrets[n]
+	return n, secret, ok
 }
 
 func (priv *TreeKEMPrivateKey) SetLeafSecret(secret []byte) {

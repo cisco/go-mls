@@ -62,7 +62,8 @@ func TestTreeKEM(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, privs[i].ConsistentPub(*pub))
 
-		overlap, pathSecret := privs[i].SharedPathSecret(joiner)
+		overlap, pathSecret, ok := privs[i].SharedPathSecret(joiner)
+		require.True(t, ok)
 		require.NotNil(t, pathSecret)
 
 		// New joiner initializes their private key

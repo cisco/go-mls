@@ -362,10 +362,6 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 
 		_, pathSecret, ok := next.TreePriv.SharedPathSecret(leaf)
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
-		}
-
 		welcome.EncryptTo(kp, pathSecret)
 	}
 
