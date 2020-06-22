@@ -315,7 +315,22 @@ type Commit struct {
 	Removes []ProposalID `tls:"head=2"`
 	Adds    []ProposalID `tls:"head=2"`
 
-	Path DirectPath
+	Path *DirectPath `tls:"optional"`
+}
+
+func (commit Commit) PathRequired() bool {
+	haveUpdates := len(commit.Updates) > 0
+	haveRemoves := len(commit.Removes) > 0
+	haveAdds := len(commit.Adds) > 0
+
+	nonAddProposals := haveUpdates || haveRemoves
+	noProposalsAtAll := !haveUpdates && !haveRemoves && !haveAdds
+
+	return nonAddProposals || noProposalsAtAll
+}
+
+func (commit Commit) ValidForTLS() bool {
+	return commit.Path != nil || !commit.PathRequired()
 }
 
 ///
@@ -638,9 +653,13 @@ func (gi GroupInfo) verify() error {
 ///
 /// GroupSecrets
 ///
+type PathSecret struct {
+	Data []byte `tls:"head=1"`
+}
+
 type GroupSecrets struct {
-	EpochSecret []byte `tls:"head=1"`
-	PathSecret  []byte `tls:"head=1"`
+	EpochSecret []byte      `tls:"head=1"`
+	PathSecret  *PathSecret `tls:"optional"`
 }
 
 ///
@@ -714,7 +733,10 @@ func (w *Welcome) EncryptTo(kp KeyPackage, pathSecret []byte) {
 	// Encrypt the group init secret to new member's public key
 	gs := GroupSecrets{
 		EpochSecret: w.epochSecret,
-		PathSecret:  pathSecret,
+	}
+
+	if pathSecret != nil {
+		gs.PathSecret = &PathSecret{pathSecret}
 	}
 
 	pt, err := syntax.Marshal(gs)

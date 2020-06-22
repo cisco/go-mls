@@ -377,7 +377,9 @@ func NewTreeKEMPrivateKeyForJoiner(suite CipherSuite, index LeafIndex, size Leaf
 	}
 
 	priv.PathSecrets[toNodeIndex(index)] = dup(leafSecret)
-	priv.setPathSecrets(intersect, size, pathSecret)
+	if pathSecret != nil {
+		priv.setPathSecrets(intersect, size, pathSecret)
+	}
 	return priv
 }
 
@@ -832,17 +834,51 @@ func (pub *TreeKEMPublicKey) clearHashPath(index LeafIndex) {
 }
 
 func (pub TreeKEMPublicKey) RootHash() []byte {
-	r := root(pub.Size())
-	return pub.Nodes[r].Hash
+	h, err := pub.getHash(root(pub.Size()))
+	if err != nil {
+		// XXX(RLB)
+		panic(err)
+	}
+
+	return h
 }
 
 func (pub *TreeKEMPublicKey) SetHashAll() error {
-	return pub.setHash(root(pub.Size()))
+	_, err := pub.getHash(root(pub.Size()))
+	return err
+}
+
+func (pub *TreeKEMPublicKey) getHash(index NodeIndex) ([]byte, error) {
+	if pub.Nodes[index].Hash != nil {
+		return pub.Nodes[index].Hash, nil
+	}
+
+	if level(index) == 0 {
+		err := pub.Nodes[index].SetLeafNodeHash(pub.Suite, toLeafIndex(index))
+		return pub.Nodes[index].Hash, err
+	}
+
+	lh, err := pub.getHash(left(index))
+	if err != nil {
+		return nil, err
+	}
+
+	rh, err := pub.getHash(right(index, pub.Size()))
+	if err != nil {
+		return nil, err
+	}
+
+	err = pub.Nodes[index].SetParentNodeHash(pub.Suite, index, lh, rh)
+	return pub.Nodes[index].Hash, err
 }
 
 func (pub *TreeKEMPublicKey) setHash(index NodeIndex) error {
 	if level(index) == 0 {
 		return pub.Nodes[index].SetLeafNodeHash(pub.Suite, toLeafIndex(index))
+	}
+
+	if pub.Nodes[index].Hash != nil {
+		return nil
 	}
 
 	li := left(index)
@@ -864,9 +900,9 @@ func (pub *TreeKEMPublicKey) setHash(index NodeIndex) error {
 	return pub.Nodes[index].SetParentNodeHash(pub.Suite, index, lh, rh)
 }
 
-func (pub TreeKEMPublicKey) dump(label string) {
+func (pub *TreeKEMPublicKey) dump(label string) {
 	fmt.Printf("~~~ %s ~~~\n", label)
-	fmt.Printf("suite=[%d]\n", pub.Suite)
+	fmt.Printf("&pub = %p\n", pub)
 
 	for i, n := range pub.Nodes {
 		hash := "-"

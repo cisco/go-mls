@@ -84,19 +84,16 @@ var (
 		},
 	}
 
+	dp = &DirectPath{
+		LeafKeyPackage: *keyPackage,
+		Steps:          nodes,
+	}
+
 	commit = &Commit{
 		Updates: []ProposalID{{Hash: []byte{0x00, 0x01}}},
 		Removes: []ProposalID{{Hash: []byte{0x02, 0x03}}},
 		Adds:    []ProposalID{{Hash: []byte{0x04, 0x05}}},
-		Path: DirectPath{
-			LeafKeyPackage: *keyPackage,
-			Steps: []DirectPathNode{
-				{
-					PublicKey:            nodePublicKey,
-					EncryptedPathSecrets: []HPKECiphertext{},
-				},
-			},
-		},
+		Path:    dp,
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
@@ -362,7 +359,7 @@ func generateMessageVectors(t *testing.T) []byte {
 		treeSigPriv, err := scheme.Derive(secrets[0])
 		require.Nil(t, err)
 
-		_, path, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
+		_, _, err = ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -373,6 +370,8 @@ func generateMessageVectors(t *testing.T) []byte {
 			Credential:  cred,
 			Signature:   Signature{tv.Random},
 		}
+
+		dp.LeafKeyPackage = kp
 
 		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
@@ -483,7 +482,7 @@ func generateMessageVectors(t *testing.T) []byte {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Path:    *path,
+			Path:    dp,
 		}
 
 		commitM, err := syntax.Marshal(commit)
@@ -555,7 +554,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		treeSigPriv, err := scheme.Derive(secrets[0])
 		require.Nil(t, err)
 
-		_, path, err := ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
+		_, _, err = ratchetTree.Encap(LeafIndex(0), []byte{}, tv.Random, treeSigPriv, nil)
 		require.Nil(t, err)
 
 		// KeyPackage
@@ -567,6 +566,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Extensions:  NewExtensionList(),
 			Signature:   Signature{tv.Random},
 		}
+
+		dp.LeafKeyPackage = kp
+
 		kpM, err := syntax.Marshal(kp)
 		require.Nil(t, err)
 		require.Equal(t, kpM, tc.KeyPackage)
@@ -677,7 +679,7 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 			Updates: proposal,
 			Removes: proposal,
 			Adds:    proposal,
-			Path:    *path,
+			Path:    dp,
 		}
 
 		var commitWire Commit
@@ -686,7 +688,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		require.Equal(t, commit.Adds, commitWire.Adds)
 		require.Equal(t, commit.Removes, commitWire.Removes)
 		require.Equal(t, commit.Updates, commitWire.Updates)
-		// Path.Steps not verified because ECDSA and HPKE are randomized
+		require.Equal(t, commit.Path.LeafKeyPackage, commitWire.Path.LeafKeyPackage)
+		// Path not verified because HPKE is randomized
 
 		//MlsCiphertext
 		ct := MLSCiphertext{

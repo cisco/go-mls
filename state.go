@@ -219,11 +219,12 @@ func NewJoinedState(initSecret []byte, sigPrivs []SignaturePrivateKey, kps []Key
 	s.Index = index
 	commonAncestor := ancestor(s.Index, signerIndex)
 
-	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), initSecret, commonAncestor, groupSecrets.PathSecret)
-	if priv, err := treePriv.privateKey(toNodeIndex(s.Index)); err != nil || !priv.PublicKey.Equals(keyPackage.InitKey) {
-		return nil, fmt.Errorf("mls.state: Mismatch between tree and KP [%v]", err)
+	var pathSecret []byte
+	if groupSecrets.PathSecret != nil {
+		pathSecret = groupSecrets.PathSecret.Data
 	}
 
+	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), initSecret, commonAncestor, pathSecret)
 	s.TreePriv = *treePriv
 
 	// Start up the key schedule
@@ -235,10 +236,7 @@ func NewJoinedState(initSecret []byte, sigPrivs []SignaturePrivateKey, kps []Key
 	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
 
 	// confirmation verification
-	hmac := suite.NewHMAC(s.Keys.ConfirmationKey)
-	hmac.Write(s.ConfirmedTranscriptHash)
-	localConfirmation := hmac.Sum(nil)
-	if !bytes.Equal(localConfirmation, confirmation) {
+	if !s.verifyConfirmation(confirmation) {
 		return nil, fmt.Errorf("mls.state: confirmation failed to verify")
 	}
 
@@ -320,19 +318,21 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	// reset after commit the proposals
 	next.PendingProposals = nil
 
-	// KEM new entropy to the new group
-	ctx, err := syntax.Marshal(next.groupContext())
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	// KEM new entropy to the new group if needed
+	if commit.PathRequired() {
+		ctx, err := syntax.Marshal(next.groupContext())
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	treePriv, treePath, err := next.Tree.Encap(s.Index, ctx, leafSecret, next.IdentityPriv, nil)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+		treePriv, treePath, err := next.Tree.Encap(s.Index, ctx, leafSecret, next.IdentityPriv, nil)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 
-	next.TreePriv = *treePriv
-	commit.Path = *treePath
+		next.TreePriv = *treePriv
+		commit.Path = treePath
+	}
 
 	// Create the Commit message and advance the transcripts / key schedule
 	pt, err := next.ratchetAndSign(commit, next.TreePriv.UpdateSecret, s.groupContext(), s.IdentityPriv)
@@ -362,10 +362,6 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 		}
 
 		_, pathSecret, ok := next.TreePriv.SharedPathSecret(leaf)
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
-		}
-
 		welcome.EncryptTo(kp, pathSecret)
 	}
 
@@ -668,26 +664,30 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	next.PendingProposals = next.PendingProposals[:0]
 
-	// apply the direct path
-	ctx, err := syntax.Marshal(GroupContext{
-		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch,
-		TreeHash:                next.Tree.RootHash(),
-		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("mls.state: failure to create context %v", err)
-	}
+	// apply the direct path, if provided
+	commitSecret := s.CipherSuite.zero()
+	if commitData.Commit.Path != nil {
+		ctx, err := syntax.Marshal(GroupContext{
+			GroupID:                 next.GroupID,
+			Epoch:                   next.Epoch,
+			TreeHash:                next.Tree.RootHash(),
+			ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mls.state: failure to create context %v", err)
+		}
 
-	err = next.TreePriv.Decap(senderIndex, next.Tree, ctx, commitData.Commit.Path)
-	if err != nil {
-		fmt.Printf("decap error: %v", err)
-		return nil, err
-	}
+		err = next.TreePriv.Decap(senderIndex, next.Tree, ctx, *commitData.Commit.Path)
+		if err != nil {
+			return nil, err
+		}
 
-	err = next.Tree.Merge(senderIndex, commitData.Commit.Path)
-	if err != nil {
-		return nil, err
+		commitSecret = next.TreePriv.UpdateSecret
+
+		err = next.Tree.Merge(senderIndex, *commitData.Commit.Path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Update the confirmed transcript hash
@@ -698,7 +698,7 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 	// Advance the key schedule
 	next.Epoch += 1
-	next.updateEpochSecrets(next.TreePriv.UpdateSecret)
+	next.updateEpochSecrets(commitSecret)
 
 	// Verify confirmation MAC
 	if !next.verifyConfirmation(commitData.Confirmation.Data) {
@@ -722,7 +722,6 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 ///// protect/unprotect and helpers
 
 func (s State) verifyConfirmation(confirmation []byte) bool {
-	// confirmation verification
 	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
 	confirm := hmac.Sum(nil)

@@ -64,6 +64,7 @@ func TestTreeKEM(t *testing.T) {
 
 		overlap, pathSecret, ok := privs[i].SharedPathSecret(joiner)
 		require.True(t, ok)
+		require.NotNil(t, pathSecret)
 
 		// New joiner initializes their private key
 		privs[i+1] = NewTreeKEMPrivateKeyForJoiner(suite, joiner, pub.Size(), secret, overlap, pathSecret)
