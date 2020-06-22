@@ -534,8 +534,8 @@ func (priv TreeKEMPrivateKey) dump(label string) {
 			panic(err)
 		}
 
-		secret := priv.PathSecrets[n]
-		pub := nodePriv.PublicKey.Data
+		secret := priv.PathSecrets[n][:4]
+		pub := nodePriv.PublicKey.Data[:4]
 		fmt.Printf("  [%d] secret=%x... pub=%x...\n", n, secret, pub)
 	}
 }

@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cisco/go-tls-syntax"
+	syntax "github.com/cisco/go-tls-syntax"
 	"github.com/stretchr/testify/require"
 )
 
 var (
 	sigPublicKey    = SignaturePublicKey{[]byte{0xA0, 0xA0, 0xA0, 0xA0}}
 	basicCredential = &BasicCredential{
-		Identity:           []byte{0x01, 0x02, 0x03, 0x04},
-		SignatureScheme:    0x0403,
-		SignaturePublicKey: sigPublicKey,
+		Identity:        []byte{0x01, 0x02, 0x03, 0x04},
+		SignatureScheme: 0x0403,
+		PublicKey:       sigPublicKey,
 	}
 
 	credentialBasic = Credential{
@@ -178,8 +178,8 @@ func TestKeyPackageExpiry(t *testing.T) {
 	priv, err := scheme.Generate()
 	require.Nil(t, err)
 
-	cred := NewBasicCredential(userID, scheme, &priv)
-	kp, err := NewKeyPackage(suite, cred)
+	cred := NewBasicCredential(userID, scheme, priv.PublicKey)
+	kp, err := NewKeyPackageWithSecret(suite, randomBytes(32), cred, priv)
 	require.Nil(t, err)
 
 	ver := kp.Verify()
@@ -187,7 +187,10 @@ func TestKeyPackageExpiry(t *testing.T) {
 
 	// Change the expiration time to a time in the past and check that verify()
 	// now fails
-	alreadyExpired := ExpirationExtension(time.Now().Add(-24 * time.Hour).Unix())
+	alreadyExpired := LifetimeExtension{
+		NotBefore: 0,
+		NotAfter:  uint64(time.Now().Add(-24 * time.Hour).Unix()),
+	}
 	err = kp.SetExtensions([]ExtensionBody{alreadyExpired})
 	require.Nil(t, err)
 	err = kp.Sign(priv)
@@ -208,9 +211,9 @@ func newTestRatchetTree(t *testing.T, suite CipherSuite, secrets [][]byte) *Tree
 		sigPriv, err := scheme.Derive(secret)
 		require.Nil(t, err)
 
-		cred := NewBasicCredential(userID, scheme, &sigPriv)
+		cred := NewBasicCredential(userID, scheme, sigPriv.PublicKey)
 
-		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv, cred)
+		keyPackage, err = NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred, sigPriv)
 		require.Nil(t, err)
 
 		tree.AddLeaf(*keyPackage)
@@ -262,20 +265,6 @@ func TestWelcomeMarshalUnMarshalWithDecryption(t *testing.T) {
 	_, err = syntax.Unmarshal(pt, w2kp)
 	require.Nil(t, err)
 	require.Equal(t, epochSecret, w2kp.EpochSecret)
-}
-
-func TestKeyPackageErrorCases(t *testing.T) {
-	kp := keyPackage.Clone()
-	// try setting incorrect private key
-	priv, _ := supportedSuites[0].hpke().Generate()
-	err := kp.SetPrivateKey(priv)
-	require.NotNil(t, err)
-
-	// remove priv key, verify retrieval
-	kp.RemovePrivateKey()
-	priv, ok := kp.PrivateKey()
-	require.False(t, ok)
-	require.Empty(t, priv)
 }
 
 func TestProposalErrorCases(t *testing.T) {
@@ -356,9 +345,9 @@ func generateMessageVectors(t *testing.T) []byte {
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
-			Identity:           tv.UserId,
-			SignatureScheme:    scheme,
-			SignaturePublicKey: sigPub,
+			Identity:        tv.UserId,
+			SignatureScheme: scheme,
+			PublicKey:       sigPub,
 		}
 		cred := Credential{Basic: bc}
 
@@ -551,9 +540,9 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		sigPub := sigPriv.PublicKey
 
 		bc := &BasicCredential{
-			Identity:           tv.UserId,
-			SignatureScheme:    scheme,
-			SignaturePublicKey: sigPub,
+			Identity:        tv.UserId,
+			SignatureScheme: scheme,
+			PublicKey:       sigPub,
 		}
 		cred := Credential{Basic: bc}
 

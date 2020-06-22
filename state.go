@@ -68,11 +68,11 @@ type State struct {
 	NewCredentials map[LeafIndex]bool
 }
 
-func NewEmptyState(groupID []byte, leafSecret []byte, kp KeyPackage) (*State, error) {
-	return NewEmptyStateWithExtensions(groupID, leafSecret, kp, NewExtensionList())
+func NewEmptyState(groupID []byte, leafSecret []byte, sigPriv SignaturePrivateKey, kp KeyPackage) (*State, error) {
+	return NewEmptyStateWithExtensions(groupID, leafSecret, sigPriv, kp, NewExtensionList())
 }
 
-func NewEmptyStateWithExtensions(groupID []byte, leafSecret []byte, kp KeyPackage, ext ExtensionList) (*State, error) {
+func NewEmptyStateWithExtensions(groupID []byte, leafSecret []byte, sigPriv SignaturePrivateKey, kp KeyPackage, ext ExtensionList) (*State, error) {
 	suite := kp.CipherSuite
 
 	tree := NewTreeKEMPublicKey(suite)
@@ -96,7 +96,7 @@ func NewEmptyStateWithExtensions(groupID []byte, leafSecret []byte, kp KeyPackag
 		Tree:                    *tree,
 		Keys:                    kse,
 		Index:                   0,
-		IdentityPriv:            *kp.Credential.privateKey,
+		IdentityPriv:            sigPriv,
 		TreePriv:                *treePriv,
 		Scheme:                  kp.Credential.Scheme(),
 		PendingUpdates:          map[ProposalRef]updateSecrets{},
@@ -138,7 +138,9 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	return s, gi.SignerIndex, gi.Confirmation, nil
 }
 
-func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*State, error) {
+func NewJoinedState(initSecret []byte, sigPrivs []SignaturePrivateKey, kps []KeyPackage, welcome Welcome) (*State, error) {
+	var initPriv HPKEPrivateKey
+	var sigPriv SignaturePrivateKey
 	var keyPackage KeyPackage
 	var encGroupSecrets EncryptedGroupSecrets
 	var found = false
@@ -154,6 +156,16 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		for _, egs := range welcome.Secrets {
 			found = bytes.Equal(kphash, egs.KeyPackageHash)
 			if found {
+				initPriv, err = kp.CipherSuite.hpke().Derive(initSecret)
+				if err != nil {
+					return nil, err
+				}
+
+				if !initPriv.PublicKey.Equals(kp.InitKey) {
+					return nil, fmt.Errorf("Incorrect init secret")
+				}
+
+				sigPriv = sigPrivs[idx]
 				keyPackage = kp
 				encGroupSecrets = egs
 				break
@@ -172,15 +184,7 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		return nil, fmt.Errorf("mls.state: ciphersuite mismatch")
 	}
 
-	if keyPackage.privateKey == nil {
-		return nil, fmt.Errorf("mls.state: no private key for init key")
-	}
-
-	if keyPackage.Credential.privateKey == nil {
-		return nil, fmt.Errorf("mls.state: no signing key for init key")
-	}
-
-	pt, err := suite.hpke().Decrypt(*keyPackage.privateKey, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
+	pt, err := suite.hpke().Decrypt(initPriv, []byte{}, encGroupSecrets.EncryptedGroupSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: encKeyPkg decryption failure %v", err)
 	}
@@ -197,7 +201,7 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		return nil, err
 	}
 
-	s.IdentityPriv = *keyPackage.Credential.privateKey
+	s.IdentityPriv = sigPriv
 	s.Scheme = keyPackage.Credential.Scheme()
 
 	// Verify that the joiner supports the group's extensions
@@ -220,7 +224,7 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 		pathSecret = groupSecrets.PathSecret.Data
 	}
 
-	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), leafSecret, commonAncestor, pathSecret)
+	treePriv := NewTreeKEMPrivateKeyForJoiner(s.CipherSuite, s.Index, s.Tree.Size(), initSecret, commonAncestor, pathSecret)
 	s.TreePriv = *treePriv
 
 	// Start up the key schedule
@@ -237,54 +241,6 @@ func NewJoinedState(leafSecret []byte, kps []KeyPackage, welcome Welcome) (*Stat
 	}
 
 	return s, nil
-}
-
-func negotiateWithPeer(groupID []byte, leafSecret []byte, myKPs, otherKPs []KeyPackage, commitSecret []byte) (*Welcome, *State, error) {
-	var selected = false
-	var mySelectedKP, otherSelectedKP KeyPackage
-
-	for _, mykp := range myKPs {
-		for _, okp := range otherKPs {
-			if mykp.CipherSuite == okp.CipherSuite && mykp.Version == okp.Version {
-				selected = true
-				mySelectedKP = mykp
-				otherSelectedKP = okp
-				break
-			}
-		}
-		if selected {
-			break
-		}
-	}
-
-	if !selected {
-		return nil, nil, fmt.Errorf("mls.state: negotiation failure")
-	}
-
-	// init our state and add the negotiated peer's kp
-	s, err := NewEmptyState(groupID, leafSecret, mySelectedKP)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	add, err := s.Add(otherSelectedKP)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// update tree state
-	_, err = s.Handle(add)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// commit the add and generate welcome to be sent to the peer
-	_, welcome, newState, err := s.Commit(commitSecret)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return welcome, newState, nil
 }
 
 func (s State) Add(kp KeyPackage) (*MLSPlaintext, error) {
@@ -405,7 +361,11 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 			return nil, nil, nil, fmt.Errorf("mls.state: New joiner not in tree")
 		}
 
-		_, pathSecret := next.TreePriv.SharedPathSecret(leaf)
+		_, pathSecret, ok := next.TreePriv.SharedPathSecret(leaf)
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("mls.state: No path secret for new joiner")
+		}
+
 		welcome.EncryptTo(kp, pathSecret)
 	}
 
@@ -1103,9 +1063,6 @@ func (s *State) SetSecrets(ss StateSecrets) {
 }
 
 func (s State) GetSecrets() StateSecrets {
-	initKP, _ := s.Tree.KeyPackage(s.Index)
-	initPriv, _ := initKP.PrivateKey()
-
 	pendingUpdates := map[ProposalRef]updateSecrets{}
 	for i, secret := range s.PendingUpdates {
 		pendingUpdates[i] = secret
@@ -1114,7 +1071,6 @@ func (s State) GetSecrets() StateSecrets {
 	return StateSecrets{
 		CipherSuite:      s.CipherSuite,
 		Index:            s.Index,
-		InitPriv:         initPriv,
 		IdentityPriv:     s.IdentityPriv,
 		Scheme:           s.Scheme,
 		PendingProposals: s.PendingProposals,
