@@ -39,7 +39,6 @@ type KeyPackage struct {
 	Credential  Credential
 	Extensions  ExtensionList
 	Signature   Signature
-	privateKey  *HPKEPrivateKey `tls:"omit"`
 }
 
 func (kp KeyPackage) Equals(other KeyPackage) bool {
@@ -60,30 +59,7 @@ func (kp KeyPackage) Clone() KeyPackage {
 		Credential:  kp.Credential,
 		Extensions:  kp.Extensions,
 		Signature:   kp.Signature,
-		privateKey:  kp.privateKey,
 	}
-}
-
-func (kp KeyPackage) PrivateKey() (HPKEPrivateKey, bool) {
-	if kp.privateKey == nil {
-		return HPKEPrivateKey{}, false
-	}
-
-	return *kp.privateKey, true
-}
-
-func (kp *KeyPackage) SetPrivateKey(priv HPKEPrivateKey) error {
-	if !kp.InitKey.Equals(priv.PublicKey) {
-		return fmt.Errorf("Incorrect private key for key package")
-	}
-
-	kp.privateKey = &priv
-	kp.InitKey = priv.PublicKey
-	return nil
-}
-
-func (kp *KeyPackage) RemovePrivateKey() {
-	kp.privateKey = nil
 }
 
 func (kp KeyPackage) toBeSigned() ([]byte, error) {
@@ -106,17 +82,6 @@ func (kp KeyPackage) toBeSigned() ([]byte, error) {
 	}
 
 	return enc, nil
-}
-
-func (kp *KeyPackage) UpdateInitKey() error {
-	initPriv, err := kp.CipherSuite.hpke().Generate()
-	if err != nil {
-		return err
-	}
-
-	kp.privateKey = &initPriv
-	kp.InitKey = initPriv.PublicKey
-	return nil
 }
 
 func (kp *KeyPackage) SetExtensions(exts []ExtensionBody) error {
@@ -190,22 +155,21 @@ func (kp KeyPackage) Verify() bool {
 	return kp.Credential.Scheme().Verify(kp.Credential.PublicKey(), tbs, kp.Signature.Data)
 }
 
-func NewKeyPackage(suite CipherSuite, cred *Credential) (*KeyPackage, error) {
-	initKey, err := suite.hpke().Generate()
+func NewKeyPackageWithSecret(suite CipherSuite, initSecret []byte, cred *Credential, sigPriv SignaturePrivateKey) (*KeyPackage, error) {
+	initPriv, err := suite.hpke().Derive(initSecret)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewKeyPackageWithInitKey(suite, initKey, cred)
+	return NewKeyPackageWithInitKey(suite, initPriv.PublicKey, cred, sigPriv)
 }
 
-func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *Credential) (*KeyPackage, error) {
+func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPublicKey, cred *Credential, sigPriv SignaturePrivateKey) (*KeyPackage, error) {
 	kp := &KeyPackage{
 		Version:     ProtocolVersionMLS10,
 		CipherSuite: suite,
-		InitKey:     initKey.PublicKey,
+		InitKey:     initKey,
 		Credential:  *cred,
-		privateKey:  &initKey,
 	}
 
 	// Add required extensions
@@ -226,7 +190,7 @@ func NewKeyPackageWithInitKey(suite CipherSuite, initKey HPKEPrivateKey, cred *C
 	}
 
 	// Sign
-	err = kp.Sign(*cred.privateKey)
+	err = kp.Sign(sigPriv)
 	if err != nil {
 		return nil, err
 	}
