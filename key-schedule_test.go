@@ -134,7 +134,8 @@ type KsEpoch struct {
 	PSK          []byte `tls:"head=1"`
 	CommitSecret []byte `tls:"head=1"`
 
-	EpochSecret      []byte        `tls:"head=1"`
+	EpochSecret      []byte `tls:"head=1"`
+	Epoch            Epoch
 	SenderDataSecret []byte        `tls:"head=1"`
 	SenderDataKey    []byte        `tls:"head=1"`
 	HandshakeSecret  []byte        `tls:"head=1"`
@@ -169,7 +170,6 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 	suites := []CipherSuite{P256_AES128GCM_SHA256_P256}
 	baseGrpCtx := GroupContext{
 		GroupID:                 []byte{0xA0, 0xA0, 0xA0, 0xA0},
-		Epoch:                   0,
 		TreeHash:                bytes.Repeat([]byte{0xA1}, 32),
 		ConfirmedTranscriptHash: bytes.Repeat([]byte{0xA2}, 32),
 	}
@@ -221,6 +221,7 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 
 				NumMembers:       LeafCount(nMembers),
 				EpochSecret:      epoch.EpochSecret,
+				Epoch:            epoch.Epoch,
 				SenderDataSecret: epoch.SenderDataSecret,
 				SenderDataKey:    epoch.SenderDataKey,
 				HandshakeSecret:  epoch.HandshakeSecret,
@@ -235,7 +236,6 @@ func generateKeyScheduleVectors(t *testing.T) []byte {
 
 			tc.Epochs = append(tc.Epochs, kse)
 
-			grpCtx.Epoch += 1
 			nMembers = (nMembers-minMembers)%(maxMembers-minMembers) + minMembers
 		}
 		tv.Cases = append(tv.Cases, tc)
@@ -264,6 +264,7 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 
 			// check the secrets
 			require.Equal(t, myEpoch.EpochSecret, epoch.EpochSecret)
+			require.Equal(t, myEpoch.Epoch, epoch.Epoch)
 			require.Equal(t, myEpoch.SenderDataSecret, epoch.SenderDataSecret)
 			require.Equal(t, myEpoch.SenderDataKey, epoch.SenderDataKey)
 			require.Equal(t, myEpoch.HandshakeSecret, epoch.HandshakeSecret)
@@ -287,9 +288,7 @@ func verifyKeyScheduleVectors(t *testing.T, data []byte) {
 				require.Nil(t, err)
 				require.Equal(t, as.Key, epoch.AppKeys[i].Key)
 				require.Equal(t, as.Nonce, epoch.AppKeys[i].Nonce)
-
 			}
-			grpCtx.Epoch += 1
 		}
 	}
 }

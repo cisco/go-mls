@@ -14,7 +14,6 @@ import (
 ///
 type GroupContext struct {
 	GroupID                 []byte `tls:"head=1"`
-	Epoch                   Epoch
 	TreeHash                []byte `tls:"head=1"`
 	ConfirmedTranscriptHash []byte `tls:"head=1"`
 	Extensions              ExtensionList
@@ -92,7 +91,7 @@ func NewEmptyStateWithExtensions(groupID []byte, leafSecret []byte, sigPriv Sign
 	s := &State{
 		CipherSuite:             kp.CipherSuite,
 		GroupID:                 groupID,
-		Epoch:                   0,
+		Epoch:                   kse.Epoch,
 		Tree:                    *tree,
 		Keys:                    kse,
 		Index:                   0,
@@ -118,7 +117,6 @@ func NewStateFromWelcome(suite CipherSuite, epochSecret []byte, welcome Welcome)
 	// Construct the new state
 	s := &State{
 		CipherSuite:             suite,
-		Epoch:                   gi.Epoch,
 		Tree:                    gi.Tree.Clone(),
 		GroupID:                 gi.GroupID,
 		ConfirmedTranscriptHash: gi.ConfirmedTranscriptHash,
@@ -234,6 +232,7 @@ func NewJoinedState(initSecret []byte, sigPrivs []SignaturePrivateKey, kps []Key
 	}
 
 	s.Keys = newKeyScheduleEpoch(suite, LeafCount(s.Tree.Size()), groupSecrets.EpochSecret, encGrpCtx)
+	s.Epoch = s.Keys.Epoch
 
 	// confirmation verification
 	if !s.verifyConfirmation(confirmation) {
@@ -343,7 +342,6 @@ func (s *State) Commit(leafSecret []byte) (*MLSPlaintext, *Welcome, *State, erro
 	// Complete the GroupInfo and form the Welcome
 	gi := &GroupInfo{
 		GroupID:                 next.GroupID,
-		Epoch:                   next.Epoch,
 		Tree:                    next.Tree,
 		ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
 		InterimTranscriptHash:   next.InterimTranscriptHash,
@@ -514,7 +512,6 @@ func (s State) proposalID(plaintext MLSPlaintext) ProposalID {
 func (s State) groupContext() GroupContext {
 	return GroupContext{
 		GroupID:                 s.GroupID,
-		Epoch:                   s.Epoch,
 		TreeHash:                s.Tree.RootHash(),
 		ConfirmedTranscriptHash: s.ConfirmedTranscriptHash,
 		Extensions:              s.Extensions,
@@ -523,9 +520,8 @@ func (s State) groupContext() GroupContext {
 
 func (s State) sign(p Proposal) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
-		GroupID: s.GroupID,
-		Epoch:   s.Epoch,
-		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
+		Epoch:  s.Epoch,
+		Sender: Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Proposal: &p,
 		},
@@ -541,9 +537,9 @@ func (s State) sign(p Proposal) (*MLSPlaintext, error) {
 func (s *State) updateEpochSecrets(secret []byte) {
 	ctx, err := syntax.Marshal(GroupContext{
 		GroupID:                 s.GroupID,
-		Epoch:                   s.Epoch,
 		TreeHash:                s.Tree.RootHash(),
 		ConfirmedTranscriptHash: s.ConfirmedTranscriptHash,
+		Extensions:              s.Extensions,
 	})
 	if err != nil {
 		panic(fmt.Errorf("mls.state: update epoch secret failed %v", err))
@@ -551,13 +547,13 @@ func (s *State) updateEpochSecrets(secret []byte) {
 
 	// TODO(RLB) Provide an API to provide PSKs
 	s.Keys = s.Keys.Next(LeafCount(s.Tree.Size()), nil, secret, ctx)
+	s.Epoch = s.Keys.Epoch
 }
 
 func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupContext, sigPriv SignaturePrivateKey) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
-		GroupID: s.GroupID,
-		Epoch:   s.Epoch,
-		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
+		Epoch:  s.Epoch,
+		Sender: Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Commit: &CommitData{
 				Commit: op,
@@ -572,7 +568,6 @@ func (s *State) ratchetAndSign(op Commit, commitSecret []byte, prevGrpCtx GroupC
 	s.ConfirmedTranscriptHash = digest.Sum(nil)
 
 	// Advance the key schedule
-	s.Epoch += 1
 	s.updateEpochSecrets(commitSecret)
 
 	// generate the confirmation based on the new keys
@@ -619,10 +614,6 @@ func (s State) signerPublicKey(sender Sender) (*SignaturePublicKey, error) {
 }
 
 func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
-	if !bytes.Equal(pt.GroupID, s.GroupID) {
-		return nil, fmt.Errorf("mls.state: groupId mismatch")
-	}
-
 	if pt.Epoch != s.Epoch {
 		return nil, fmt.Errorf("mls.state: epoch mismatch, have %v, got %v", s.Epoch, pt.Epoch)
 	}
@@ -669,9 +660,9 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	if commitData.Commit.Path != nil {
 		ctx, err := syntax.Marshal(GroupContext{
 			GroupID:                 next.GroupID,
-			Epoch:                   next.Epoch,
 			TreeHash:                next.Tree.RootHash(),
 			ConfirmedTranscriptHash: next.ConfirmedTranscriptHash,
+			Extensions:              next.Extensions,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: failure to create context %v", err)
@@ -697,7 +688,6 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 	next.ConfirmedTranscriptHash = digest.Sum(nil)
 
 	// Advance the key schedule
-	next.Epoch += 1
 	next.updateEpochSecrets(commitSecret)
 
 	// Verify confirmation MAC
@@ -768,7 +758,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 
 	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
-	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, senderDataNonce)
+	senderDataAADVal := senderDataAAD(s.Epoch, senderDataNonce)
 	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderDataData, senderDataAADVal)
 
@@ -783,14 +773,13 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	}
 	content := stream.Data()
 
-	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
+	aad := contentAAD(s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
 	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
 	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, senderDataStr.ReuseGuard), content, aad)
 
 	// set up MLSCipherText
 	ct := &MLSCiphertext{
-		GroupID:             s.GroupID,
 		Epoch:               s.Epoch,
 		AuthenticatedData:   pt.AuthenticatedData,
 		SenderDataNonce:     senderDataNonce,
@@ -802,16 +791,12 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 }
 
 func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
-	if !bytes.Equal(ct.GroupID, s.GroupID) {
-		return nil, fmt.Errorf("mls.state: ciphertext not from this group")
-	}
-
 	if ct.Epoch != s.Epoch {
 		return nil, fmt.Errorf("mls.state: ciphertext not from this epoch")
 	}
 
 	// handle sender data
-	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ct.SenderDataNonce)
+	sdAAD := senderDataAAD(ct.Epoch, ct.SenderDataNonce)
 	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	decryptedSenderData, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
 	if err != nil {
@@ -847,7 +832,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		return nil, fmt.Errorf("mls.state: unsupported content type")
 	}
 
-	aad := contentAAD(ct.GroupID, ct.Epoch, contentType,
+	aad := contentAAD(ct.Epoch, contentType,
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
 	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
 	content, err := aead.Open(nil, applyGuard(keys.Nonce, senderDataStr.ReuseGuard), ct.Ciphertext, aad)
@@ -869,7 +854,6 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	_, _ = syntax.Unmarshal(content, &mlsContent)
 
 	pt := &MLSPlaintext{
-		GroupID:           s.GroupID,
 		Epoch:             s.Epoch,
 		Sender:            Sender{SenderTypeMember, uint32(sender)},
 		AuthenticatedData: ct.AuthenticatedData,
@@ -881,9 +865,8 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 
 func (s *State) Protect(data []byte) (*MLSCiphertext, error) {
 	pt := &MLSPlaintext{
-		GroupID: s.GroupID,
-		Epoch:   s.Epoch,
-		Sender:  Sender{SenderTypeMember, uint32(s.Index)},
+		Epoch:  s.Epoch,
+		Sender: Sender{SenderTypeMember, uint32(s.Index)},
 		Content: MLSPlaintextContent{
 			Application: &ApplicationData{
 				Data: data,
@@ -919,14 +902,12 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 	return pt.Content.Application.Data, nil
 }
 
-func senderDataAAD(gid []byte, epoch Epoch, nonce []byte) []byte {
+func senderDataAAD(epoch Epoch, nonce []byte) []byte {
 	s := syntax.NewWriteStream()
 	err := s.Write(struct {
-		GroupID         []byte `tls:"head=1"`
 		Epoch           Epoch
 		SenderDataNonce []byte `tls:"head=1"`
 	}{
-		GroupID:         gid,
 		Epoch:           epoch,
 		SenderDataNonce: nonce,
 	})
@@ -938,20 +919,18 @@ func senderDataAAD(gid []byte, epoch Epoch, nonce []byte) []byte {
 	return s.Data()
 }
 
-func contentAAD(gid []byte, epoch Epoch,
+func contentAAD(epoch Epoch,
 	contentType ContentType, authenticatedData []byte,
 	nonce []byte, encSenderData []byte) []byte {
 
 	s := syntax.NewWriteStream()
 	err := s.Write(struct {
-		GroupID             []byte `tls:"head=1"`
 		Epoch               Epoch
 		ContentType         ContentType
 		AuthenticatedData   []byte `tls:"head=4"`
 		SenderDataNonce     []byte `tls:"head=1"`
 		EncryptedSenderData []byte `tls:"head=1"`
 	}{
-		GroupID:             gid,
 		Epoch:               epoch,
 		ContentType:         contentType,
 		AuthenticatedData:   authenticatedData,
@@ -1044,6 +1023,7 @@ func NewStateFromWelcomeAndSecrets(welcome Welcome, ss StateSecrets) (*State, er
 }
 
 func (s *State) SetSecrets(ss StateSecrets) {
+	s.Epoch = ss.Keys.Epoch
 	s.CipherSuite = ss.CipherSuite
 	s.Index = ss.Index
 	s.IdentityPriv = ss.IdentityPriv

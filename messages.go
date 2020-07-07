@@ -456,7 +456,6 @@ func (c *MLSPlaintextContent) UnmarshalTLS(data []byte) (int, error) {
 }
 
 type MLSPlaintext struct {
-	GroupID           []byte `tls:"head=1"`
 	Epoch             Epoch
 	Sender            Sender
 	AuthenticatedData []byte `tls:"head=4"`
@@ -472,13 +471,11 @@ func (pt MLSPlaintext) toBeSigned(ctx GroupContext) []byte {
 	}
 
 	err = s.Write(struct {
-		GroupID           []byte `tls:"head=1"`
 		Epoch             Epoch
 		Sender            Sender
 		AuthenticatedData []byte `tls:"head=4"`
 		Content           MLSPlaintextContent
 	}{
-		GroupID:           pt.GroupID,
 		Epoch:             pt.Epoch,
 		Sender:            pt.Sender,
 		AuthenticatedData: pt.AuthenticatedData,
@@ -509,13 +506,11 @@ func (pt *MLSPlaintext) verify(ctx GroupContext, pub *SignaturePublicKey, scheme
 
 func (pt MLSPlaintext) commitContent() []byte {
 	enc, err := syntax.Marshal(struct {
-		GroupId     []byte `tls:"head=1"`
 		Epoch       Epoch
 		Sender      Sender
 		Commit      Commit
 		ContentType ContentType
 	}{
-		GroupId:     pt.GroupID,
 		Epoch:       pt.Epoch,
 		Sender:      pt.Sender,
 		Commit:      pt.Content.Commit.Commit,
@@ -539,7 +534,6 @@ func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 }
 
 type MLSCiphertext struct {
-	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`

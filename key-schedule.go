@@ -278,7 +278,9 @@ type keyScheduleEpoch struct {
 	Suite        CipherSuite
 	GroupContext []byte `tls:"head=1"`
 
-	EpochSecret       []byte `tls:"head=1"`
+	EpochSecret []byte `tls:"head=1"`
+
+	Epoch             Epoch
 	SenderDataSecret  []byte `tls:"head=1"`
 	SenderDataKey     []byte `tls:"head=1"`
 	HandshakeSecret   []byte `tls:"head=1"`
@@ -298,6 +300,11 @@ type keyScheduleEpoch struct {
 }
 
 func newKeyScheduleEpoch(suite CipherSuite, size LeafCount, epochSecret, context []byte) keyScheduleEpoch {
+	contextHash := suite.Digest(context)
+	epochID := suite.hkdfExpandLabel(epochSecret, "epoch", contextHash, 8)
+	var epoch Epoch
+	syntax.Unmarshal(epochID, &epoch)
+
 	senderDataSecret := suite.deriveSecret(epochSecret, "sender data", context)
 	handshakeSecret := suite.deriveSecret(epochSecret, "handshake", context)
 	applicationSecret := suite.deriveSecret(epochSecret, "app", context)
@@ -313,7 +320,9 @@ func newKeyScheduleEpoch(suite CipherSuite, size LeafCount, epochSecret, context
 		Suite:        suite,
 		GroupContext: context,
 
-		EpochSecret:       epochSecret,
+		EpochSecret: epochSecret,
+
+		Epoch:             epoch,
 		SenderDataSecret:  senderDataSecret,
 		SenderDataKey:     senderDataKey,
 		HandshakeSecret:   handshakeSecret,

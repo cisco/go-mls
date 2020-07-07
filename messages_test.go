@@ -97,7 +97,6 @@ var (
 	}
 
 	mlsPlaintextIn = &MLSPlaintext{
-		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
 		Sender:            Sender{SenderTypeMember, 4},
 		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
@@ -110,7 +109,6 @@ var (
 	}
 
 	mlsPlaintextCommitIn = &MLSPlaintext{
-		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
 		Sender:            Sender{SenderTypeMember, 4},
 		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
@@ -126,7 +124,6 @@ var (
 	}
 
 	mlsPlaintextProposalIn = &MLSPlaintext{
-		GroupID:           []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:             1,
 		Sender:            Sender{SenderTypeMember, 4},
 		AuthenticatedData: []byte{0xAA, 0xBB, 0xcc, 0xdd},
@@ -137,7 +134,6 @@ var (
 	}
 
 	mlsCiphertextIn = &MLSCiphertext{
-		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
 		AuthenticatedData:   []byte{0xAA, 0xBB, 0xCC},
 		SenderDataNonce:     []byte{0x01, 0x02},
@@ -425,9 +421,8 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		addHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -444,9 +439,8 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		updateHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -463,9 +457,8 @@ func generateMessageVectors(t *testing.T) []byte {
 		}
 
 		removeHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -489,7 +482,6 @@ func generateMessageVectors(t *testing.T) []byte {
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
-			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
@@ -619,9 +611,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		addHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: addProposal,
 			},
@@ -639,9 +630,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		updateHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: updateProposal,
 			},
@@ -659,9 +649,8 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		}
 
 		removeHs := MLSPlaintext{
-			GroupID: tv.GroupID,
-			Epoch:   tv.Epoch,
-			Sender:  Sender{tv.SenderType, uint32(tv.SignerIndex)},
+			Epoch:  tv.Epoch,
+			Sender: Sender{tv.SenderType, uint32(tv.SignerIndex)},
 			Content: MLSPlaintextContent{
 				Proposal: removeProposal,
 			},
@@ -691,7 +680,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 
 		//MlsCiphertext
 		ct := MLSCiphertext{
-			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
