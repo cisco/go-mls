@@ -139,7 +139,6 @@ var (
 	mlsCiphertextIn = &MLSCiphertext{
 		GroupID:             []byte{0x01, 0x02, 0x03, 0x04},
 		Epoch:               1,
-		ContentType:         1,
 		AuthenticatedData:   []byte{0xAA, 0xBB, 0xCC},
 		SenderDataNonce:     []byte{0x01, 0x02},
 		EncryptedSenderData: []byte{0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
@@ -492,7 +491,6 @@ func generateMessageVectors(t *testing.T) []byte {
 		ct := MLSCiphertext{
 			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
-			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
 			AuthenticatedData:   tv.Random,
@@ -695,7 +693,6 @@ func verifyMessageVectors(t *testing.T, data []byte) {
 		ct := MLSCiphertext{
 			GroupID:             tv.GroupID,
 			Epoch:               tv.Epoch,
-			ContentType:         ContentTypeApplication,
 			SenderDataNonce:     tv.Random,
 			EncryptedSenderData: tv.Random,
 			AuthenticatedData:   tv.Random,

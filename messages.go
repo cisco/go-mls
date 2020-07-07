@@ -541,7 +541,6 @@ func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 type MLSCiphertext struct {
 	GroupID             []byte `tls:"head=1"`
 	Epoch               Epoch
-	ContentType         ContentType
 	SenderDataNonce     []byte `tls:"head=1"`
 	EncryptedSenderData []byte `tls:"head=1"`
 	AuthenticatedData   []byte `tls:"head=4"`
