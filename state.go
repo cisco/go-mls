@@ -754,29 +754,26 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var reuseGuard [4]byte
 	rand.Read(reuseGuard[:])
 
-	stream := syntax.NewWriteStream()
-	err := stream.WriteAll(s.Index, generation, reuseGuard)
+	w := syntax.NewWriteStream()
+	err := w.WriteAll(s.Index, generation, reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
 	}
+	senderData := w.Data()
 
-	senderData := stream.Data()
 	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce)
 	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
-	// content data
-	stream = syntax.NewWriteStream()
-	err = stream.Write(pt.Content)
-	if err == nil {
-		err = stream.Write(pt.Signature)
-	}
+	// write content data, skipping content type
+	w = syntax.NewWriteStream()
+	err = w.WriteAll(pt.Content, pt.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content marshal failure %v", err)
 	}
-	content := stream.Data()
+	content := w.Data()[1:]
 
 	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
 		pt.AuthenticatedData, senderDataNonce, sdCt)
@@ -818,8 +815,8 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	var sender LeafIndex
 	var generation uint32
 	var reuseGuard [4]byte
-	stream := syntax.NewReadStream(sd)
-	_, err = stream.ReadAll(&sender, &generation, &reuseGuard)
+	r := syntax.NewReadStream(sd)
+	_, err = r.ReadAll(&sender, &generation, &reuseGuard)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
@@ -851,27 +848,22 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
 
-	// parse the Content and Signature
-	stream = syntax.NewReadStream(content)
-	var mlsContent MLSPlaintextContent
-	var signature Signature
-	_, err = stream.Read(&mlsContent)
-	if err == nil {
-		_, err = stream.Read(&signature)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("mls.state: content unmarshal failure %v", err)
-	}
-	_, _ = syntax.Unmarshal(content, &mlsContent)
-
+	// Create a partial MLSPlaintext with what we have so far
 	pt := &MLSPlaintext{
 		GroupID:           s.GroupID,
 		Epoch:             s.Epoch,
 		Sender:            Sender{SenderTypeMember, uint32(sender)},
 		AuthenticatedData: ct.AuthenticatedData,
-		Content:           mlsContent,
-		Signature:         signature,
 	}
+
+	// Parse the Content and Signature
+	content = append([]byte{byte(ct.ContentType)}, content...)
+	r = syntax.NewReadStream(content)
+	_, err = r.ReadAll(&pt.Content, &pt.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: content unmarshal failure %v", err)
+	}
+
 	return pt, nil
 }
 
