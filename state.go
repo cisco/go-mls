@@ -763,7 +763,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	senderData := stream.Data()
 	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
-	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), senderDataNonce)
+	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce)
 	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
 
@@ -807,7 +807,7 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	}
 
 	// handle sender data
-	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.SenderDataNonce)
+	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.AuthenticatedData, ct.SenderDataNonce)
 	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	sd, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
 	if err != nil {
@@ -915,18 +915,20 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 	return pt.Content.Application.Data, nil
 }
 
-func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, nonce []byte) []byte {
+func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, authenticatedData, nonce []byte) []byte {
 	s := syntax.NewWriteStream()
 	err := s.Write(struct {
-		GroupID         []byte `tls:"head=1"`
-		Epoch           Epoch
-		ContentType     ContentType
-		SenderDataNonce []byte `tls:"head=1"`
+		GroupID           []byte `tls:"head=1"`
+		Epoch             Epoch
+		ContentType       ContentType
+		AuthenticatedData []byte `tls:"head=4"`
+		SenderDataNonce   []byte `tls:"head=1"`
 	}{
-		GroupID:         gid,
-		Epoch:           epoch,
-		ContentType:     contentType,
-		SenderDataNonce: nonce,
+		GroupID:           gid,
+		Epoch:             epoch,
+		ContentType:       contentType,
+		AuthenticatedData: authenticatedData,
+		SenderDataNonce:   nonce,
 	})
 
 	if err != nil {
