@@ -721,6 +721,12 @@ func (s *State) Handle(pt *MLSPlaintext) (*State, error) {
 
 ///// protect/unprotect and helpers
 
+type senderData struct {
+	Sender     LeafIndex
+	Generation uint32
+	ReuseGuard [4]byte
+}
+
 func (s State) verifyConfirmation(confirmation []byte) bool {
 	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
@@ -754,31 +760,29 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	var reuseGuard [4]byte
 	rand.Read(reuseGuard[:])
 
-	w := syntax.NewWriteStream()
-	err := w.WriteAll(s.Index, generation, reuseGuard)
+	senderDataPT, err := syntax.Marshal(senderData{s.Index, generation, reuseGuard})
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: sender data marshal failure %v", err)
 	}
-	senderData := w.Data()
 
 	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
 	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce)
-	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
-	sdCt := sdAead.Seal(nil, senderDataNonce, senderData, senderDataAADVal)
+	senderDataAEAD, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
+	senderDataCT := senderDataAEAD.Seal(nil, senderDataNonce, senderDataPT, senderDataAADVal)
 
 	// write content data, skipping content type
-	w = syntax.NewWriteStream()
+	w := syntax.NewWriteStream()
 	err = w.WriteAll(pt.Content, pt.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content marshal failure %v", err)
 	}
-	content := w.Data()[1:]
+	contentPT := w.Data()[1:]
 
-	aad := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
-		pt.AuthenticatedData, senderDataNonce, sdCt)
-	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
-	contentCt := aead.Seal(nil, applyGuard(keys.Nonce, reuseGuard), content, aad)
+	contentAADVal := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
+		pt.AuthenticatedData, senderDataNonce, senderDataCT)
+	contentAEAD, _ := s.CipherSuite.NewAEAD(keys.Key)
+	contentCT := contentAEAD.Seal(nil, applyGuard(keys.Nonce, reuseGuard), contentPT, contentAADVal)
 
 	// set up MLSCipherText
 	ct := &MLSCiphertext{
@@ -787,8 +791,8 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 		ContentType:         pt.Content.Type(),
 		AuthenticatedData:   pt.AuthenticatedData,
 		SenderDataNonce:     senderDataNonce,
-		EncryptedSenderData: sdCt,
-		Ciphertext:          contentCt,
+		EncryptedSenderData: senderDataCT,
+		Ciphertext:          contentCT,
 	}
 
 	return ct, nil
@@ -804,19 +808,16 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	}
 
 	// handle sender data
-	sdAAD := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.AuthenticatedData, ct.SenderDataNonce)
-	sdAead, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
-	sd, err := sdAead.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, sdAAD)
+	senderdDataAADVal := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.AuthenticatedData, ct.SenderDataNonce)
+	senderDataAEAD, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
+	senderDataPT, err := senderDataAEAD.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, senderdDataAADVal)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData decryption failure %v", err)
 	}
 
 	// parse the senderData
-	var sender LeafIndex
-	var generation uint32
-	var reuseGuard [4]byte
-	r := syntax.NewReadStream(sd)
-	_, err = r.ReadAll(&sender, &generation, &reuseGuard)
+	senderDataVal := senderData{}
+	_, err = syntax.Unmarshal(senderDataPT, &senderDataVal)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData unmarshal failure %v", err)
 	}
@@ -825,25 +826,25 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	contentType := ContentType(ct.ContentType)
 	switch contentType {
 	case ContentTypeApplication:
-		keys, err = s.Keys.ApplicationKeys.Get(sender, generation)
+		keys, err = s.Keys.ApplicationKeys.Get(senderDataVal.Sender, senderDataVal.Generation)
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: application keys extraction failed %v", err)
 		}
-		s.Keys.ApplicationKeys.Erase(sender, generation)
+		s.Keys.ApplicationKeys.Erase(senderDataVal.Sender, senderDataVal.Generation)
 	case ContentTypeProposal, ContentTypeCommit:
-		keys, err = s.Keys.HandshakeKeys.Get(sender, generation)
+		keys, err = s.Keys.HandshakeKeys.Get(senderDataVal.Sender, senderDataVal.Generation)
 		if err != nil {
 			return nil, fmt.Errorf("mls.state: handshake keys extraction failed %v", err)
 		}
-		s.Keys.HandshakeKeys.Erase(sender, generation)
+		s.Keys.HandshakeKeys.Erase(senderDataVal.Sender, senderDataVal.Generation)
 	default:
 		return nil, fmt.Errorf("mls.state: unsupported content type")
 	}
 
-	aad := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
+	contentAAD := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
 		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
-	aead, _ := s.CipherSuite.NewAEAD(keys.Key)
-	content, err := aead.Open(nil, applyGuard(keys.Nonce, reuseGuard), ct.Ciphertext, aad)
+	contentAEAD, _ := s.CipherSuite.NewAEAD(keys.Key)
+	contentPT, err := contentAEAD.Open(nil, applyGuard(keys.Nonce, senderDataVal.ReuseGuard), ct.Ciphertext, contentAAD)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content decryption failure %v", err)
 	}
@@ -852,13 +853,13 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	pt := &MLSPlaintext{
 		GroupID:           s.GroupID,
 		Epoch:             s.Epoch,
-		Sender:            Sender{SenderTypeMember, uint32(sender)},
+		Sender:            Sender{SenderTypeMember, uint32(senderDataVal.Sender)},
 		AuthenticatedData: ct.AuthenticatedData,
 	}
 
 	// Parse the Content and Signature
-	content = append([]byte{byte(ct.ContentType)}, content...)
-	r = syntax.NewReadStream(content)
+	contentPT = append([]byte{byte(ct.ContentType)}, contentPT...)
+	r := syntax.NewReadStream(contentPT)
 	_, err = r.ReadAll(&pt.Content, &pt.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: content unmarshal failure %v", err)
