@@ -727,6 +727,23 @@ type senderData struct {
 	ReuseGuard [4]byte
 }
 
+type senderDataAAD struct {
+	GroupID           []byte `tls:"head=1"`
+	Epoch             Epoch
+	ContentType       ContentType
+	AuthenticatedData []byte `tls:"head=4"`
+	SenderDataNonce   []byte `tls:"head=1"`
+}
+
+type contentAAD struct {
+	GroupID             []byte `tls:"head=1"`
+	Epoch               Epoch
+	ContentType         ContentType
+	AuthenticatedData   []byte `tls:"head=4"`
+	SenderDataNonce     []byte `tls:"head=1"`
+	EncryptedSenderData []byte `tls:"head=1"`
+}
+
 func (s State) verifyConfirmation(confirmation []byte) bool {
 	hmac := s.CipherSuite.NewHMAC(s.Keys.ConfirmationKey)
 	hmac.Write(s.ConfirmedTranscriptHash)
@@ -767,7 +784,12 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 
 	senderDataNonce := make([]byte, s.CipherSuite.Constants().NonceSize)
 	rand.Read(senderDataNonce)
-	senderDataAADVal := senderDataAAD(s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce)
+
+	senderDataAADVal, err := syntax.Marshal(senderDataAAD{s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: sender data AAD marshal failure %v", err)
+	}
+
 	senderDataAEAD, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
 	senderDataCT := senderDataAEAD.Seal(nil, senderDataNonce, senderDataPT, senderDataAADVal)
 
@@ -779,8 +801,7 @@ func (s *State) encrypt(pt *MLSPlaintext) (*MLSCiphertext, error) {
 	}
 	contentPT := w.Data()[1:]
 
-	contentAADVal := contentAAD(s.GroupID, s.Epoch, pt.Content.Type(),
-		pt.AuthenticatedData, senderDataNonce, senderDataCT)
+	contentAADVal, err := syntax.Marshal(contentAAD{s.GroupID, s.Epoch, pt.Content.Type(), pt.AuthenticatedData, senderDataNonce, senderDataCT})
 	contentAEAD, _ := s.CipherSuite.NewAEAD(keys.Key)
 	contentCT := contentAEAD.Seal(nil, applyGuard(keys.Nonce, reuseGuard), contentPT, contentAADVal)
 
@@ -808,9 +829,13 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 	}
 
 	// handle sender data
-	senderdDataAADVal := senderDataAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.AuthenticatedData, ct.SenderDataNonce)
+	senderDataAADVal, err := syntax.Marshal(senderDataAAD{ct.GroupID, ct.Epoch, ContentType(ct.ContentType), ct.AuthenticatedData, ct.SenderDataNonce})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: senderData AAD marshal failure %v", err)
+	}
+
 	senderDataAEAD, _ := s.CipherSuite.NewAEAD(s.Keys.SenderDataKey)
-	senderDataPT, err := senderDataAEAD.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, senderdDataAADVal)
+	senderDataPT, err := senderDataAEAD.Open(nil, ct.SenderDataNonce, ct.EncryptedSenderData, senderDataAADVal)
 	if err != nil {
 		return nil, fmt.Errorf("mls.state: senderData decryption failure %v", err)
 	}
@@ -841,8 +866,12 @@ func (s *State) decrypt(ct *MLSCiphertext) (*MLSPlaintext, error) {
 		return nil, fmt.Errorf("mls.state: unsupported content type")
 	}
 
-	contentAAD := contentAAD(ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
-		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData)
+	contentAAD, err := syntax.Marshal(contentAAD{ct.GroupID, ct.Epoch, ContentType(ct.ContentType),
+		ct.AuthenticatedData, ct.SenderDataNonce, ct.EncryptedSenderData})
+	if err != nil {
+		return nil, fmt.Errorf("mls.state: content AAD marshal failure %v", err)
+	}
+
 	contentAEAD, _ := s.CipherSuite.NewAEAD(keys.Key)
 	contentPT, err := contentAEAD.Open(nil, applyGuard(keys.Nonce, senderDataVal.ReuseGuard), ct.Ciphertext, contentAAD)
 	if err != nil {
@@ -906,56 +935,6 @@ func (s *State) Unprotect(ct *MLSCiphertext) ([]byte, error) {
 		return nil, fmt.Errorf("unprotect attempted on non-application message")
 	}
 	return pt.Content.Application.Data, nil
-}
-
-func senderDataAAD(gid []byte, epoch Epoch, contentType ContentType, authenticatedData, nonce []byte) []byte {
-	s := syntax.NewWriteStream()
-	err := s.Write(struct {
-		GroupID           []byte `tls:"head=1"`
-		Epoch             Epoch
-		ContentType       ContentType
-		AuthenticatedData []byte `tls:"head=4"`
-		SenderDataNonce   []byte `tls:"head=1"`
-	}{
-		GroupID:           gid,
-		Epoch:             epoch,
-		ContentType:       contentType,
-		AuthenticatedData: authenticatedData,
-		SenderDataNonce:   nonce,
-	})
-
-	if err != nil {
-		return nil
-	}
-
-	return s.Data()
-}
-
-func contentAAD(gid []byte, epoch Epoch,
-	contentType ContentType, authenticatedData []byte,
-	nonce []byte, encSenderData []byte) []byte {
-
-	s := syntax.NewWriteStream()
-	err := s.Write(struct {
-		GroupID             []byte `tls:"head=1"`
-		Epoch               Epoch
-		ContentType         ContentType
-		AuthenticatedData   []byte `tls:"head=4"`
-		SenderDataNonce     []byte `tls:"head=1"`
-		EncryptedSenderData []byte `tls:"head=1"`
-	}{
-		GroupID:             gid,
-		Epoch:               epoch,
-		ContentType:         contentType,
-		AuthenticatedData:   authenticatedData,
-		SenderDataNonce:     nonce,
-		EncryptedSenderData: encSenderData,
-	})
-
-	if err != nil {
-		return nil
-	}
-	return s.Data()
 }
 
 func (s State) Clone() *State {

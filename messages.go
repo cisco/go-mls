@@ -528,6 +528,7 @@ func (pt MLSPlaintext) commitContent() []byte {
 
 	return enc
 }
+
 func (pt MLSPlaintext) commitAuthData() ([]byte, error) {
 	data := pt.Content.Commit
 	s := syntax.NewWriteStream()
