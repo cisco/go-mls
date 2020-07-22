@@ -21,9 +21,8 @@ const (
 
 type ParentNode struct {
 	PublicKey      HPKEPublicKey
-	UnmergedLeaves []LeafIndex     `tls:"head=4"`
-	ParentHash     []byte          `tls:"head=1"`
-	PrivateKey     *HPKEPrivateKey `tls:"omit"`
+	UnmergedLeaves []LeafIndex `tls:"head=4"`
+	ParentHash     []byte      `tls:"head=1"`
 }
 
 func (n *ParentNode) Equals(other *ParentNode) bool {
@@ -39,7 +38,6 @@ func (n ParentNode) Clone() ParentNode {
 		PublicKey:      n.PublicKey,
 		UnmergedLeaves: make([]LeafIndex, len(n.UnmergedLeaves)),
 		ParentHash:     dup(n.ParentHash),
-		PrivateKey:     n.PrivateKey,
 	}
 
 	for i, n := range n.UnmergedLeaves {
