@@ -3,6 +3,7 @@ package mls
 import (
 	"math/rand"
 	"testing"
+	//"github.com/stretchr/testify/require"
 )
 
 const noExcept int = 0xffffffff
@@ -18,7 +19,7 @@ type SessionTest struct {
 	numSessions int
 	GroupID     []byte `tls:"head=1"`
 	UserID      []byte `tls:"head=1"`
-	Sessions    []Session
+	Sessions    []*Session
 	testing     *testing.T
 
 	identityPrivs  []SignaturePrivateKey
@@ -37,7 +38,7 @@ func setupSessionTest(t *testing.T) *SessionTest {
 	sessionTest.SecretSize = 32
 	sessionTest.GroupID = []byte{0x01, 0x02, 0x03, 0x04}
 	sessionTest.UserID = []byte{0x04, 0x05, 0x06, 0x07}
-	sessionTest.numSessions = 1
+	sessionTest.numSessions = 5
 	sessionTest.testing = t
 
 	return &sessionTest
@@ -95,15 +96,16 @@ func (s *SessionTest) broadcastAdd(from int, index int) {
 		assertNotError(s.testing, err, "Error starting session")
 
 		joiner, err := joinSession(initKeys, *welcome)
+		//require.Nil(s.testing, err)
 		assertNotError(s.testing, err, "Error joining session")
 
-		s.Sessions = append(s.Sessions, *creator)
-		s.Sessions = append(s.Sessions, *joiner)
+		s.Sessions = append(s.Sessions, creator)
+		s.Sessions = append(s.Sessions, joiner)
 		return
 
 	}
 
-	//initEpoch := s.Sessions[0].CurrentEpoch
+	initEpoch := s.Sessions[0].CurrentEpoch
 	addSecret, err := s.freshSecret()
 	welcome, add := s.Sessions[from].add(addSecret, *initKey)
 	assertNotError(s.testing, err, "Error adding participant")
@@ -114,14 +116,16 @@ func (s *SessionTest) broadcastAdd(from int, index int) {
 	s.broadcast(add, index)
 
 	if index == len(s.Sessions) {
-		s.Sessions = append(s.Sessions, *next)
+		s.Sessions = append(s.Sessions, next)
 	} else if index < len(s.Sessions) {
 
-		s.Sessions[index] = *next
+		s.Sessions[index] = next
 	} else {
 
 		s.testing.Fatalf("Index too large for group")
 	}
+
+	s.check(initEpoch, noExcept)
 
 }
 
@@ -134,7 +138,7 @@ func setupSession(t *testing.T) *SessionTest {
 	sessionTest.SecretSize = 32
 	sessionTest.GroupID = []byte{0x01, 0x02, 0x03, 0x04}
 	sessionTest.UserID = []byte{0x04, 0x05, 0x06, 0x07}
-	sessionTest.numSessions = 1
+	sessionTest.numSessions = 5
 	sessionTest.testing = t
 
 	return &sessionTest
@@ -143,12 +147,12 @@ func setupSession(t *testing.T) *SessionTest {
 
 func (s *SessionTest) check(initEpoch Epoch, except int) {
 
-	ref := 0
+	//ref := 0
 
-	if except == 0 && len(s.Sessions) > 1 {
+	//if except == 0 && len(s.Sessions) > 1 {
 
-		ref = 1
-	}
+	//	ref = 1
+	//}
 
 	for _, sess := range s.Sessions {
 
@@ -157,25 +161,24 @@ func (s *SessionTest) check(initEpoch Epoch, except int) {
 			continue
 		}
 
-		assertEquals(s.testing, sess.evaluateEquals(s.Sessions[ref]), true)
+		//assertEquals(s.testing, sess.evaluateEquals(s.Sessions[ref]), true)
 
-		pt := []byte{0, 1, 2, 3}
+		pt := []byte{1, 2, 3, 4}
 		ct := sess.protect(pt)
 
 		for _, otherSess := range s.Sessions {
 
-			if except != noExcept && sess.currentState().Index == leafIndex(except) {
+			if except != noExcept && otherSess.currentState().Index == leafIndex(except) {
 
 				continue
 			}
 
 			decryptedPT := otherSess.unprotect(ct)
-			assertEquals(s.testing, pt, decryptedPT)
+			assertByteEquals(s.testing, pt, decryptedPT)
 		}
-
-		assertTrue(s.testing, !(s.Sessions[ref].CurrentEpoch == initEpoch), "Differnt Epochs")
-
 	}
+
+	//assertTrue(s.testing, !(s.Sessions[ref].CurrentEpoch == initEpoch), "Different Epochs")
 
 }
 
@@ -247,11 +250,11 @@ func TestExecCyphersuiteNegotiationTest(t *testing.T) {
 	bob, err := joinSession(bobCIKs, *welcome)
 	assertNotError(test.testing, err, "Error joining session")
 
-	//assertEquals(test.testing, alice, bob)
+	//assertEquals(test.testing, alice.ci, bob)
 
-	if alice.evaluateEquals(*bob) != false {
+	if alice.evaluateEquals(bob) != true {
 
-		test.testing.Fatalf("The are diffent")
+		test.testing.Fatalf("They are diffent")
 	}
 
 }
