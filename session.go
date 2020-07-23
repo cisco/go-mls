@@ -3,7 +3,6 @@ package mls
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 )
 
 //
@@ -11,7 +10,7 @@ import (
 //
 type Tuple struct {
 	data  []byte `tls:"head=1"`
-	state State
+	state *State
 }
 
 //
@@ -35,14 +34,13 @@ func startSession(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInit
 		return nil, nil, err
 	}
 
-	var st State
 	tup := &Tuple{
 
 		data:  make([]byte, 1),
-		state: st,
+		state: state,
 	}
 	sess := &Session{
-		CurrentEpoch:     0,
+		CurrentEpoch:     state.Epoch,
 		EncryptHandshake: false,
 		OutboundCache:    *tup,
 		sessionState:     make(map[Epoch]*State),
@@ -55,20 +53,6 @@ func startSession(groupID []byte, myCIKs []ClientInitKey, otherCIKs []ClientInit
 
 func joinSession(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 
-	var s State
-	tup := &Tuple{
-
-		data:  make([]byte, 1),
-		state: s,
-	}
-
-	sess := &Session{
-		CurrentEpoch:     0,
-		EncryptHandshake: false,
-		OutboundCache:    *tup,
-		sessionState:     make(map[Epoch]*State),
-	}
-
 	next, err := newJoinedState(CIKs, welcome)
 
 	if err != nil {
@@ -76,6 +60,20 @@ func joinSession(CIKs []ClientInitKey, welcome Welcome) (*Session, error) {
 		return nil, err
 
 	}
+
+	tup := &Tuple{
+
+		data:  make([]byte, 1),
+		state: next,
+	}
+
+	sess := &Session{
+		CurrentEpoch:     next.Epoch,
+		EncryptHandshake: false,
+		OutboundCache:    *tup,
+		sessionState:     map[Epoch]*State{next.Epoch: next},
+	}
+
 	sess.addState(0, next)
 
 	return sess, err
@@ -116,9 +114,8 @@ func (s *Session) remove(evictSecret []byte, index uint32) []byte {
 func (s *Session) handle(handshakeData []byte) {
 
 	state := s.currentState()
-
-	handShakeDataStream := NewReadStream(handshakeData)
 	var proposal, commit *MLSPlaintext
+	handShakeDataStream := NewReadStream(handshakeData)
 
 	if s.EncryptHandshake {
 
@@ -132,15 +129,15 @@ func (s *Session) handle(handshakeData []byte) {
 
 	} else {
 
-		proposal := new(MLSPlaintext)
-		commit := new(MLSPlaintext)
-		_, err := handShakeDataStream.ReadAll(proposal, commit)
+		proposal = new(MLSPlaintext)
+		commit = new(MLSPlaintext)
 
-		if err != nil {
+		handShakeDataStream.Read(proposal)
+		handShakeDataStream.Read(commit)
 
-			fmt.Println("There was an err", err)
-			//panic(err)
-		}
+		//fmt.Println(byteR1, byteR2)
+		//handShakeDataStream.Read(commit)
+		//handShakeDataStream.ReadAll(proposal,commit)
 
 	}
 
@@ -155,15 +152,14 @@ func (s *Session) handle(handshakeData []byte) {
 		message := s.OutboundCache.data
 		nextsessionState := s.OutboundCache.state
 
-		if bytes.Compare(message, handshakeData) != 0 {
+		if !bytes.Equal(message, handshakeData) {
 
 			fmt.Printf("%s", fmt.Errorf("Received different own message"))
 
 		}
 
-		s.addState(proposal.Epoch, &nextsessionState)
+		s.addState(proposal.Epoch, nextsessionState)
 		s.OutboundCache.data = nil
-
 		return
 	}
 
@@ -190,6 +186,7 @@ func (s *Session) protect(plaintext []byte) []byte {
 }
 
 func (s *Session) unprotect(ciphertext []byte) []byte {
+
 	var ciphertextObject MLSCiphertext
 
 	ctDataStream := NewReadStream(ciphertext)
@@ -212,14 +209,11 @@ func (s *Session) unprotect(ciphertext []byte) []byte {
 }
 
 func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcome, []byte) {
+
 	state := s.currentState()
-
 	state.handle(proposal)
-
 	commit, welcome, newState, err := state.commit(secret)
-
 	if err != nil {
-
 		return nil, nil
 	}
 
@@ -230,15 +224,32 @@ func (s *Session) commitAndCache(secret []byte, proposal *MLSPlaintext) (*Welcom
 		encCommit, _ := state.encrypt(commit)
 		w.WriteAll(encProposal, encCommit)
 	} else {
-
-		w.WriteAll(proposal, commit)
+		w.Write(proposal)
+		w.Write(commit)
+		//w.WriteAll(proposal, commit)
 
 	}
+
+	//var tproposal, tcommit *MLSPlaintext
+
+	//test := dup(w.Data())
+
+	//fmt.Printf("%x\n", test)
+
+	//handShakeDataStream := NewReadStream(test)
+
+	//tproposal = new(MLSPlaintext)
+	//tcommit = new(MLSPlaintext)
+
+	//tbyteR1, err1 := handShakeDataStream.Read(tproposal)
+	//tbyteR2, err2 := handShakeDataStream.Read(tcommit)
+
+	//println(err1, err2, tproposal, tcommit, tbyteR1, tbyteR2)
 
 	msg := w.Data()
 
 	s.OutboundCache.data = msg
-	s.OutboundCache.state = *newState
+	s.OutboundCache.state = newState
 
 	return welcome, msg
 
@@ -265,13 +276,12 @@ func (s *Session) currentState() *State {
 
 		fmt.Printf("%s", fmt.Errorf("mls.session: No state available for current epoch: %v", v))
 	}
-	val, _ := (s.sessionState[s.CurrentEpoch])
 
-	return val
+	return s.sessionState[s.CurrentEpoch]
 
 }
 
-func (s *Session) evaluateEquals(sess Session) bool {
+func (s *Session) evaluateEquals(sess *Session) bool {
 	type Tuple struct {
 		data  []byte `tls:"head=1"`
 		state State
@@ -287,8 +297,19 @@ func (s *Session) evaluateEquals(sess Session) bool {
 		sessionState     map[Epoch]*State `tls:"omit"`
 	}
 
-	if s.CurrentEpoch != sess.CurrentEpoch || !reflect.DeepEqual(s.sessionState, sess.sessionState) || bytes.Compare(s.OutboundCache.data, sess.OutboundCache.data) != 0 || s.EncryptHandshake != sess.EncryptHandshake {
+	if s.CurrentEpoch != sess.CurrentEpoch || s.EncryptHandshake != sess.EncryptHandshake {
 		return false
+	}
+
+	for epoch, state := range s.sessionState {
+		otherState, ok := sess.sessionState[epoch]
+		if !ok {
+			continue
+		}
+
+		if !state.Equals(*otherState) {
+			return false
+		}
 	}
 
 	return true
