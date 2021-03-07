@@ -16,6 +16,7 @@ import (
 	"github.com/cisco/go-hpke"
 	"github.com/cisco/go-tls-syntax"
 	"golang.org/x/crypto/ed25519"
+	"golang.org/x/crypto/hkdf"
 )
 
 ///
@@ -98,12 +99,11 @@ func (s ecdsaScheme) privateKeyBitmask() uint8 {
 func (s ecdsaScheme) DeriveKeyPair(ikm []byte) (SignaturePrivateKey, SignaturePublicKey, error) {
 	// This follows the same general procedure as the DHKEM DeriveKeyPair, with
 	// some irrelevant branches / loops pruned.
-	prkHash := s.Digest()
-	prkHash.Write([]byte("dkp_prk"))
-	prkHash.Write(ikm)
-
-	d := prkHash.Sum(nil)[:s.PrivateKeySize()]
+	d := make([]byte, s.PrivateKeySize())
+	h := hkdf.New(s.Digest, ikm, []byte("dkp_prk"), nil)
+	h.Read(d)
 	d[0] &= s.privateKeyBitmask()
+
 	x, y := s.Curve.Params().ScalarBaseMult(d)
 
 	priv := SignaturePrivateKey{
@@ -157,8 +157,27 @@ const (
 	X448_CHACHA20POLY1305_SHA512_Ed448     CiphersuiteID = 0x0006 // UNSUPPORTED
 )
 
+func (id CiphersuiteID) String() string {
+	switch id {
+	case X25519_AES128GCM_SHA256_Ed25519:
+		return "X25519_AES128GCM_SHA256_Ed25519"
+	case P256_AES128GCM_SHA256_P256:
+		return "P256_AES128GCM_SHA256_P256"
+	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
+		return "X25519_CHACHA20POLY1305_SHA256_Ed25519"
+	case X448_AES256GCM_SHA512_Ed448:
+		return "X448_AES256GCM_SHA512_Ed448"
+	case P521_AES256GCM_SHA512_P521:
+		return "P521_AES256GCM_SHA512_P521"
+	case X448_CHACHA20POLY1305_SHA512_Ed448:
+		return "X448_CHACHA20POLY1305_SHA512_Ed448"
+	}
+
+	return "UnknownCiphersuite"
+}
+
 var (
-	AllSupportedCiphesuites = []CiphersuiteID{
+	AllSupportedCiphersuites = []CiphersuiteID{
 		X25519_AES128GCM_SHA256_Ed25519,
 		P256_AES128GCM_SHA256_P256,
 		X25519_CHACHA20POLY1305_SHA256_Ed25519,
@@ -214,7 +233,7 @@ type Ciphersuite struct {
 	SecretSize int
 }
 
-func NewCipherSuite(id CiphersuiteID) (Ciphersuite, error) {
+func NewCiphersuite(id CiphersuiteID) (Ciphersuite, error) {
 	details, ok := cipherDetails[id]
 	if !ok {
 		return Ciphersuite{}, fmt.Errorf("Unsupported ciphersuite %d", id)
@@ -248,7 +267,7 @@ func (cs *Ciphersuite) UnmarshalTLS(data []byte) (int, error) {
 		return 0, err
 	}
 
-	*cs, err = NewCipherSuite(id)
+	*cs, err = NewCiphersuite(id)
 	if err != nil {
 		return 0, err
 	}
@@ -257,22 +276,7 @@ func (cs *Ciphersuite) UnmarshalTLS(data []byte) (int, error) {
 }
 
 func (cs Ciphersuite) String() string {
-	switch cs.ID {
-	case X25519_AES128GCM_SHA256_Ed25519:
-		return "X25519_AES128GCM_SHA256_Ed25519"
-	case P256_AES128GCM_SHA256_P256:
-		return "P256_AES128GCM_SHA256_P256"
-	case X25519_CHACHA20POLY1305_SHA256_Ed25519:
-		return "X25519_CHACHA20POLY1305_SHA256_Ed25519"
-	case X448_AES256GCM_SHA512_Ed448:
-		return "X448_AES256GCM_SHA512_Ed448"
-	case P521_AES256GCM_SHA512_P521:
-		return "P521_AES256GCM_SHA512_P521"
-	case X448_CHACHA20POLY1305_SHA512_Ed448:
-		return "X448_CHACHA20POLY1305_SHA512_Ed448"
-	}
-
-	return "UnknownCiphersuite"
+	return cs.ID.String()
 }
 
 func (cs Ciphersuite) zero() []byte {
