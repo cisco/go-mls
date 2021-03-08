@@ -12,6 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/mlswg/mls-implementations/interop/proto"
+
+	"github.com/cisco/go-mls/v0/mls"
 )
 
 var (
@@ -34,7 +36,15 @@ func (mc *MockClient) Name(ctx context.Context, req *pb.NameRequest) (*pb.NameRe
 }
 
 func (mc *MockClient) SupportedCiphersuites(ctx context.Context, req *pb.SupportedCiphersuitesRequest) (*pb.SupportedCiphersuitesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Method not implemented")
+	resp := &pb.SupportedCiphersuitesResponse{
+		Ciphersuites: make([]uint32, len(mls.AllSupportedCiphersuites)),
+	}
+
+	for i, id := range mls.AllSupportedCiphersuites {
+		resp.Ciphersuites[i] = uint32(id)
+	}
+
+	return resp, nil
 }
 
 func (mc *MockClient) GenerateTestVector(ctx context.Context, req *pb.GenerateTestVectorRequest) (*pb.GenerateTestVectorResponse, error) {
