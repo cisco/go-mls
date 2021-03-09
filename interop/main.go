@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +13,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/mlswg/mls-implementations/interop/proto"
+
+	"github.com/cisco/go-mls/v0/mls/test-vectors"
 )
 
 var (
@@ -34,20 +37,64 @@ func (mc *MockClient) Name(ctx context.Context, req *pb.NameRequest) (*pb.NameRe
 }
 
 func (mc *MockClient) SupportedCiphersuites(ctx context.Context, req *pb.SupportedCiphersuitesRequest) (*pb.SupportedCiphersuitesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Method not implemented")
+	return &pb.SupportedCiphersuitesResponse{}, nil
+	/*
+		// TODO
+		return nil, status.Error(codes.Unimplemented, "Method not implemented")
+	*/
 }
 
 func (mc *MockClient) GenerateTestVector(ctx context.Context, req *pb.GenerateTestVectorRequest) (*pb.GenerateTestVectorResponse, error) {
+	var vecJSON []byte
+	var err error
 	switch req.TestVectorType {
-	default:
+	case pb.TestVectorType_TREE_MATH:
+		var vec vectors.TreeMath
+		vec, err = vectors.NewTreeMath(req.NLeaves)
+		if err != nil {
+			return nil, err
+		}
+
+		vecJSON, err = json.Marshal(vec)
+
+	case pb.TestVectorType_ENCRYPTION,
+		pb.TestVectorType_KEY_SCHEDULE,
+		pb.TestVectorType_TRANSCRIPT,
+		pb.TestVectorType_TREEKEM,
+		pb.TestVectorType_MESSAGES:
 		return nil, status.Error(codes.InvalidArgument, "Unsupported test vector type")
+
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid test vector type")
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.GenerateTestVectorResponse{TestVector: vecJSON}, nil
 }
 
 func (mc *MockClient) VerifyTestVector(ctx context.Context, req *pb.VerifyTestVectorRequest) (*pb.VerifyTestVectorResponse, error) {
 	switch req.TestVectorType {
-	default:
+	case pb.TestVectorType_TREE_MATH:
+		vec := new(vectors.TreeMath)
+		err := json.Unmarshal(req.TestVector, &vec)
+		if err != nil {
+			return nil, err
+		}
+
+		return &pb.VerifyTestVectorResponse{}, vec.Verify()
+
+	case pb.TestVectorType_ENCRYPTION,
+		pb.TestVectorType_KEY_SCHEDULE,
+		pb.TestVectorType_TRANSCRIPT,
+		pb.TestVectorType_TREEKEM,
+		pb.TestVectorType_MESSAGES:
 		return nil, status.Error(codes.InvalidArgument, "Unsupported test vector type")
+
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid test vector type")
 	}
 }
 
