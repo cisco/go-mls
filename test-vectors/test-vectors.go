@@ -16,7 +16,7 @@ func checkDeepEqual(label string, actual, expected interface{}) error {
 
 type TreeMath struct {
 	NLeaves treeMath.LeafCount    `json:"n_leaves"`
-	NNodes  treeMath.NodeCount    `json:"n_leaves"`
+	NNodes  treeMath.NodeCount    `json:"n_nodes"`
 	Root    []treeMath.NodeIndex  `json:"root"`
 	Left    []*treeMath.NodeIndex `json:"left"`
 	Right   []*treeMath.NodeIndex `json:"right"`
@@ -24,8 +24,8 @@ type TreeMath struct {
 	Sibling []*treeMath.NodeIndex `json:"sibling"`
 }
 
-func NewTreeMath() (TreeMath, error) {
-	nLeaves := treeMath.LeafCount(10)
+func NewTreeMath(nLeavesIn uint32) (TreeMath, error) {
+	nLeaves := treeMath.LeafCount(nLeavesIn)
 	nNodes := treeMath.NodeWidth(nLeaves)
 
 	vec := TreeMath{
